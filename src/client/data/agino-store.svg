@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <!-- Shopping bag with a check mark; one accent colour. -->
+  <path d="M44 48V40a20 20 0 0 1 40 0v8" fill="none" stroke="#0081ff" stroke-width="9" stroke-linecap="round"/>
+  <rect x="16" y="40" width="96" height="76" rx="22" fill="#0081ff"/>
+  <path d="M44 80l14 14 28-30" fill="none" stroke="#ffffff" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

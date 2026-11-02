@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=App Store
+Name[zh_CN]=应用商店
+Comment=Browse, install and update apps
+Comment[zh_CN]=浏览、安装和更新应用
+Exec=agino-store
+Icon=agino-store
+Terminal=false
+Categories=System;PackageManager;
+StartupNotify=true
+Keywords=store;apps;install;software;商店;应用;软件;
