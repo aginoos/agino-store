@@ -9,6 +9,7 @@
 #include <QSet>
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 namespace AginoStore {
 
