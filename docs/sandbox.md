@@ -22,7 +22,8 @@ agino-store-sandbox [--config …] check-base
 | `shots` | `/srv/store/sandbox/shots` | 截图 `<名>.png`，只在主机侧 |
 | `reports` | `/srv/store/reports` | 报告 `<名>.json` 和 `<名>.json.sig` |
 | `base` | `/srv/store/sandbox/base/current.qcow2` | 只读基础镜像 |
-| `ovmf_code` / `ovmf_vars` | OVMF 4M | 固件和每次运行复制的变量模板 |
+| `ovmf_code` | OVMF 4M | 固件代码（只读） |
+| `base_vars` | `/srv/store/sandbox/base/current.vars` | 基础镜像自己的 UEFI NVRAM（含安装时的启动项），每次运行复制成 `vars.fd`；不要用空白的 OVMF_VARS 模板 |
 | `key` | `/etc/agino-store-sandbox/report.pem` | Ed25519 私钥（PEM）；必须是当前用户拥有的 0600 普通文件 |
 | `qemu` / `qemu_img` | | 可执行文件名或路径 |
 | `qemu_sandbox` | `auto` | `auto` 先试探 qemu 是否支持 `-sandbox on`；`on`/`off` 强制 |

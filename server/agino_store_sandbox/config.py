@@ -17,7 +17,7 @@ DEFAULTS = {
     "reports": "/srv/store/reports",
     "base": "/srv/store/sandbox/base/current.qcow2",
     "ovmf_code": "/usr/share/OVMF/OVMF_CODE_4M.fd",
-    "ovmf_vars": "/usr/share/OVMF/OVMF_VARS_4M.fd",
+    "base_vars": "/srv/store/sandbox/base/current.vars",
     "key": "/etc/agino-store-sandbox/report.pem",
     "qemu": "qemu-system-x86_64",
     "qemu_img": "qemu-img",
@@ -37,7 +37,7 @@ class Config:
     reports: str
     base: str
     ovmf_code: str
-    ovmf_vars: str
+    base_vars: str
     key: str
     qemu: str
     qemu_img: str

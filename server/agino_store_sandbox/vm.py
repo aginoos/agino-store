@@ -102,7 +102,7 @@ class Vm:
         self._run([cfg.qemu_img, "create", "-q", "-f", "qcow2", "-b", cfg.base, "-F", "qcow2",
                    files.path("overlay.qcow2")])
         try:
-            shutil.copyfile(cfg.ovmf_vars, files.path("vars.fd"))
+            shutil.copyfile(cfg.base_vars, files.path("vars.fd"))
         except OSError as e:
             raise InfraError("cannot copy OVMF vars: %s" % e.strerror) from None
         argv = build_argv(cfg, self.slot, files, self.deb_path, self.use_sandbox)
