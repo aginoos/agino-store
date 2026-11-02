@@ -55,6 +55,7 @@ echo "LANG=$(session_lang "$sp")"
 [ "$(session_lang "$sp")" = "$locale" ]
 """
 
+MAKE_WORK_DIR = "mkdir -p /var/tmp/sbx && chmod 755 /var/tmp/sbx"
 COPY_DEMO = """
 mkdir -p /var/tmp/sbx && chmod 755 /var/tmp/sbx || exit 3
 i=0
@@ -106,6 +107,9 @@ class ShotsGuest:
 
     def switch_locale(self, lang):
         """Switch tester's session to lang; True when it now runs with that LANG."""
+        # /var/tmp/sbx exists only after a deb or demo copy; a milkyway shots job without demo has neither
+        if not self.qga.sh(MAKE_WORK_DIR, timeout=20).ok:
+            raise InfraError("cannot create the work directory in the guest")
         self.qga.write_file(SWITCH_SCRIPT_PATH, SWITCH_SCRIPT.encode("utf-8"))
         res = self.qga.exec([SWITCH_SCRIPT_PATH, shots_scene.LOCALES[lang]], 600)
         self.guest.env = None

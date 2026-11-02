@@ -314,3 +314,25 @@ class MainWindowTests(unittest.TestCase):
         from agino_store_sandbox import shots
         with mock.patch.object(shots, "WINDOW_WAIT", 0):
             self.assertIsNone(self.find([{"0x2"}], types={"0x2": "DIALOG"}))
+
+
+class SwitchLocaleTests(unittest.TestCase):
+    def guest(self, mkdir_ok):
+        from unittest import mock
+        g = mock.Mock()
+        g.qga.sh.return_value = mock.Mock(ok=mkdir_ok)
+        g.qga.exec.return_value = mock.Mock(ok=True)
+        return g
+
+    def test_work_dir_is_created_before_the_script(self):
+        g = self.guest(True)
+        self.assertTrue(shots_guest.ShotsGuest(g).switch_locale("zh_CN"))
+        self.assertEqual(g.qga.sh.call_args.args[0], shots_guest.MAKE_WORK_DIR)
+        self.assertEqual(g.qga.write_file.call_args.args[0], shots_guest.SWITCH_SCRIPT_PATH)
+
+    def test_work_dir_failure_is_infra_error(self):
+        from agino_store_sandbox.util import InfraError
+        g = self.guest(False)
+        with self.assertRaises(InfraError):
+            shots_guest.ShotsGuest(g).switch_locale("en_US")
+        self.assertFalse(g.qga.write_file.called)
