@@ -340,7 +340,8 @@ class AptTrackerTests(TrackerBase):
         (first,) = self.st.candidates(app="v1")
         self.assertIsNone(first["checks"]["diff"]["against"])
         self.st.set_approved("v1", {"version": "1.0", "sha256": first["sha256"]}, {"event": "approve"})
-        self.publish(["1.1"], scripts={"postinst": "#!/bin/sh\nsystemctl enable demo\n"})
+        self.publish(["1.1"], date=fixtures.release_date(datetime.timedelta(minutes=30)),
+                     scripts={"postinst": "#!/bin/sh\nsystemctl enable demo\n"})
         self.assertEqual(self.levels(self.track(content)), ["info"])
         second = self.st.find_candidate("v1", "1.1")
         diff = second["checks"]["diff"]
