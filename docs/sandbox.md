@@ -76,3 +76,16 @@ agino-store-sandbox [--config …] check-base
 - **自动检查**（进入该场景的 `problems`，前缀为语言）：窗口没找到、图片小于 400x300、图片几乎单色（亮度标准差 < 4）、存在额外的对话框窗口（新窗口里类型为 `_NET_WM_WINDOW_TYPE_DIALOG` 的标题）、切换语言失败、步骤失败。
 - **报告**：`details.shots` = `{sha256: shots.json 的 sha256, images, problems[, error]}`。
 - **不可信输入**：guest 的几何数字夹到屏幕内；窗口 id、PID 只接受严格格式；窗口标题限长并去控制字符；场景/步骤来自队列 JSON，读取时再次校验类型和上限（场景 ≤ 6、步骤 ≤ 30、参数 ≤ 8×300 字符、窗口 800..1900 x 600..1050）。代码：`shots_scene.py`（校验、Exec、几何、shots.json）、`shots_img.py`（PPM/PNG）、`shots_guest.py`（guest 操作）、`shots.py`（流程）。
+
+## 8. 仅截图任务（`mode: "shots"`）
+
+milkyway 里的应用不进沙箱队列，已通过的候选也不会再排队，所以截图有自己的任务类型。队列 JSON 里没有 `mode` 就是 `check`（第 3、4 节的全部行为不变）。
+
+- **字段**：`mode: "shots"` 加 `source`：
+  - `deb`：`sha256`、`size`、`deb` 必填，大小和 sha256 的核对与检查任务完全相同；`install_profile` 照常应用。
+  - `milkyway`：`package` 须匹配 `^[a-z0-9][a-z0-9+.-]+$`，`version` 按 Debian 版本字符集校验，`sha256`/`size`/`deb` 必须为空（没有 deb 文件，VM 不挂 deb 盘）。任务名必须是 `<app>_<h12>`，`h12` = sha256(`milkyway:<包>=<版本>`) 的前 12 位十六进制，不符即 `invalid`。
+  - 两种都必须带有效的 `shots`（以及它引用的 demo 包）；缺了或无效是 `invalid`（检查任务里这只会关掉截图）。`mode` 或 `source` 未知、检查任务带 `source` 都是 `invalid`。
+- **运行**：起 VM → 等 qga → 等 tester 会话 → 安装（`deb`：拷进 guest 并核对、应用 profile、`apt-get update`、`apt-get install -y /var/tmp/sbx/x.deb`；`milkyway`：`apt-get update && apt-get install -y <包>`，update 失败即安装失败）→ 找桌面文件 → 跑截图阶段（第 7 节，写出 `shots.json`）。不做沙箱检查，不写报告，不 purge（VM 用完即弃）。需要 `shots = on`，否则状态为 `invalid`。
+- **状态**：成功记 `done`（带 `mode: "shots"`、`shots` = 截图阶段的 `{images, problems, sha256[, error]}`，没有 `result`/`report`）。安装失败（apt 非零退出、包没装上、没有桌面文件）记 `error`，附 `apt_exit` 和限长（900 字符）的 `apt_tail`；基础设施错误，或截图阶段中途中止且一张图都没有，也记 `error`。重试规则和检查任务一样：`error` 且尝试 < 3 会被再选中，第 3 次之后停在 `error`（不写失败报告，因为没有报告）。
+- **日志**：每行带任务名：`waiting for the session`、`installing (deb|milkyway)`，随后是截图阶段的 `scene …` 行；最后一行为 `<名>: done|error`。
+- 代码：`jobs.py`（解析）、`shots_job.py`（运行路径）、`runner.py`（`_run_shots`，状态）。
