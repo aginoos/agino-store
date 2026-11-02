@@ -2,6 +2,7 @@
 """server.conf (docs/server.md section 2)."""
 
 import configparser
+import shlex
 from dataclasses import dataclass
 
 DEFAULT_PATH = "/etc/agino-store-server/server.conf"
@@ -35,6 +36,7 @@ class Config:
     allow_insecure: bool
     milkyway_keyring: str | None = None
     milkyway_fingerprints: tuple = ()
+    sign_command: tuple = ()
 
 
 def _get(cp, section, key, conv=str):
@@ -64,6 +66,15 @@ def _opt(cp, section, key):
         return None
 
 
+def _sign_command(raw):
+    if not raw:
+        return ()
+    try:
+        return tuple(shlex.split(raw))
+    except ValueError as e:
+        raise ConfigError("bad value for [catalog] sign_command") from e
+
+
 def load(path=DEFAULT_PATH):
     cp = configparser.ConfigParser(inline_comment_prefixes=("#",), interpolation=None)
     try:
@@ -82,7 +93,7 @@ def load(path=DEFAULT_PATH):
         milkyway_suite=_get(cp, "milkyway", "suite"),
         milkyway_components=tuple(_get(cp, "milkyway", "components").split()),
         arch=_get(cp, "milkyway", "arch"),
-        key=_get(cp, "catalog", "key"),
+        key=_opt(cp, "catalog", "key") or "",
         deb_base_url=_get(cp, "catalog", "deb_base_url"),
         valid_days=_get(cp, "catalog", "valid_days", int),
         renew_after_hours=_get(cp, "catalog", "renew_after_hours", int),
@@ -94,7 +105,10 @@ def load(path=DEFAULT_PATH):
         allow_insecure=_get(cp, "fetch", "allow_insecure", _bool),
         milkyway_keyring=_opt(cp, "milkyway", "keyring"),
         milkyway_fingerprints=tuple((_opt(cp, "milkyway", "fingerprints") or "").split()),
+        sign_command=_sign_command(_opt(cp, "catalog", "sign_command")),
     )
+    if bool(cfg.key) == bool(cfg.sign_command):
+        raise ConfigError("[catalog] exactly one of key and sign_command must be set")
     if cfg.milkyway_keyring and not cfg.milkyway_fingerprints:
         raise ConfigError("[milkyway] keyring needs fingerprints")
     if not cfg.deb_base_url.endswith("/"):

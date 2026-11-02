@@ -1,0 +1,93 @@
+#!/usr/bin/python3 -I
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Sign a catalog manifest read from stdin with /etc/agino-store-sign/keys/NAME.pem.
+
+Run as its own user via sudo, so the store server never reads a private key (docs/server.md
+section 8). Prints the base64 Ed25519 signature; exit 0 ok, 2 usage/input error, 1 signing failure.
+"""
+
+import base64
+import hashlib
+import json
+import os
+import re
+import stat
+import subprocess
+import sys
+import tempfile
+
+KEY_DIR = "/etc/agino-store-sign/keys"
+NAME_RE = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
+MAX_BYTES = 8 << 20
+
+
+class Refused(Exception):
+    """Bad usage or input (exit 2)."""
+
+
+def key_dir():
+    if os.environ.get("AGINO_STORE_SERVER_TESTS") == "1" and os.environ.get("AGINO_STORE_SIGN_KEYS"):
+        return os.environ["AGINO_STORE_SIGN_KEYS"]
+    return KEY_DIR
+
+
+def check_key_file(key):
+    try:
+        st = os.stat(key)
+    except OSError:
+        raise Refused("key file is not readable") from None
+    if not stat.S_ISREG(st.st_mode) or st.st_mode & 0o077 or st.st_uid != os.getuid():
+        raise Refused("key file must be a regular file owned by the current user with mode 0600")
+
+
+def read_manifest():
+    data = sys.stdin.buffer.read(MAX_BYTES + 1)
+    if len(data) > MAX_BYTES:
+        raise Refused("manifest larger than 8 MiB")
+    try:
+        obj = json.loads(data)
+    except ValueError:
+        raise Refused("manifest is not JSON") from None
+    if not isinstance(obj, dict) or obj.get("schema") != 1 or "serial" not in obj or "expires" not in obj:
+        raise Refused("not a catalog manifest")
+    return data, obj
+
+
+def sign(key, data):
+    with tempfile.TemporaryDirectory() as tmp:
+        src, out = os.path.join(tmp, "in"), os.path.join(tmp, "sig.bin")
+        with open(src, "wb") as f:
+            f.write(data)
+        subprocess.run(["openssl", "pkeyutl", "-sign", "-rawin", "-inkey", key, "-in", src, "-out", out],
+                       check=True, capture_output=True)
+        with open(out, "rb") as f:
+            return f.read()
+
+
+def main(argv):
+    if len(argv) != 2 or not NAME_RE.match(argv[1]):
+        print("usage: agino-store-sign NAME", file=sys.stderr)
+        return 2
+    name = argv[1]
+    try:
+        key = os.path.join(key_dir(), name + ".pem")
+        check_key_file(key)
+        data, obj = read_manifest()
+    except Refused as e:
+        print("agino-store-sign: %s" % e, file=sys.stderr)
+        return 2
+    try:
+        sig = sign(key, data)
+    except (subprocess.CalledProcessError, OSError):
+        sig = b""
+    if len(sig) != 64:
+        print("agino-store-sign: signing failed", file=sys.stderr)
+        return 1
+    print("agino-store-sign: key=%s serial=%s sha256=%s" % (name, obj["serial"], hashlib.sha256(data).hexdigest()),
+          file=sys.stderr)
+    sys.stdout.write(base64.b64encode(sig).decode("ascii") + "\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

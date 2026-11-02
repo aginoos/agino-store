@@ -481,7 +481,8 @@ def _publish(cfg, files, serial, revision, name, now, facts, included):
     if os.path.lexists(out):
         raise CatalogError("%s already exists" % name)
     try:
-        cw.write_tree(out, files, serial, revision, cfg.valid_days, cfg.key, when=now)
+        cw.write_tree(out, files, serial, revision, cfg.valid_days, cfg.key, when=now,
+                       sign_command=cfg.sign_command)
         verify_tree(out)
         _link_debs(cfg, facts, included)
     except BaseException as e:

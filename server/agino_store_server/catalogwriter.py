@@ -100,7 +100,7 @@ def now():
     return stamp.replace(microsecond=0)
 
 
-def write_tree(out, files, serial, revision, valid_days, key, when=None):
+def write_tree(out, files, serial, revision, valid_days, key, when=None, sign_command=()):
     """Write files (path -> bytes or ("file", src)), manifest.json and manifest.json.sig into out.
 
     Returns the manifest dict. `when` (aware datetime) overrides SOURCE_DATE_EPOCH and the clock.
@@ -121,7 +121,7 @@ def write_tree(out, files, serial, revision, valid_days, key, when=None):
     manifest_path = os.path.join(out, "manifest.json")
     with open(manifest_path, "wb") as f:
         f.write(dump_json(manifest))
-    sign(manifest_path, key)
+    sign(manifest_path, key, sign_command)
     return manifest
 
 
@@ -136,8 +136,33 @@ def _check_key_file(key):
                                  "with mode 0600")
 
 
-def sign(manifest_path, key):
+def _sign_with_command(manifest_path, argv):
+    """Run the signing helper (manifest on stdin, base64 signature on stdout)."""
+    with open(manifest_path, "rb") as f:
+        data = f.read()
+    try:
+        done = subprocess.run(list(argv), input=data, capture_output=True, timeout=60)
+        if done.returncode != 0:
+            raise CatalogWriterError("signing failed")
+        sig = base64.b64decode(done.stdout.strip(), validate=True)
+    except (subprocess.SubprocessError, OSError, ValueError):
+        raise CatalogWriterError("signing failed") from None
+    return sig
+
+
+def sign(manifest_path, key, sign_command=()):
     """Write <manifest_path>.sig: base64 of the Ed25519 signature over the raw bytes."""
+    if sign_command:
+        sig = _sign_with_command(manifest_path, sign_command)
+    else:
+        sig = _sign_with_key(manifest_path, key)
+    if len(sig) != 64:
+        raise CatalogWriterError("unexpected signature length %d" % len(sig))
+    with open(manifest_path + ".sig", "w") as f:
+        f.write(base64.b64encode(sig).decode("ascii") + "\n")
+
+
+def _sign_with_key(manifest_path, key):
     _check_key_file(key)
     with tempfile.TemporaryDirectory() as tmp:
         sig_path = os.path.join(tmp, "sig.bin")
@@ -147,8 +172,4 @@ def sign(manifest_path, key):
         except (subprocess.CalledProcessError, OSError):
             raise CatalogWriterError("signing failed") from None
         with open(sig_path, "rb") as f:
-            sig = f.read()
-    if len(sig) != 64:
-        raise CatalogWriterError("unexpected signature length %d" % len(sig))
-    with open(manifest_path + ".sig", "w") as f:
-        f.write(base64.b64encode(sig).decode("ascii") + "\n")
+            return f.read()

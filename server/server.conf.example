@@ -14,7 +14,10 @@ components = main contrib non-free
 arch = amd64
 
 [catalog]
-key = /etc/agino-store-server/keys/preview.pem   # Ed25519 private key (PEM)
+# Exactly one of key and sign_command. The server process must not read the signing key:
+# sign_command runs the helper as the separate user agino-store-sign (docs/server.md section 8).
+sign_command = sudo -n -u agino-store-sign /usr/local/bin/agino-store-sign preview
+#key = /etc/agino-store-server/keys/preview.pem   # Ed25519 private key (PEM); tests and VM experiments only
 deb_base_url = http://51.38.63.36:8080/store-preview/debs/
 valid_days = 14
 renew_after_hours = 20

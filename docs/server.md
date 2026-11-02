@@ -46,7 +46,9 @@ keyring = /usr/share/keyrings/agino-archive-keyring.gpg   # 可选；设了就�
 fingerprints = <主密钥指纹，空格分隔>                      # 设了 keyring 就必须设
 
 [catalog]
-key = /etc/agino-store-server/keys/preview.pem   # Ed25519 私钥（PEM）
+# key 和 sign_command 必须恰好设一个
+sign_command = sudo -n -u agino-store-sign /usr/local/bin/agino-store-sign preview   # 生产：签名交给独立用户的辅助程序
+#key = /etc/agino-store-server/keys/preview.pem   # Ed25519 私钥（PEM）；仅测试和虚拟机实验用
 deb_base_url = http://51.38.63.36:8080/store-preview/debs/
 valid_days = 14
 renew_after_hours = 20
@@ -275,6 +277,22 @@ class State:
 - `updated`：deb 类用放行日期，milkyway 类用 `first_seen`。`releases`：当前版本 + `release_notes` 里有的旧版本，按版本降序，最多 5 条。
 - `serial`：UTC 日期 `YYYYMMDD` × 100 + 当天序号（01–99），必须大于 `catalog.json` 里的上一个；`revision`：`r<serial>-<inputs_sha256 前 12 位>`。
 - 写到 `preview/catalog-<serial>/`，校验通过后原子替换 `preview/current` 符号链接；只保留最近 `keep_catalogs` 份（按明确的目录名删除）。生成失败不动 `current`。如果换了 `current` 之后、保存状态之前崩溃，留下的 `catalog-<serial>` 不会卡住下一次构建：serial 已存在就顺延到下一个。`preview/debs/<sha>/` 中不被任何保留的目录引用、且超过 `valid_days + 7` 天的会按确切路径删除。签名要求私钥是当前用户拥有的普通文件，且 `mode & 0o077 == 0`；openssl 失败只报 "signing failed"，不带私钥路径。目录里单个图片资源不得超过 10 MiB。
+
+**签名辅助程序**：服务进程（用户 `agino-store`）不应读到私钥。`[catalog] sign_command` 是一个用 shlex 切分的命令行；设了它就不能设 `key`（两者必须恰好设一个，否则 `ConfigError`）。生成目录时 `catalogwriter.sign` 运行这个命令：manifest 原始字节走 stdin，超时 60 秒，stdout 是 base64 签名，必须解码为 64 字节，再按原格式写 `manifest.json.sig`。命令失败、超时或输出不对一律报 "signing failed"，不带 stderr 内容。
+
+辅助程序是 `server/agino-store-sign NAME`（只用 Python 3 标准库，安装到 `/usr/local/bin/agino-store-sign`）：
+
+- `NAME` 必须匹配 `^[a-z][a-z0-9-]{0,31}$`，私钥是 `/etc/agino-store-sign/keys/NAME.pem`。目录 0700、私钥 0600，属主都是 `agino-store-sign`；私钥要求与 `catalogwriter._check_key_file` 相同（普通文件、属主是当前用户、无组/其他权限位）。只有同时设了 `AGINO_STORE_SERVER_TESTS=1` 时，环境变量 `AGINO_STORE_SIGN_KEYS` 才能改密钥目录（给测试用）。
+- 从 stdin 读 manifest，最大 8 MiB；必须是 JSON 对象，`schema` 为 1，且有 `serial` 和 `expires`，否则拒绝。用 `openssl pkeyutl -sign -rawin` 签名，要求 64 字节，向 stdout 输出 base64 加换行；向 stderr 写一行日志（名字、serial、输入的 sha256），进 journal。
+- 退出码：0 成功，2 用法或输入错误，1 签名失败。错误信息不含密钥路径。
+
+sudoers 规则形如：
+
+```
+agino-store ALL=(agino-store-sign) NOPASSWD: /usr/local/bin/agino-store-sign preview
+```
+
+服务单元不能设 `NoNewPrivileges`，否则 sudo 的 setuid 不生效。
 
 ## 9. 沙箱报告
 
