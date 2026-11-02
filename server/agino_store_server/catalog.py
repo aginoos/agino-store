@@ -19,7 +19,6 @@ DEB_FILE_RE = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9._+~-]*\.deb\Z")
 SHA256_RE = re.compile(r"\A[0-9a-f]{64}\Z")
 DATE_RE = re.compile(r"\A\d{4}-\d{2}-\d{2}")
 MAX_RELEASES = 5
-MAX_SERIAL_PER_DAY = 99
 
 
 class CatalogError(Exception):
@@ -192,7 +191,7 @@ def _utc(stamp):
 def next_serial(previous, today):
     base = int(today.strftime("%Y%m%d")) * 100
     serial = max(base + 1, int(previous) + 1)
-    if serial - base > MAX_SERIAL_PER_DAY:
+    if serial % 100 == 0:   # the previous serial was ...99: the day's 01-99 are used up
         raise CatalogError("no serial left for today (previous %s)" % previous)
     return serial
 
