@@ -35,6 +35,7 @@ state = /srv/store/state
 downloads = /srv/store/downloads      # deb：<sha256>/<原文件名>
 preview = /srv/store/preview          # 生成的目录：catalog-<serial>/ 和 current -> catalog-<serial>
 reports = /srv/store/reports          # 从沙箱主机拉回的报告
+sandbox_queue = /srv/store/sandbox/queue   # 可选（默认值即此）；交给沙箱主机的 deb + JSON，见第 10 节
 metrics = /var/lib/prometheus/node-exporter
 
 [milkyway]
@@ -244,6 +245,7 @@ class State:
 | `revoke APP[@VERSION] [--note]` | 撤销放行：从 `approved.json` 删除该应用，对应候选记为 `revoked`，写入 `approvals.log`；下一次 `build` 不再包含它 | cli |
 | `reject APP@VERSION [--note]` | 拒绝 | cli |
 | `reports-ingest` | 导入 `paths.reports` 下的新报告 | `reports.ingest(cfg, st) -> list[dict]` |
+| `sandbox-queue` | 把等沙箱结果的候选交给沙箱主机（见第 10 节） | `sandboxqueue.run(cfg, st, content) -> list[str]` |
 | `build [--if-changed]` | 生成并签名目录；`--if-changed`：输入没变且距上次不到 `renew_after_hours` 就什么都不做（输入没变但该续期了就只换 serial 和有效期） | `catalog.build(cfg, st, content, if_changed=False) -> dict` |
 | `metrics` | 写 `agino_store_server.prom` | cli |
 
@@ -306,6 +308,33 @@ agino-store ALL=(agino-store-sign) NOPASSWD: /usr/local/bin/agino-store-sign pre
  "summary": "…"}
 ```
 
+沙箱写报告时文件名用 `<应用>_<sha12>.json` 加 `<应用>_<sha12>.json.sig`（`sha12` 是候选 sha256 的前 12 位十六进制，与第 10 节队列里的文件同名）。文件名只是约定：导入时不看文件名，只看内容里的字段。
+
 `reports.ingest(cfg, st, keys_dir)` 按 `app` + `version` + `sha256` 找候选；找不到或字段不对的报告（连同 `.sig`）移到 `reports/rejected/`，处理过的移到 `reports/done/`。
 
 符号链接安全：`reports/`、`done/`、`rejected/` 都用 `O_DIRECTORY|O_NOFOLLOW` 打开，用目录 fd 列目录、`lstat` 式检查、读文件和 `rename`；`done/` 或 `rejected/` 是符号链接或不是目录时 `reports-ingest` 报错退出（码 1），什么都不移动。
+
+## 10. 沙箱队列 `sandbox-queue`
+
+沙箱主机不碰状态目录。`agino-store-server sandbox-queue` 在状态锁内把需要测试的候选放进 `paths.sandbox_queue`（默认 `/srv/store/sandbox/queue`，目录属组 `agino-sandbox`、setgid；程序不 chown）。
+
+对每个 `status` 为 `pending`、`checks.sandbox.status` 为 `missing` 且已下载文件的候选，队列里要有一对文件（`sha12` 为候选 sha256 前 12 位十六进制，权限都是 0640）：
+
+- `<应用>_<sha12>.deb`：`downloads/` 里那个 deb 的副本。先写成同目录临时文件再 rename；用 `copy_file_range` 复制，XFS 上会 reflink。
+- `<应用>_<sha12>.json`：**在 deb 之后**原子写入，所以沙箱看到 JSON 时 deb 一定已完整。UTF-8，键排序：
+
+```json
+{"schema": 1, "app": "chrome", "version": "156.0.8078.79-1", "sha256": "…", "size": 123456,
+ "package": "google-chrome-stable", "filename": "google-chrome-stable_156.0.8078.79-1_amd64.deb",
+ "deb": "chrome_0123456789ab.deb", "launchable": "google-chrome.desktop",
+ "install_profile": {"debconf": ["…"], "default_files": [{"path": "/etc/default/…", "content": "…"}]},
+ "queued": "2026-11-02T08:00:00Z"}
+```
+
+`launchable` 和 `install_profile` 取自 store-content 里该应用的 `app.yaml`（已校验过的值），没有就是 `null`。`package` 是 deb 的包名。
+
+- 已有的一对且 JSON 内容（`queued` 除外）一致、deb 大小对：不动，所以重复运行没有输出。JSON 内容变了（比如 app.yaml 改了 `launchable`）只重写 JSON；deb 不在或大小不对则先删掉 JSON 再重放整对。
+- 候选不再是 pending 且沙箱缺失（已放行、拒绝、被取代、已有沙箱结果）时，对应的一对从队列删除，先删 JSON 再删 deb。只删文件名严格匹配 `^[a-z0-9][a-z0-9-]*_[0-9a-f]{12}\.(json|deb)$` 的项，别的文件不碰；超过 1 小时的自己的临时文件（`.tmp-sbxq-` 前缀）也清掉。
+- 符号链接安全：队列目录用 `O_DIRECTORY|O_NOFOLLOW` 打开（是符号链接或不是目录则报错，退出码 1），之后一律用目录 fd、`O_NOFOLLOW`、`O_EXCL` 临时文件和 `rename`；沙箱用户在目录里放的符号链接不会被跟随，要删的话只删链接本身。
+
+每个新增、更新、删除输出一行（`queued|updated|removed ...`），退出码 0。沙箱主机处理完一个条目后把报告写回 `paths.reports`（第 9 节）；候选一旦有了沙箱结果，下一次 `sandbox-queue` 就把它从队列里清掉。

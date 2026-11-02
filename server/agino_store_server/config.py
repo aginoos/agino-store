@@ -6,6 +6,7 @@ import shlex
 from dataclasses import dataclass
 
 DEFAULT_PATH = "/etc/agino-store-server/server.conf"
+DEFAULT_SANDBOX_QUEUE = "/srv/store/sandbox/queue"
 
 
 class ConfigError(Exception):
@@ -37,6 +38,7 @@ class Config:
     milkyway_keyring: str | None = None
     milkyway_fingerprints: tuple = ()
     sign_command: tuple = ()
+    sandbox_queue: str = DEFAULT_SANDBOX_QUEUE
 
 
 def _get(cp, section, key, conv=str):
@@ -106,6 +108,7 @@ def load(path=DEFAULT_PATH):
         milkyway_keyring=_opt(cp, "milkyway", "keyring"),
         milkyway_fingerprints=tuple((_opt(cp, "milkyway", "fingerprints") or "").split()),
         sign_command=_sign_command(_opt(cp, "catalog", "sign_command")),
+        sandbox_queue=_opt(cp, "paths", "sandbox_queue") or DEFAULT_SANDBOX_QUEUE,
     )
     if bool(cfg.key) == bool(cfg.sign_command):
         raise ConfigError("[catalog] exactly one of key and sign_command must be set")

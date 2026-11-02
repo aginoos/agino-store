@@ -16,7 +16,7 @@ import re
 import sys
 import tempfile
 
-from . import catalog, catalogwriter, config, content, reports
+from . import catalog, catalogwriter, config, content, reports, sandboxqueue
 from .state import ID_RE, VERSION_RE, State, StateError, StateLocked
 
 EXIT_OK, EXIT_PROBLEM, EXIT_USAGE, EXIT_LOCKED = 0, 1, 2, 3
@@ -56,6 +56,7 @@ def _parser():
     p.add_argument("target")
     p.add_argument("--note", default="")
     sub.add_parser("reports-ingest", help="import sandbox reports")
+    sub.add_parser("sandbox-queue", help="hand pending candidates without a sandbox report to the sandbox host")
     sub.add_parser("build", help="build and publish the catalog").add_argument("--if-changed", action="store_true")
     sub.add_parser("metrics", help="write the Prometheus text file")
     return ap
@@ -332,6 +333,18 @@ def cmd_reports_ingest(cfg, st, args):
     return EXIT_PROBLEM if any(r["result"] == "rejected" for r in results) else EXIT_OK
 
 
+def cmd_sandbox_queue(cfg, st, args):
+    with st.lock():
+        try:
+            messages = sandboxqueue.run(cfg, st, _load_content(cfg))
+        except sandboxqueue.QueueError as e:
+            print("error: %s" % e, file=sys.stderr)
+            return EXIT_PROBLEM
+    for line in messages:
+        print(_clean(line))
+    return EXIT_OK
+
+
 def cmd_build(cfg, st, args):
     with st.lock():
         try:
@@ -412,6 +425,7 @@ def cmd_metrics(cfg, st, args):
 
 COMMANDS = {"track": cmd_track, "check": cmd_check, "intake": cmd_intake, "pending": cmd_pending,
             "approve": cmd_approve, "revoke": cmd_revoke, "reject": cmd_reject, "reports-ingest": cmd_reports_ingest,
+            "sandbox-queue": cmd_sandbox_queue,
             "build": cmd_build, "metrics": cmd_metrics}
 # Commands whose implementation lives in modules written separately: any failure there is reported, not traced.
 GUARDED = ("track", "check", "intake")
