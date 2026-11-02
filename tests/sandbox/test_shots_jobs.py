@@ -137,8 +137,13 @@ class RunTests(unittest.TestCase):
         self.assertTrue(vm.return_value.stop.called)
         self.assertEqual((state["status"], state["attempts"]), ("done", 1))
         self.assertNotIn("report", state)
-        self.assertEqual(jobs.read_state(self.cfg.state, jobs.stem_of(self.name))["status"], "done")
+        key = jobs.state_key(jobs.stem_of(self.name), "shots")
+        self.assertEqual(jobs.read_state(self.cfg.state, key)["status"], "done")
         self.assertEqual(jobs.pending(self.cfg.queue, self.cfg.state), [])
+
+    def test_done_check_state_does_not_hide_a_shots_job_of_the_same_name(self):
+        jobs.write_state(self.cfg.state, jobs.stem_of(self.name), {"status": "done", "result": "pass"})
+        self.assertEqual(jobs.pending(self.cfg.queue, self.cfg.state), [self.name])
 
     def test_install_failure_is_error_with_tail_and_retries(self):
         err = shots_job.InstallError("apt-get install failed (exit 100)", 100, "E: Unable to locate package")
@@ -147,7 +152,7 @@ class RunTests(unittest.TestCase):
         self.assertIn("Unable to locate", state["apt_tail"])
         self.assertFalse(phase.return_value.run.called)
         self.assertEqual(jobs.pending(self.cfg.queue, self.cfg.state), [self.name])
-        jobs.write_state(self.cfg.state, jobs.stem_of(self.name), dict(state, attempts=3))
+        jobs.write_state(self.cfg.state, jobs.state_key(jobs.stem_of(self.name), "shots"), dict(state, attempts=3))
         self.assertEqual(jobs.pending(self.cfg.queue, self.cfg.state), [])
 
     def test_shots_off_is_invalid(self):

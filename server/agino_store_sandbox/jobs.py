@@ -163,6 +163,22 @@ def stem_of(name):
     return name[:-5] if name.endswith(".json") else name
 
 
+def state_key(stem, mode):
+    """A shots job may share its queue name with an earlier check job; keep their states apart."""
+    return stem + ".shots" if mode == "shots" else stem
+
+
+def job_mode(queue, name):
+    """The job's mode from its queue JSON ("check" when unreadable: the run records it as invalid)."""
+    try:
+        with open(os.path.join(queue, name), "rb") as f:
+            doc = json.loads(f.read(MAX_JSON).decode("utf-8"))
+    except (OSError, ValueError, UnicodeDecodeError):
+        return "check"
+    mode = doc.get("mode", "check") if isinstance(doc, dict) else "check"
+    return mode if mode in MODES else "check"
+
+
 def read_state(state_dir, stem):
     path = os.path.join(state_dir, stem + ".json")
     try:
@@ -194,7 +210,7 @@ def pending(queue, state_dir, only=None):
         return [only] if only in names else []
     out = []
     for name in names:
-        state = read_state(state_dir, stem_of(name))
+        state = read_state(state_dir, state_key(stem_of(name), job_mode(queue, name)))
         if state is None or (state.get("status") == "error" and int(state.get("attempts", 0)) < MAX_ATTEMPTS):
             out.append(name)
     return out

@@ -82,7 +82,7 @@ def run_job_file(cfg, name, slot, sandbox, forced=False):
         state = {"status": "invalid", "reason": str(e)[:200], "attempts": 0}
         jobs.write_state(cfg.state, stem, state)
         return state
-    attempts = 0 if forced else jobs.previous_attempts(cfg.state, stem)
+    attempts = 0 if forced else jobs.previous_attempts(cfg.state, jobs.state_key(stem, job.mode))
     attempts += 1
     if job.mode == "shots":
         return _run_shots(cfg, job, slot, sandbox, attempts)
@@ -107,7 +107,7 @@ def _run_shots(cfg, job, slot, sandbox, attempts):
     """Shots-only job: state done/error, never a report; errors retry like check jobs."""
     if not cfg.shots:
         state = {"status": "invalid", "reason": "screenshots are switched off (shots = off)", "attempts": 0}
-        jobs.write_state(cfg.state, job.stem, state)
+        jobs.write_state(cfg.state, jobs.state_key(job.stem, "shots"), state)
         return state
     try:
         details = shots_job.execute_shots(cfg, job, slot, sandbox)
@@ -119,7 +119,7 @@ def _run_shots(cfg, job, slot, sandbox, attempts):
                  "apt_tail": e.tail[:900], "attempts": attempts}
     except InfraError as e:
         state = {"status": "error", "mode": "shots", "reason": str(e)[:200], "attempts": attempts}
-    jobs.write_state(cfg.state, job.stem, state)
+    jobs.write_state(cfg.state, jobs.state_key(job.stem, "shots"), state)
     return state
 
 
