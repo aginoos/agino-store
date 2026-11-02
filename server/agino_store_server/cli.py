@@ -57,6 +57,9 @@ def _parser():
     p.add_argument("--note", default="")
     sub.add_parser("reports-ingest", help="import sandbox reports")
     sub.add_parser("sandbox-queue", help="hand pending candidates without a sandbox report to the sandbox host")
+    p = sub.add_parser("shots-request", help="have the sandbox host take screenshots of APP")
+    p.add_argument("app")
+    p.add_argument("--cancel", action="store_true", help="withdraw the request")
     sub.add_parser("build", help="build and publish the catalog").add_argument("--if-changed", action="store_true")
     sub.add_parser("metrics", help="write the Prometheus text file")
     return ap
@@ -345,6 +348,25 @@ def cmd_sandbox_queue(cfg, st, args):
     return EXIT_OK
 
 
+def cmd_shots_request(cfg, st, args):
+    with st.lock():
+        if args.cancel:
+            print(("cancelled shots request for %s" if st.remove_shots_request(args.app)
+                   else "no shots request for %s") % args.app)
+            return EXIT_OK
+        entry = _load_content(cfg).app(args.app)
+        if entry is None:
+            raise UsageError("unknown app %s" % args.app)
+        if entry.shots is None:
+            raise UsageError("%s has no valid shots.yaml" % args.app)
+        if any(r["app"] == args.app for r in st.shots_requests()):
+            print("shots already requested for %s" % args.app)
+            return EXIT_OK
+        st.add_shots_request(args.app, {"app": args.app, "requested": _stamp(), "by": _actor()})
+    print("requested shots for %s" % args.app)
+    return EXIT_OK
+
+
 def cmd_build(cfg, st, args):
     with st.lock():
         try:
@@ -425,7 +447,7 @@ def cmd_metrics(cfg, st, args):
 
 COMMANDS = {"track": cmd_track, "check": cmd_check, "intake": cmd_intake, "pending": cmd_pending,
             "approve": cmd_approve, "revoke": cmd_revoke, "reject": cmd_reject, "reports-ingest": cmd_reports_ingest,
-            "sandbox-queue": cmd_sandbox_queue,
+            "sandbox-queue": cmd_sandbox_queue, "shots-request": cmd_shots_request,
             "build": cmd_build, "metrics": cmd_metrics}
 # Commands whose implementation lives in modules written separately: any failure there is reported, not traced.
 GUARDED = ("track", "check", "intake")

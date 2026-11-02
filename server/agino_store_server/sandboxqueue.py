@@ -18,7 +18,7 @@ import shutil
 import stat
 import time
 
-from . import catalogwriter, demo
+from . import catalogwriter, demo, shotsreq
 
 NAME_RE = re.compile(r"\A[a-z0-9][a-z0-9-]*_[0-9a-f]{12}\.(json|deb|demo\.tar)\Z")
 APP_RE = re.compile(r"\A[a-z0-9][a-z0-9-]*\Z")
@@ -204,12 +204,58 @@ def _wanted(cfg, st, content):
     return out
 
 
+def _shots_job(cfg, st, content, request):
+    """(base, record or None, JSON document, demo tar or None) of a shots request; a string if it
+    cannot be queued (the reason)."""
+    app = request["app"]
+    entry = content.app(app) if content is not None else None
+    if entry is None or entry.shots is None:
+        return "no valid shots.yaml"
+    if entry.kind == "milkyway":
+        found = st.milkyway().get(entry.package)
+        if not isinstance(found, dict) or not found.get("version"):
+            return "package %s is not in milkyway" % entry.package
+        base, record = shotsreq.milkyway_base(app, entry.package, found["version"]), None
+        ident = {"source": "milkyway", "version": found["version"], "sha256": None, "package": entry.package}
+    else:
+        record = shotsreq.newest_candidate(st, app)
+        if record is None:
+            return "no pending or approved candidate"
+        base = "%s_%s" % (app, record["sha256"][:12])
+        ident = {"source": "deb", "version": record["version"], "sha256": record["sha256"],
+                 "size": record.get("size"), "package": record.get("package"),
+                 "filename": record.get("filename"), "deb": base + ".deb"}
+    extra, tar = _shots_part(content, entry)
+    if tar is not None:
+        extra.update(demo=base + ".demo.tar", demo_size=len(tar))
+    return base, record, dict(extra, **ident, schema=1, mode="shots", app=app, launchable=entry.launchable,
+                              install_profile=_profile(entry.install_profile) if record else None), tar
+
+
+def _shots_wanted(cfg, st, content, checks, messages):
+    """{base: (record, doc, tar)} of the open shots requests; closes the ones that are done."""
+    out = {}
+    for request in st.shots_requests():
+        job = _shots_job(cfg, st, content, request)
+        if isinstance(job, str):
+            messages.append("skipped shots %s: %s" % (request["app"], job))
+            continue
+        base, record, doc, tar = job
+        if shotsreq.is_done(cfg.shots_out, base):
+            st.remove_shots_request(request["app"])
+            messages.append("closed shots request %s (%s)" % (request["app"], base))
+        elif base not in checks:   # a check job of the same candidate takes the shots itself
+            out[base] = (record, doc, tar)
+    return out
+
+
 def _add(cfg, dir_fd, base, record, doc, tar):
     """Make base.deb, base.demo.tar and base.json current; returns 'queued', 'updated' or None."""
     deb, js, tar_name = base + ".deb", base + ".json", base + ".demo.tar"
     have = _read_json(dir_fd, js)
     deb_st = _lstat(dir_fd, deb)
-    deb_ok = deb_st is not None and stat.S_ISREG(deb_st.st_mode) and deb_st.st_size == record.get("size")
+    deb_ok = record is None or (deb_st is not None and stat.S_ISREG(deb_st.st_mode)
+                                and deb_st.st_size == record.get("size"))
     tar_ok = _same_bytes(dir_fd, tar_name, tar) if tar is not None else _lstat(dir_fd, tar_name) is None
     if deb_ok and tar_ok and isinstance(have, dict) and {k: v for k, v in have.items() if k != "queued"} == doc:
         return None
@@ -245,11 +291,12 @@ def _stale_names(dir_fd, wanted):
 
 def run(cfg, st, content):
     """Bring paths.sandbox_queue in line with the pending candidates; returns one message per change."""
-    wanted = _wanted(cfg, st, content)
-    if not wanted and not os.path.lexists(cfg.sandbox_queue):
-        return []
-    dir_fd = _open_dir(cfg.sandbox_queue)
     messages = []
+    wanted = _wanted(cfg, st, content)
+    wanted.update(_shots_wanted(cfg, st, content, wanted, messages))
+    if not wanted and not os.path.lexists(cfg.sandbox_queue):
+        return messages
+    dir_fd = _open_dir(cfg.sandbox_queue)
     try:
         for name in _stale_names(dir_fd, wanted):
             _unlink(dir_fd, name)
@@ -260,10 +307,10 @@ def run(cfg, st, content):
             try:
                 done = _add(cfg, dir_fd, base, record, doc, tar)
             except (OSError, QueueError) as e:
-                messages.append("skipped %s %s: %s" % (record["app"], record["version"], e))
+                messages.append("skipped %s %s: %s" % (doc["app"], doc["version"], e))
                 continue
             if done:
-                messages.append("%s %s %s (%s)" % (done, record["app"], record["version"], base))
+                messages.append("%s %s %s (%s)" % (done, doc["app"], doc["version"], base))
     finally:
         os.close(dir_fd)
     return messages

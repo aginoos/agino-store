@@ -36,6 +36,7 @@ downloads = /srv/store/downloads      # deb：<sha256>/<原文件名>
 preview = /srv/store/preview          # 生成的目录：catalog-<serial>/ 和 current -> catalog-<serial>
 reports = /srv/store/reports          # 从沙箱主机拉回的报告
 sandbox_queue = /srv/store/sandbox/queue   # 可选（默认值即此）；交给沙箱主机的 deb + JSON，见第 10 节
+shots_out = /srv/store/sandbox/shots-out   # 可选（默认值即此）；沙箱主机写的截图，只读它来关闭截图请求，见第 10 节
 metrics = /var/lib/prometheus/node-exporter
 
 [milkyway]
@@ -278,6 +279,7 @@ class State:
 | `reject APP@VERSION [--note]` | 拒绝 | cli |
 | `reports-ingest` | 导入 `paths.reports` 下的新报告 | `reports.ingest(cfg, st) -> list[dict]` |
 | `sandbox-queue` | 把等沙箱结果的候选交给沙箱主机（见第 10 节） | `sandboxqueue.run(cfg, st, content) -> list[str]` |
+| `shots-request APP \| --cancel APP` | 请沙箱主机为 APP 截图：写 `state/shots-requests/<app>.json`（`app`、`requested`、`by`）；APP 必须有有效的 `shots.yaml`。`--cancel` 撤回请求。已有请求再请求不重复（见第 10 节） | cli、`state.shots_requests()` |
 | `build [--if-changed]` | 生成并签名目录；`--if-changed`：输入没变且距上次不到 `renew_after_hours` 就什么都不做（输入没变但该续期了就只换 serial 和有效期） | `catalog.build(cfg, st, content, if_changed=False) -> dict` |
 | `metrics` | 写 `agino_store_server.prom` | cli |
 
@@ -376,3 +378,15 @@ agino-store ALL=(agino-store-sign) NOPASSWD: /usr/local/bin/agino-store-sign pre
 已有的 tar 与要写的内容（比较 sha256）一致就不动；内容变了先删 JSON、重写 tar、再写 JSON；不再需要 demo 时 tar 随之删除。清理时文件名正则扩为 `\.(json|deb|demo\.tar)$`，仍然只删严格匹配的名字，JSON 先于 deb 和 tar 删除。
 
 每个新增、更新、删除输出一行（`queued|updated|removed ...`），退出码 0。沙箱主机处理完一个条目后把报告写回 `paths.reports`（第 9 节）；候选一旦有了沙箱结果，下一次 `sandbox-queue` 就把它从队列里清掉。
+
+
+### 只截图的任务（`shots-request`）
+
+milkyway 里的应用不进沙箱队列，已通过沙箱的候选也不会再入队，所以截图有单独的任务类型。`shots-request APP` 在状态锁内写 `state/shots-requests/<app>.json`（`{"app", "requested", "by"}`，原子写入，`by` 与放行记录用同一个操作者名）；`shots-request --cancel APP` 删除它。
+
+`sandbox-queue` 对每个未关闭的请求导出一个 `"mode": "shots"` 的任务（原有任务没有 `mode`，即 check），并带 `shots` 和 demo tar，写法同上：
+
+- 厂商应用（包类型不是 milkyway）：`status` 为 `pending` 或 `approved` 且已下载文件的候选中版本最新的一个；名字 `<应用>_<sha12>`，deb 照常复制，`"source": "deb"`，其余字段（`version`、`sha256`、`size`、`package`、`filename`、`deb`、`launchable`、`install_profile`）同 check 任务。没有这样的候选则输出 `skipped shots APP: …`，请求保留。
+- milkyway 应用：`"source": "milkyway"`、`package`（应用的 milkyway 包名）、`version`（缓存的 milkyway 索引，即 `milkyway.json`）、`"sha256": null`，没有 deb 和 `install_profile`；名字 `<应用>_<h12>`，`h12` 为 `sha256("milkyway:" + 包名 + "=" + 版本)` 前 12 位十六进制，符合同一个名字正则。包不在 milkyway 里则输出 `skipped shots APP: package … is not in milkyway`，请求保留。
+- 名字冲突：如果同一个厂商候选此刻也需要 check 任务（名字相同），只导出 check 任务，请求保持打开。该 check 任务的 JSON 在应用有 `shots.yaml` 时本来就带 `shots`，所以它产出的 `shots.json` 同样关闭这个请求。shots 任务和 check 任务从不共用名字。
+- 关闭：`<shots_out>/<任务名>/shots.json` 存在（普通文件）时，请求删除，输出 `closed shots request …`，队列里对应的条目随后按“不再需要”清掉。`shots_out`（`[paths] shots_out`，默认 `/srv/store/sandbox/shots-out`，目录对 `agino-store` 组可读）里的项一律用 `O_NOFOLLOW` 打开，符号链接不算；`shots_out` 不存在或读不了时什么都不关闭。

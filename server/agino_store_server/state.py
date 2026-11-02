@@ -183,6 +183,32 @@ class State:
             f.flush()
             os.fsync(f.fileno())
 
+    # Screenshot requests (state/shots-requests/<app>.json)
+
+    def shots_requests(self):
+        base = self._path("shots-requests")
+        out = []
+        for name in sorted(os.listdir(base)) if os.path.isdir(base) else []:
+            if not name.endswith(".json") or name.startswith("."):
+                continue
+            rec = read_json(os.path.join(base, name), None)
+            if isinstance(rec, dict) and rec.get("app") == name[: -len(".json")] and ID_RE.match(rec["app"]):
+                out.append(rec)
+        return out
+
+    def add_shots_request(self, app, record):
+        _check_id(app, "app id")
+        write_json_atomic(self._path("shots-requests", app + ".json"), record)
+
+    def remove_shots_request(self, app):
+        """Delete the request of app; True if there was one."""
+        _check_id(app, "app id")
+        try:
+            os.unlink(self._path("shots-requests", app + ".json"))
+        except FileNotFoundError:
+            return False
+        return True
+
     # milkyway versions and catalog state
 
     def milkyway(self):
