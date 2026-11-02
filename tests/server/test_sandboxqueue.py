@@ -85,7 +85,10 @@ class TestSandboxQueue(unittest.TestCase):
         self.add(version="3", sha="3" * 64, sandbox="pass")
         self.add(version="4", sha="4" * 64, sandbox="fail")
         self.add(version="5", sha="5" * 64, download=False)
-        self.assertEqual(self.run_queue(), [])
+        messages = self.run_queue()
+        # A pending candidate whose download is gone is reported, not silently dropped.
+        self.assertEqual(len(messages), 1)
+        self.assertTrue(messages[0].startswith("skipped chrome 5"))
         self.assertEqual(self.names(), [])
 
     def test_failure_on_one_entry_does_not_stop_others(self):
