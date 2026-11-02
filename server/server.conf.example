@@ -1,0 +1,29 @@
+# agino-store-server configuration (docs/server.md section 2). No secrets: the signing key is only a path.
+[paths]
+content = /srv/store/content          # store-content checkout
+state = /srv/store/state
+downloads = /srv/store/downloads      # debs: <sha256>/<original file name>
+preview = /srv/store/preview          # generated catalogs: catalog-<serial>/ and current -> catalog-<serial>
+reports = /srv/store/reports          # reports pulled back from the sandbox host
+metrics = /var/lib/prometheus/node-exporter
+
+[milkyway]
+url = https://repo.aginoos.com        # dists/milkyway/<component>/binary-{amd64,all}/Packages.gz
+suite = milkyway
+components = main contrib non-free
+arch = amd64
+
+[catalog]
+key = /etc/agino-store-server/keys/preview.pem   # Ed25519 private key (PEM)
+deb_base_url = http://51.38.63.36:8080/store-preview/debs/
+valid_days = 14
+renew_after_hours = 20
+keep_catalogs = 3
+
+[fetch]
+user_agent = agino-store-server/0.1 (+https://aginoos.com)
+min_interval_seconds = 1
+max_deb_bytes = 2147483648
+max_index_bytes = 134217728
+# Test only: allow http:// and file:// (tests and VM experiments).
+allow_insecure = false

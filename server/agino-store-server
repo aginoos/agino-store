@@ -1,0 +1,13 @@
+#!/usr/bin/python3 -I
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""agino-store server command line; see docs/server.md."""
+
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+
+from agino_store_server.cli import main  # noqa: E402
+
+if __name__ == "__main__":
+    sys.exit(main())
