@@ -169,8 +169,14 @@ class Phase:
                 found = self._wait_title(value, baseline)
                 if found:
                     target = found
+                    # keys go to the focused window: a dialog that opened behind the main window
+                    # (GIMP's welcome) would otherwise not get the Escape that should close it
+                    self.g.xdotool(["windowactivate", found])
+                    time.sleep(0.5)
                 else:
-                    problem("window titled %r did not appear" % clean(value, 40))
+                    titles = [t for t in (self.g.title(w) for w in sorted(self.g.windows() - baseline)) if t][:4]
+                    problem("window titled %r did not appear (new windows: %s)"
+                            % (clean(value, 40), "; ".join(clean(t, 50) for t in titles) or "none"))
         return target
 
     def _wait_title(self, text, baseline):
