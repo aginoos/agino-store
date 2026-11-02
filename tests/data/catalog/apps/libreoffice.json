@@ -1,0 +1,77 @@
+{
+  "id": "libreoffice",
+  "description": {
+    "zh_CN": [
+      "LibreOffice：完整的办公套件。",
+      "这是示例目录中的说明文字，用于界面和测试。"
+    ],
+    "en_US": [
+      "LibreOffice: Complete office suite.",
+      "This is sample text from the test catalog, used for the UI and tests."
+    ]
+  },
+  "developer": {
+    "zh_CN": "示例开发者",
+    "en_US": "Sample Developer"
+  },
+  "homepage": "https://example.invalid/libreoffice",
+  "maintainer": null,
+  "screenshots": {
+    "zh_CN": [
+      {
+        "image": "assets/c7b465c37c1340cb5b80ec0c15ee1136cb1fb5b5e6f76028458098daa044d6b0.svg",
+        "thumb": "assets/c7b465c37c1340cb5b80ec0c15ee1136cb1fb5b5e6f76028458098daa044d6b0.svg",
+        "width": 1280,
+        "height": 720
+      },
+      {
+        "image": "assets/696dad769073053efdf69fa2ddc73495232cc8354f7dff01fe66f1cce1ce1443.svg",
+        "thumb": "assets/696dad769073053efdf69fa2ddc73495232cc8354f7dff01fe66f1cce1ce1443.svg",
+        "width": 1280,
+        "height": 720
+      }
+    ],
+    "en_US": [
+      {
+        "image": "assets/12828cf8152d76e50a67d3ea6d84ddd17778cd9202255b77998026463ba23865.svg",
+        "thumb": "assets/12828cf8152d76e50a67d3ea6d84ddd17778cd9202255b77998026463ba23865.svg",
+        "width": 1280,
+        "height": 720
+      },
+      {
+        "image": "assets/275beac42f16e3f572c4b7073dbb1629877526f43c065445377817694991b132.svg",
+        "thumb": "assets/275beac42f16e3f572c4b7073dbb1629877526f43c065445377817694991b132.svg",
+        "width": 1280,
+        "height": 720
+      }
+    ]
+  },
+  "releases": [
+    {
+      "version": "1.0.0",
+      "date": "2026-10-25",
+      "notes": {
+        "zh_CN": [
+          "修复若干问题",
+          "性能改进"
+        ],
+        "en_US": [
+          "Fixed several issues",
+          "Performance improvements"
+        ]
+      }
+    },
+    {
+      "version": "0.9.0",
+      "date": "2026-07-01",
+      "notes": {
+        "zh_CN": [
+          "首个示例版本"
+        ],
+        "en_US": [
+          "First sample release"
+        ]
+      }
+    }
+  ]
+}

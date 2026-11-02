@@ -1,0 +1,77 @@
+{
+  "id": "keepassxc",
+  "description": {
+    "zh_CN": [
+      "KeePassXC：本地密码管理器。",
+      "这是示例目录中的说明文字，用于界面和测试。"
+    ],
+    "en_US": [
+      "KeePassXC: Offline password manager.",
+      "This is sample text from the test catalog, used for the UI and tests."
+    ]
+  },
+  "developer": {
+    "zh_CN": "示例开发者",
+    "en_US": "Sample Developer"
+  },
+  "homepage": "https://example.invalid/keepassxc",
+  "maintainer": null,
+  "screenshots": {
+    "zh_CN": [
+      {
+        "image": "assets/795c935aeb52ecf7233c0b46be1db43ffc908cb034cdce7ebc235887b2ee2424.svg",
+        "thumb": "assets/795c935aeb52ecf7233c0b46be1db43ffc908cb034cdce7ebc235887b2ee2424.svg",
+        "width": 1280,
+        "height": 720
+      },
+      {
+        "image": "assets/0ec8da2e1b4922ff163191cac189f9451a5eeb1c8665a4b8b023d45919619c0e.svg",
+        "thumb": "assets/0ec8da2e1b4922ff163191cac189f9451a5eeb1c8665a4b8b023d45919619c0e.svg",
+        "width": 1280,
+        "height": 720
+      }
+    ],
+    "en_US": [
+      {
+        "image": "assets/0802328e53384f56f964fa0488911ad6a13415900444ac7e9508b0f6432f001a.svg",
+        "thumb": "assets/0802328e53384f56f964fa0488911ad6a13415900444ac7e9508b0f6432f001a.svg",
+        "width": 1280,
+        "height": 720
+      },
+      {
+        "image": "assets/706e87dde44cc75c26c46f568c31eb348bc1fe24846c1a11a046dea6ba67be13.svg",
+        "thumb": "assets/706e87dde44cc75c26c46f568c31eb348bc1fe24846c1a11a046dea6ba67be13.svg",
+        "width": 1280,
+        "height": 720
+      }
+    ]
+  },
+  "releases": [
+    {
+      "version": "1.0.0",
+      "date": "2026-10-14",
+      "notes": {
+        "zh_CN": [
+          "修复若干问题",
+          "性能改进"
+        ],
+        "en_US": [
+          "Fixed several issues",
+          "Performance improvements"
+        ]
+      }
+    },
+    {
+      "version": "0.9.0",
+      "date": "2026-07-01",
+      "notes": {
+        "zh_CN": [
+          "首个示例版本"
+        ],
+        "en_US": [
+          "First sample release"
+        ]
+      }
+    }
+  ]
+}

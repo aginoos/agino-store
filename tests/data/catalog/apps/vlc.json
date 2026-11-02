@@ -1,0 +1,77 @@
+{
+  "id": "vlc",
+  "description": {
+    "zh_CN": [
+      "VLC 播放器：全能媒体播放器。",
+      "这是示例目录中的说明文字，用于界面和测试。"
+    ],
+    "en_US": [
+      "VLC media player: Plays almost any media.",
+      "This is sample text from the test catalog, used for the UI and tests."
+    ]
+  },
+  "developer": {
+    "zh_CN": "示例开发者",
+    "en_US": "Sample Developer"
+  },
+  "homepage": "https://example.invalid/vlc",
+  "maintainer": null,
+  "screenshots": {
+    "zh_CN": [
+      {
+        "image": "assets/052dc461536efbcb8f76080800140e4607f3af046f2843c03f304a141f84b4b4.svg",
+        "thumb": "assets/052dc461536efbcb8f76080800140e4607f3af046f2843c03f304a141f84b4b4.svg",
+        "width": 1280,
+        "height": 720
+      },
+      {
+        "image": "assets/aedee73d92521728079c6cfded88d92e846b3e369dd14ffccd60ec541df4ed44.svg",
+        "thumb": "assets/aedee73d92521728079c6cfded88d92e846b3e369dd14ffccd60ec541df4ed44.svg",
+        "width": 1280,
+        "height": 720
+      }
+    ],
+    "en_US": [
+      {
+        "image": "assets/1821aef9ea210cf2c4c7d14c64439a5e8db07907abaca04a7a39b29ee46921e0.svg",
+        "thumb": "assets/1821aef9ea210cf2c4c7d14c64439a5e8db07907abaca04a7a39b29ee46921e0.svg",
+        "width": 1280,
+        "height": 720
+      },
+      {
+        "image": "assets/073702f1357deeeec4edec9deace5748ac91bd59a2e5f853aa0253a7e6470d4f.svg",
+        "thumb": "assets/073702f1357deeeec4edec9deace5748ac91bd59a2e5f853aa0253a7e6470d4f.svg",
+        "width": 1280,
+        "height": 720
+      }
+    ]
+  },
+  "releases": [
+    {
+      "version": "1.0.0",
+      "date": "2026-10-20",
+      "notes": {
+        "zh_CN": [
+          "修复若干问题",
+          "性能改进"
+        ],
+        "en_US": [
+          "Fixed several issues",
+          "Performance improvements"
+        ]
+      }
+    },
+    {
+      "version": "0.9.0",
+      "date": "2026-07-01",
+      "notes": {
+        "zh_CN": [
+          "首个示例版本"
+        ],
+        "en_US": [
+          "First sample release"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,1935 @@
+{
+  "categories": [
+    {
+      "id": "office",
+      "name": {
+        "zh_CN": "办公",
+        "en_US": "Office"
+      },
+      "order": 1
+    },
+    {
+      "id": "chat",
+      "name": {
+        "zh_CN": "聊天",
+        "en_US": "Chat"
+      },
+      "order": 2
+    },
+    {
+      "id": "web",
+      "name": {
+        "zh_CN": "网络",
+        "en_US": "Web"
+      },
+      "order": 3
+    },
+    {
+      "id": "dev",
+      "name": {
+        "zh_CN": "开发",
+        "en_US": "Development"
+      },
+      "order": 4
+    },
+    {
+      "id": "media",
+      "name": {
+        "zh_CN": "影音",
+        "en_US": "Media"
+      },
+      "order": 5
+    },
+    {
+      "id": "graphics",
+      "name": {
+        "zh_CN": "图形",
+        "en_US": "Graphics"
+      },
+      "order": 6
+    },
+    {
+      "id": "games",
+      "name": {
+        "zh_CN": "游戏",
+        "en_US": "Games"
+      },
+      "order": 7
+    },
+    {
+      "id": "tools",
+      "name": {
+        "zh_CN": "工具",
+        "en_US": "Tools"
+      },
+      "order": 8
+    }
+  ],
+  "featured": [
+    {
+      "id": "spotlight-office",
+      "title": {
+        "zh_CN": "高效办公",
+        "en_US": "Get things done"
+      },
+      "subtitle": {
+        "zh_CN": "办公软件精选",
+        "en_US": "Office picks"
+      },
+      "apps": [
+        "wps-office",
+        "libreoffice"
+      ],
+      "banner": true
+    },
+    {
+      "id": "spotlight-create",
+      "title": {
+        "zh_CN": "创作工具",
+        "en_US": "Create"
+      },
+      "subtitle": {
+        "zh_CN": "绘画与设计",
+        "en_US": "Paint and design"
+      },
+      "apps": [
+        "krita",
+        "inkscape",
+        "gimp"
+      ],
+      "banner": true
+    },
+    {
+      "id": "essentials",
+      "title": {
+        "zh_CN": "装机必备",
+        "en_US": "Essentials"
+      },
+      "subtitle": {
+        "zh_CN": "新系统常用软件",
+        "en_US": "Common apps for a new system"
+      },
+      "apps": [
+        "firefox-esr",
+        "wps-office",
+        "wechat",
+        "vlc",
+        "keepassxc"
+      ],
+      "banner": false
+    }
+  ],
+  "apps": [
+    {
+      "id": "gimp",
+      "name": {
+        "zh_CN": "GIMP",
+        "en_US": "GIMP"
+      },
+      "summary": {
+        "zh_CN": "图像编辑器",
+        "en_US": "Image editor"
+      },
+      "icon": "icons/gimp.svg",
+      "categories": [
+        "graphics"
+      ],
+      "source": "system",
+      "license": "GPL-3.0-or-later",
+      "proprietary": false,
+      "updated": "2026-10-12",
+      "package": {
+        "kind": "milkyway",
+        "name": "gimp"
+      },
+      "detail": {
+        "description": {
+          "zh_CN": [
+            "GIMP：图像编辑器。",
+            "这是示例目录中的说明文字，用于界面和测试。"
+          ],
+          "en_US": [
+            "GIMP: Image editor.",
+            "This is sample text from the test catalog, used for the UI and tests."
+          ]
+        },
+        "developer": {
+          "zh_CN": "示例开发者",
+          "en_US": "Sample Developer"
+        },
+        "homepage": "https://example.invalid/gimp",
+        "maintainer": null,
+        "screenshots": {
+          "zh_CN": [
+            {
+              "image": "shots/gimp-zh_CN-1.svg",
+              "thumb": "shots/gimp-zh_CN-1.svg",
+              "width": 1280,
+              "height": 720
+            },
+            {
+              "image": "shots/gimp-zh_CN-2.svg",
+              "thumb": "shots/gimp-zh_CN-2.svg",
+              "width": 1280,
+              "height": 720
+            }
+          ],
+          "en_US": [
+            {
+              "image": "shots/gimp-en_US-1.svg",
+              "thumb": "shots/gimp-en_US-1.svg",
+              "width": 1280,
+              "height": 720
+            },
+            {
+              "image": "shots/gimp-en_US-2.svg",
+              "thumb": "shots/gimp-en_US-2.svg",
+              "width": 1280,
+              "height": 720
+            }
+          ]
+        },
+        "releases": [
+          {
+            "version": "1.0.0",
+            "date": "2026-10-12",
+            "notes": {
+              "zh_CN": [
+                "修复若干问题",
+                "性能改进"
+              ],
+              "en_US": [
+                "Fixed several issues",
+                "Performance improvements"
+              ]
+            }
+          },
+          {
+            "version": "0.9.0",
+            "date": "2026-07-01",
+            "notes": {
+              "zh_CN": [
+                "首个示例版本"
+              ],
+              "en_US": [
+                "First sample release"
+              ]
+            }
+          }
+        ]
+      },
+      "stats": {
+        "downloads": 9200
+      }
+    },
+    {
+      "id": "vlc",
+      "name": {
+        "zh_CN": "VLC 播放器",
+        "en_US": "VLC media player"
+      },
+      "summary": {
+        "zh_CN": "全能媒体播放器",
+        "en_US": "Plays almost any media"
+      },
+      "icon": "icons/vlc.svg",
+      "categories": [
+        "media"
+      ],
+      "source": "system",
+      "license": "GPL-2.0-or-later",
+      "proprietary": false,
+      "updated": "2026-10-20",
+      "package": {
+        "kind": "milkyway",
+        "name": "vlc"
+      },
+      "detail": {
+        "description": {
+          "zh_CN": [
+            "VLC 播放器：全能媒体播放器。",
+            "这是示例目录中的说明文字，用于界面和测试。"
+          ],
+          "en_US": [
+            "VLC media player: Plays almost any media.",
+            "This is sample text from the test catalog, used for the UI and tests."
+          ]
+        },
+        "developer": {
+          "zh_CN": "示例开发者",
+          "en_US": "Sample Developer"
+        },
+        "homepage": "https://example.invalid/vlc",
+        "maintainer": null,
+        "screenshots": {
+          "zh_CN": [
+            {
+              "image": "shots/vlc-zh_CN-1.svg",
+              "thumb": "shots/vlc-zh_CN-1.svg",
+              "width": 1280,
+              "height": 720
+            },
+            {
+              "image": "shots/vlc-zh_CN-2.svg",
+              "thumb": "shots/vlc-zh_CN-2.svg",
+              "width": 1280,
+              "height": 720
+            }
+          ],
+          "en_US": [
+            {
+              "image": "shots/vlc-en_US-1.svg",
+              "thumb": "shots/vlc-en_US-1.svg",
+              "width": 1280,
+              "height": 720
+            },
+            {
+              "image": "shots/vlc-en_US-2.svg",
+              "thumb": "shots/vlc-en_US-2.svg",
+              "width": 1280,
+              "height": 720
+            }
+          ]
+        },
+        "releases": [
+          {
+            "version": "1.0.0",
+            "date": "2026-10-20",
+            "notes": {
+              "zh_CN": [
+                "修复若干问题",
+                "性能改进"
+              ],
+              "en_US": [
+                "Fixed several issues",
+                "Performance improvements"
+              ]
+            }
+          },
+          {
+            "version": "0.9.0",
+            "date": "2026-07-01",
+            "notes": {
+              "zh_CN": [
+                "首个示例版本"
+              ],
+              "en_US": [
+                "First sample release"
+              ]
+            }
+          }
+        ]
+      },
+      "stats": {
+        "downloads": 15800
+      }
+    },
+    {
+      "id": "libreoffice",
+      "name": {
+        "zh_CN": "LibreOffice",
+        "en_US": "LibreOffice"
+      },
+      "summary": {
+        "zh_CN": "完整的办公套件",
+        "en_US": "Complete office suite"
+      },
+      "icon": "icons/libreoffice.svg",
+      "categories": [
+        "office"
+      ],
+      "source": "system",
+      "license": "MPL-2.0",
+      "proprietary": false,
+      "updated": "2026-10-25",
+      "package": {
+        "kind": "milkyway",
+        "name": "libreoffice"
+      },
+      "detail": {
+        "description": {
+          "zh_CN": [
+            "LibreOffice：完整的办公套件。",
+            "这是示例目录中的说明文字，用于界面和测试。"
+          ],
+          "en_US": [
+            "LibreOffice: Complete office suite.",
+            "This is sample text from the test catalog, used for the UI and tests."
+          ]
+        },
+        "developer": {
+          "zh_CN": "示例开发者",
+          "en_US": "Sample Developer"
+        },
+        "homepage": "https://example.invalid/libreoffice",
+        "maintainer": null,
+        "screenshots": {
+          "zh_CN": [
+            {
+              "image": "shots/libreoffice-zh_CN-1.svg",
+              "thumb": "shots/libreoffice-zh_CN-1.svg",
+              "width": 1280,
+              "height": 720
+            },
+            {
+              "image": "shots/libreoffice-zh_CN-2.svg",
+              "thumb": "shots/libreoffice-zh_CN-2.svg",
+              "width": 1280,
+              "height": 720
+            }
+          ],
+          "en_US": [
+            {
+              "image": "shots/libreoffice-en_US-1.svg",
+              "thumb": "shots/libreoffice-en_US-1.svg",
+              "width": 1280,
+              "height": 720
+            },
+            {
+              "image": "shots/libreoffice-en_US-2.svg",
+              "thumb": "shots/libreoffice-en_US-2.svg",
+              "width": 1280,
+              "height": 720
+            }
+          ]
+        },
+        "releases": [
+          {
+            "version": "1.0.0",
+            "date": "2026-10-25",
+            "notes": {
+              "zh_CN": [
+                "修复若干问题",
+                "性能改进"
+              ],
+              "en_US": [
+                "Fixed several issues",
+                "Performance improvements"
+              ]
+            }
+          },
+          {
+            "version": "0.9.0",
+            "date": "2026-07-01",
+            "notes": {
+              "zh_CN": [
+                "首个示例版本"
+              ],
+              "en_US": [
+                "First sample release"
+              ]
+            }
+          }
+        ]
+      },
+      "stats": {
+        "downloads": 12400
+      }
+    },
+    {
+      "id": "firefox-esr",
+      "name": {
+        "zh_CN": "Firefox ESR",
+        "en_US": "Firefox ESR"
+      },
+      "summary": {
+        "zh_CN": "网页浏览器（长期支持版）",
+        "en_US": "Web browser (extended support)"
+      },
+      "icon": "icons/firefox-esr.svg",
+      "categories": [
+        "web"
+      ],
+      "source": "system",
+      "license": "MPL-2.0",
+      "proprietary": false,
+      "updated": "2026-10-28",
+      "package": {
+        "kind": "milkyway",
+        "name": "firefox-esr"
+      },
+      "detail": {
+        "description": {
+          "zh_CN": [
+            "Firefox ESR：网页浏览器（长期支持版）。",
+            "这是示例目录中的说明文字，用于界面和测试。"
+          ],
+          "en_US": [
+            "Firefox ESR: Web browser (extended support).",
+            "This is sample text from the test catalog, used for the UI and tests."
+          ]
+        },
+        "developer": {
+          "zh_CN": "示例开发者",
+          "en_US": "Sample Developer"
+        },
+        "homepage": "https://example.invalid/firefox-esr",
+        "maintainer": null,
+        "screenshots": {
+          "zh_CN": [
+            {
+              "image": "shots/firefox-esr-zh_CN-1.svg",
+              "thumb": "shots/firefox-esr-zh_CN-1.svg",
+              "width": 1280,
+              "height": 720
+            },
+            {
+              "image": "shots/firefox-esr-zh_CN-2.svg",
+              "thumb": "shots/firefox-esr-zh_CN-2.svg",
+              "width": 1280,
+              "height": 720
+            }
+          ],
+          "en_US": [
+            {
+              "image": "shots/firefox-esr-en_US-1.svg",
+              "thumb": "shots/firefox-esr-en_US-1.svg",
+              "width": 1280,
+              "height": 720
+            },
+            {
+              "image": "shots/firefox-esr-en_US-2.svg",
+              "thumb": "shots/firefox-esr-en_US-2.svg",
+              "width": 1280,
+              "height": 720
+            }
+          ]
+        },
+        "releases": [
+          {
+            "version": "1.0.0",
+            "date": "2026-10-28",
+            "notes": {
+              "zh_CN": [
+                "修复若干问题",
+                "性能改进"
+              ],
+              "en_US": [
+                "Fixed several issues",
+                "Performance improvements"
+              ]
+            }
+          },
+          {
+            "version": "0.9.0",
+            "date": "2026-07-01",
+            "notes": {
+              "zh_CN": [
+                "首个示例版本"
+              ],
+              "en_US": [
+                "First sample release"
+              ]
+            }
+          }
+        ]
+      },
+      "stats": {
+        "downloads": 14300
+      }
+    },
+    {
+      "id": "krita",
+      "name": {
+        "zh_CN": "Krita",
+        "en_US": "Krita"
+      },
+      "summary": {
+        "zh_CN": "数字绘画",
+        "en_US": "Digital painting"
+      },
+      "icon": "icons/krita.svg",
+      "categories": [
+        "graphics"
+      ],
+      "source": "system",
+      "license": "GPL-3.0-or-later",
+      "proprietary": false,
+      "updated": "2026-09-30",
+      "package": {
+        "kind": "milkyway",
+        "name": "krita"
+      },
+      "detail": {
+        "description": {
+          "zh_CN": [
+            "Krita：数字绘画。",
+            "这是示例目录中的说明文字，用于界面和测试。"
+          ],
+          "en_US": [
+            "Krita: Digital painting.",
+            "This is sample text from the test catalog, used for the UI and tests."
+          ]
+        },
+        "developer": {
+          "zh_CN": "示例开发者",
+          "en_US": "Sample Developer"
+        },
+        "homepage": "https://example.invalid/krita",
+        "maintainer": null,
+        "screenshots": {
+          "zh_CN": [
+            {
+              "image": "shots/krita-zh_CN-1.svg",
+              "thumb": "shots/krita-zh_CN-1.svg",
+              "width": 1280,
+              "height": 720
+            },
+            {
+              "image": "shots/krita-zh_CN-2.svg",
+              "thumb": "shots/krita-zh_CN-2.svg",
+              "width": 1280,
+              "height": 720
+            }
+          ],
+          "en_US": [
+            {
+              "image": "shots/krita-en_US-1.svg",
+              "thumb": "shots/krita-en_US-1.svg",
+              "width": 1280,
+              "height": 720
+            },
+            {
+              "image": "shots/krita-en_US-2.svg",
+              "thumb": "shots/krita-en_US-2.svg",
+              "width": 1280,
+              "height": 720
+            }
+          ]
+        },
+        "releases": [
+          {
+            "version": "1.0.0",
+            "date": "2026-09-30",
+            "notes": {
+              "zh_CN": [
+                "修复若干问题",
+                "性能改进"
+              ],
+              "en_US": [
+                "Fixed several issues",
+                "Performance improvements"
+              ]
+            }
+          },
+          {
+            "version": "0.9.0",
+            "date": "2026-07-01",
+            "notes": {
+              "zh_CN": [
+                "首个示例版本"
+              ],
+              "en_US": [
+                "First sample release"
+              ]
+            }
+          }
+        ]
+      },
+      "stats": {
+        "downloads": 5100
+      }
+    },
+    {
+      "id": "inkscape",
+      "name": {
+        "zh_CN": "Inkscape",
+        "en_US": "Inkscape"
+      },
+      "summary": {
+        "zh_CN": "矢量图形编辑器",
+        "en_US": "Vector graphics editor"
+      },
+      "icon": "icons/inkscape.svg",
+      "categories": [
+        "graphics"
+      ],
+      "source": "system",
+      "license": "GPL-3.0-or-later",
+      "proprietary": false,
+      "updated": "2026-09-18",
+      "package": {
+        "kind": "milkyway",
+        "name": "inkscape"
+      },
+      "detail": {
+        "description": {
+          "zh_CN": [
+            "Inkscape：矢量图形编辑器。",
+            "这是示例目录中的说明文字，用于界面和测试。"
+          ],
+          "en_US": [
+            "Inkscape: Vector graphics editor.",
+            "This is sample text from the test catalog, used for the UI and tests."
+          ]
+        },
+        "developer": {
+          "zh_CN": "示例开发者",
+          "en_US": "Sample Developer"
+        },
+        "homepage": "https://example.invalid/inkscape",
+        "maintainer": null,
+        "screenshots": {
+          "zh_CN": [
+            {
+              "image": "shots/inkscape-zh_CN-1.svg",
+              "thumb": "shots/inkscape-zh_CN-1.svg",
+              "width": 1280,
+              "height": 720
+            },
+            {
+              "image": "shots/inkscape-zh_CN-2.svg",
+              "thumb": "shots/inkscape-zh_CN-2.svg",
+              "width": 1280,
+              "height": 720
+            }
+          ],
+          "en_US": [
+            {
+              "image": "shots/inkscape-en_US-1.svg",
+              "thumb": "shots/inkscape-en_US-1.svg",
+              "width": 1280,
+              "height": 720
+            },
+            {
+              "image": "shots/inkscape-en_US-2.svg",
+              "thumb": "shots/inkscape-en_US-2.svg",
+              "width": 1280,
+              "height": 720
+            }
+          ]
+        },
+        "releases": [
+          {
+            "version": "1.0.0",
+            "date": "2026-09-18",
+            "notes": {
+              "zh_CN": [
+                "修复若干问题",
+                "性能改进"
+              ],
+              "en_US": [
+                "Fixed several issues",
+                "Performance improvements"
+              ]
+            }
+          },
+          {
+            "version": "0.9.0",
+            "date": "2026-07-01",
+            "notes": {
+              "zh_CN": [
+                "首个示例版本"
+              ],
+              "en_US": [
+                "First sample release"
+              ]
+            }
+          }
+        ]
+      },
+      "stats": {
+        "downloads": 4700
+      }
+    },
+    {
+      "id": "obs-studio",
+      "name": {
+        "zh_CN": "OBS Studio",
+        "en_US": "OBS Studio"
+      },
+      "summary": {
+        "zh_CN": "录屏和直播",
+        "en_US": "Screen recording and streaming"
+      },
+      "icon": "icons/obs-studio.svg",
+      "categories": [
+        "media"
+      ],
+      "source": "system",
+      "license": "GPL-2.0-or-later",
+      "proprietary": false,
+      "updated": "2026-10-05",
+      "package": {
+        "kind": "milkyway",
+        "name": "obs-studio"
+      },
+      "detail": {
+        "description": {
+          "zh_CN": [
+            "OBS Studio：录屏和直播。",
+            "这是示例目录中的说明文字，用于界面和测试。"
+          ],
+          "en_US": [
+            "OBS Studio: Screen recording and streaming.",
+            "This is sample text from the test catalog, used for the UI and tests."
+          ]
+        },
+        "developer": {
+          "zh_CN": "示例开发者",
+          "en_US": "Sample Developer"
+        },
+        "homepage": "https://example.invalid/obs-studio",
+        "maintainer": null,
+        "screenshots": {
+          "zh_CN": [
+            {
+              "image": "shots/obs-studio-zh_CN-1.svg",
+              "thumb": "shots/obs-studio-zh_CN-1.svg",
+              "width": 1280,
+              "height": 720
+            },
+            {
+              "image": "shots/obs-studio-zh_CN-2.svg",
+              "thumb": "shots/obs-studio-zh_CN-2.svg",
+              "width": 1280,
+              "height": 720
+            }
+          ],
+          "en_US": [
+            {
+              "image": "shots/obs-studio-en_US-1.svg",
+              "thumb": "shots/obs-studio-en_US-1.svg",
+              "width": 1280,
+              "height": 720
+            },
+            {
+              "image": "shots/obs-studio-en_US-2.svg",
+              "thumb": "shots/obs-studio-en_US-2.svg",
+              "width": 1280,
+              "height": 720
+            }
+          ]
+        },
+        "releases": [
+          {
+            "version": "1.0.0",
+            "date": "2026-10-05",
+            "notes": {
+              "zh_CN": [
+                "修复若干问题",
+                "性能改进"
+              ],
+              "en_US": [
+                "Fixed several issues",
+                "Performance improvements"
+              ]
+            }
+          },
+          {
+            "version": "0.9.0",
+            "date": "2026-07-01",
+            "notes": {
+              "zh_CN": [
+                "首个示例版本"
+              ],
+              "en_US": [
+                "First sample release"
+              ]
+            }
+          }
+        ]
+      },
+      "stats": {
+        "downloads": 6300
+      }
+    },
+    {
+      "id": "keepassxc",
+      "name": {
+        "zh_CN": "KeePassXC",
+        "en_US": "KeePassXC"
+      },
+      "summary": {
+        "zh_CN": "本地密码管理器",
+        "en_US": "Offline password manager"
+      },
+      "icon": "icons/keepassxc.svg",
+      "categories": [
+        "tools"
+      ],
+      "source": "system",
+      "license": "GPL-3.0-or-later",
+      "proprietary": false,
+      "updated": "2026-10-14",
+      "package": {
+        "kind": "milkyway",
+        "name": "keepassxc"
+      },
+      "detail": {
+        "description": {
+          "zh_CN": [
+            "KeePassXC：本地密码管理器。",
+            "这是示例目录中的说明文字，用于界面和测试。"
+          ],
+          "en_US": [
+            "KeePassXC: Offline password manager.",
+            "This is sample text from the test catalog, used for the UI and tests."
+          ]
+        },
+        "developer": {
+          "zh_CN": "示例开发者",
+          "en_US": "Sample Developer"
+        },
+        "homepage": "https://example.invalid/keepassxc",
+        "maintainer": null,
+        "screenshots": {
+          "zh_CN": [
+            {
+              "image": "shots/keepassxc-zh_CN-1.svg",
+              "thumb": "shots/keepassxc-zh_CN-1.svg",
+              "width": 1280,
+              "height": 720
+            },
+            {
+              "image": "shots/keepassxc-zh_CN-2.svg",
+              "thumb": "shots/keepassxc-zh_CN-2.svg",
+              "width": 1280,
+              "height": 720
+            }
+          ],
+          "en_US": [
+            {
+              "image": "shots/keepassxc-en_US-1.svg",
+              "thumb": "shots/keepassxc-en_US-1.svg",
+              "width": 1280,
+              "height": 720
+            },
+            {
+              "image": "shots/keepassxc-en_US-2.svg",
+              "thumb": "shots/keepassxc-en_US-2.svg",
+              "width": 1280,
+              "height": 720
+            }
+          ]
+        },
+        "releases": [
+          {
+            "version": "1.0.0",
+            "date": "2026-10-14",
+            "notes": {
+              "zh_CN": [
+                "修复若干问题",
+                "性能改进"
+              ],
+              "en_US": [
+                "Fixed several issues",
+                "Performance improvements"
+              ]
+            }
+          },
+          {
+            "version": "0.9.0",
+            "date": "2026-07-01",
+            "notes": {
+              "zh_CN": [
+                "首个示例版本"
+              ],
+              "en_US": [
+                "First sample release"
+              ]
+            }
+          }
+        ]
+      },
+      "stats": {
+        "downloads": 3900
+      }
+    },
+    {
+      "id": "supertuxkart",
+      "name": {
+        "zh_CN": "SuperTuxKart",
+        "en_US": "SuperTuxKart"
+      },
+      "summary": {
+        "zh_CN": "卡通赛车游戏",
+        "en_US": "Cartoon kart racing"
+      },
+      "icon": "icons/supertuxkart.svg",
+      "categories": [
+        "games"
+      ],
+      "source": "system",
+      "license": "GPL-3.0-or-later",
+      "proprietary": false,
+      "updated": "2026-08-22",
+      "package": {
+        "kind": "milkyway",
+        "name": "supertuxkart"
+      },
+      "detail": {
+        "description": {
+          "zh_CN": [
+            "SuperTuxKart：卡通赛车游戏。",
+            "这是示例目录中的说明文字，用于界面和测试。"
+          ],
+          "en_US": [
+            "SuperTuxKart: Cartoon kart racing.",
+            "This is sample text from the test catalog, used for the UI and tests."
+          ]
+        },
+        "developer": {
+          "zh_CN": "示例开发者",
+          "en_US": "Sample Developer"
+        },
+        "homepage": "https://example.invalid/supertuxkart",
+        "maintainer": null,
+        "screenshots": {
+          "zh_CN": [
+            {
+              "image": "shots/supertuxkart-zh_CN-1.svg",
+              "thumb": "shots/supertuxkart-zh_CN-1.svg",
+              "width": 1280,
+              "height": 720
+            },
+            {
+              "image": "shots/supertuxkart-zh_CN-2.svg",
+              "thumb": "shots/supertuxkart-zh_CN-2.svg",
+              "width": 1280,
+              "height": 720
+            }
+          ],
+          "en_US": [
+            {
+              "image": "shots/supertuxkart-en_US-1.svg",
+              "thumb": "shots/supertuxkart-en_US-1.svg",
+              "width": 1280,
+              "height": 720
+            },
+            {
+              "image": "shots/supertuxkart-en_US-2.svg",
+              "thumb": "shots/supertuxkart-en_US-2.svg",
+              "width": 1280,
+              "height": 720
+            }
+          ]
+        },
+        "releases": [
+          {
+            "version": "1.0.0",
+            "date": "2026-08-22",
+            "notes": {
+              "zh_CN": [
+                "修复若干问题",
+                "性能改进"
+              ],
+              "en_US": [
+                "Fixed several issues",
+                "Performance improvements"
+              ]
+            }
+          },
+          {
+            "version": "0.9.0",
+            "date": "2026-07-01",
+            "notes": {
+              "zh_CN": [
+                "首个示例版本"
+              ],
+              "en_US": [
+                "First sample release"
+              ]
+            }
+          }
+        ]
+      },
+      "stats": {
+        "downloads": 2500
+      }
+    },
+    {
+      "id": "wps-office",
+      "name": {
+        "zh_CN": "WPS Office",
+        "en_US": "WPS Office"
+      },
+      "summary": {
+        "zh_CN": "办公套件",
+        "en_US": "Office suite"
+      },
+      "icon": "icons/wps-office.svg",
+      "categories": [
+        "office"
+      ],
+      "source": "official",
+      "license": "LicenseRef-proprietary",
+      "proprietary": true,
+      "updated": "2026-10-28",
+      "package": {
+        "kind": "deb",
+        "name": "wps-office",
+        "deb": {
+          "version": "1.0.0",
+          "url": "file:///usr/share/agino-store/test-debs/wps-office.deb",
+          "vendor_url": "https://example.invalid/wps-office",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "size": 1000000,
+          "installed_size": 5000000
+        }
+      },
+      "detail": {
+        "description": {
+          "zh_CN": [
+            "WPS Office：办公套件。",
+            "这是示例目录中的说明文字，用于界面和测试。"
+          ],
+          "en_US": [
+            "WPS Office: Office suite.",
+            "This is sample text from the test catalog, used for the UI and tests."
+          ]
+        },
+        "developer": {
+          "zh_CN": "示例开发者",
+          "en_US": "Sample Developer"
+        },
+        "homepage": "https://example.invalid/wps-office",
+        "maintainer": null,
+        "screenshots": {
+          "zh_CN": [
+            {
+              "image": "shots/wps-office-zh_CN-1.svg",
+              "thumb": "shots/wps-office-zh_CN-1.svg",
+              "width": 1280,
+              "height": 720
+            },
+            {
+              "image": "shots/wps-office-zh_CN-2.svg",
+              "thumb": "shots/wps-office-zh_CN-2.svg",
+              "width": 1280,
+              "height": 720
+            }
+          ],
+          "en_US": [
+            {
+              "image": "shots/wps-office-en_US-1.svg",
+              "thumb": "shots/wps-office-en_US-1.svg",
+              "width": 1280,
+              "height": 720
+            },
+            {
+              "image": "shots/wps-office-en_US-2.svg",
+              "thumb": "shots/wps-office-en_US-2.svg",
+              "width": 1280,
+              "height": 720
+            }
+          ]
+        },
+        "releases": [
+          {
+            "version": "1.0.0",
+            "date": "2026-10-28",
+            "notes": {
+              "zh_CN": [
+                "修复若干问题",
+                "性能改进"
+              ],
+              "en_US": [
+                "Fixed several issues",
+                "Performance improvements"
+              ]
+            }
+          },
+          {
+            "version": "0.9.0",
+            "date": "2026-07-01",
+            "notes": {
+              "zh_CN": [
+                "首个示例版本"
+              ],
+              "en_US": [
+                "First sample release"
+              ]
+            }
+          }
+        ]
+      },
+      "stats": {
+        "downloads": 20100
+      }
+    },
+    {
+      "id": "google-chrome",
+      "name": {
+        "zh_CN": "Google Chrome",
+        "en_US": "Google Chrome"
+      },
+      "summary": {
+        "zh_CN": "网页浏览器",
+        "en_US": "Web browser"
+      },
+      "icon": "icons/google-chrome.svg",
+      "categories": [
+        "web"
+      ],
+      "source": "official",
+      "license": "LicenseRef-proprietary",
+      "proprietary": true,
+      "updated": "2026-10-30",
+      "package": {
+        "kind": "deb",
+        "name": "google-chrome",
+        "deb": {
+          "version": "1.0.0",
+          "url": "file:///usr/share/agino-store/test-debs/google-chrome.deb",
+          "vendor_url": "https://example.invalid/google-chrome",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "size": 1000000,
+          "installed_size": 5000000
+        }
+      },
+      "detail": {
+        "description": {
+          "zh_CN": [
+            "Google Chrome：网页浏览器。",
+            "这是示例目录中的说明文字，用于界面和测试。"
+          ],
+          "en_US": [
+            "Google Chrome: Web browser.",
+            "This is sample text from the test catalog, used for the UI and tests."
+          ]
+        },
+        "developer": {
+          "zh_CN": "示例开发者",
+          "en_US": "Sample Developer"
+        },
+        "homepage": "https://example.invalid/google-chrome",
+        "maintainer": null,
+        "screenshots": {
+          "zh_CN": [
+            {
+              "image": "shots/google-chrome-zh_CN-1.svg",
+              "thumb": "shots/google-chrome-zh_CN-1.svg",
+              "width": 1280,
+              "height": 720
+            },
+            {
+              "image": "shots/google-chrome-zh_CN-2.svg",
+              "thumb": "shots/google-chrome-zh_CN-2.svg",
+              "width": 1280,
+              "height": 720
+            }
+          ],
+          "en_US": [
+            {
+              "image": "shots/google-chrome-en_US-1.svg",
+              "thumb": "shots/google-chrome-en_US-1.svg",
+              "width": 1280,
+              "height": 720
+            },
+            {
+              "image": "shots/google-chrome-en_US-2.svg",
+              "thumb": "shots/google-chrome-en_US-2.svg",
+              "width": 1280,
+              "height": 720
+            }
+          ]
+        },
+        "releases": [
+          {
+            "version": "1.0.0",
+            "date": "2026-10-30",
+            "notes": {
+              "zh_CN": [
+                "修复若干问题",
+                "性能改进"
+              ],
+              "en_US": [
+                "Fixed several issues",
+                "Performance improvements"
+              ]
+            }
+          },
+          {
+            "version": "0.9.0",
+            "date": "2026-07-01",
+            "notes": {
+              "zh_CN": [
+                "首个示例版本"
+              ],
+              "en_US": [
+                "First sample release"
+              ]
+            }
+          }
+        ],
+        "install_profile": {
+          "default_files": [
+            {
+              "path": "/etc/default/google-chrome",
+              "content": "repo_add_once=\"false\"\nrepo_reenable_on_distupgrade=\"false\"\n"
+            }
+          ]
+        }
+      },
+      "stats": {
+        "downloads": 18700
+      }
+    },
+    {
+      "id": "code",
+      "name": {
+        "zh_CN": "Visual Studio Code",
+        "en_US": "Visual Studio Code"
+      },
+      "summary": {
+        "zh_CN": "代码编辑器",
+        "en_US": "Code editor"
+      },
+      "icon": "icons/code.svg",
+      "categories": [
+        "dev"
+      ],
+      "source": "official",
+      "license": "LicenseRef-proprietary",
+      "proprietary": true,
+      "updated": "2026-10-27",
+      "package": {
+        "kind": "deb",
+        "name": "code",
+        "deb": {
+          "version": "1.0.0",
+          "url": "file:///usr/share/agino-store/test-debs/code.deb",
+          "vendor_url": "https://example.invalid/code",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "size": 1000000,
+          "installed_size": 5000000
+        }
+      },
+      "detail": {
+        "description": {
+          "zh_CN": [
+            "Visual Studio Code：代码编辑器。",
+            "这是示例目录中的说明文字，用于界面和测试。"
+          ],
+          "en_US": [
+            "Visual Studio Code: Code editor.",
+            "This is sample text from the test catalog, used for the UI and tests."
+          ]
+        },
+        "developer": {
+          "zh_CN": "示例开发者",
+          "en_US": "Sample Developer"
+        },
+        "homepage": "https://example.invalid/code",
+        "maintainer": null,
+        "screenshots": {
+          "zh_CN": [
+            {
+              "image": "shots/code-zh_CN-1.svg",
+              "thumb": "shots/code-zh_CN-1.svg",
+              "width": 1280,
+              "height": 720
+            },
+            {
+              "image": "shots/code-zh_CN-2.svg",
+              "thumb": "shots/code-zh_CN-2.svg",
+              "width": 1280,
+              "height": 720
+            }
+          ],
+          "en_US": [
+            {
+              "image": "shots/code-en_US-1.svg",
+              "thumb": "shots/code-en_US-1.svg",
+              "width": 1280,
+              "height": 720
+            },
+            {
+              "image": "shots/code-en_US-2.svg",
+              "thumb": "shots/code-en_US-2.svg",
+              "width": 1280,
+              "height": 720
+            }
+          ]
+        },
+        "releases": [
+          {
+            "version": "1.0.0",
+            "date": "2026-10-27",
+            "notes": {
+              "zh_CN": [
+                "修复若干问题",
+                "性能改进"
+              ],
+              "en_US": [
+                "Fixed several issues",
+                "Performance improvements"
+              ]
+            }
+          },
+          {
+            "version": "0.9.0",
+            "date": "2026-07-01",
+            "notes": {
+              "zh_CN": [
+                "首个示例版本"
+              ],
+              "en_US": [
+                "First sample release"
+              ]
+            }
+          }
+        ],
+        "install_profile": {
+          "debconf": [
+            "code code/add-microsoft-repo boolean false"
+          ]
+        }
+      },
+      "stats": {
+        "downloads": 11200
+      }
+    },
+    {
+      "id": "wechat",
+      "name": {
+        "zh_CN": "微信",
+        "en_US": "WeChat"
+      },
+      "summary": {
+        "zh_CN": "即时通讯",
+        "en_US": "Instant messaging"
+      },
+      "icon": "icons/wechat.svg",
+      "categories": [
+        "chat"
+      ],
+      "source": "official",
+      "license": "LicenseRef-proprietary",
+      "proprietary": true,
+      "updated": "2026-10-22",
+      "package": {
+        "kind": "deb",
+        "name": "wechat",
+        "deb": {
+          "version": "1.0.0",
+          "url": "file:///usr/share/agino-store/test-debs/wechat.deb",
+          "vendor_url": "https://example.invalid/wechat",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "size": 1000000,
+          "installed_size": 5000000
+        }
+      },
+      "detail": {
+        "description": {
+          "zh_CN": [
+            "微信：即时通讯。",
+            "这是示例目录中的说明文字，用于界面和测试。"
+          ],
+          "en_US": [
+            "WeChat: Instant messaging.",
+            "This is sample text from the test catalog, used for the UI and tests."
+          ]
+        },
+        "developer": {
+          "zh_CN": "示例开发者",
+          "en_US": "Sample Developer"
+        },
+        "homepage": "https://example.invalid/wechat",
+        "maintainer": null,
+        "screenshots": {
+          "zh_CN": [
+            {
+              "image": "shots/wechat-zh_CN-1.svg",
+              "thumb": "shots/wechat-zh_CN-1.svg",
+              "width": 1280,
+              "height": 720
+            },
+            {
+              "image": "shots/wechat-zh_CN-2.svg",
+              "thumb": "shots/wechat-zh_CN-2.svg",
+              "width": 1280,
+              "height": 720
+            }
+          ],
+          "en_US": [
+            {
+              "image": "shots/wechat-en_US-1.svg",
+              "thumb": "shots/wechat-en_US-1.svg",
+              "width": 1280,
+              "height": 720
+            },
+            {
+              "image": "shots/wechat-en_US-2.svg",
+              "thumb": "shots/wechat-en_US-2.svg",
+              "width": 1280,
+              "height": 720
+            }
+          ]
+        },
+        "releases": [
+          {
+            "version": "1.0.0",
+            "date": "2026-10-22",
+            "notes": {
+              "zh_CN": [
+                "修复若干问题",
+                "性能改进"
+              ],
+              "en_US": [
+                "Fixed several issues",
+                "Performance improvements"
+              ]
+            }
+          },
+          {
+            "version": "0.9.0",
+            "date": "2026-07-01",
+            "notes": {
+              "zh_CN": [
+                "首个示例版本"
+              ],
+              "en_US": [
+                "First sample release"
+              ]
+            }
+          }
+        ]
+      },
+      "stats": {
+        "downloads": 25300
+      }
+    },
+    {
+      "id": "quick-notes",
+      "name": {
+        "zh_CN": "快速笔记",
+        "en_US": "Quick Notes"
+      },
+      "summary": {
+        "zh_CN": "轻量 Markdown 笔记",
+        "en_US": "Lightweight Markdown notes"
+      },
+      "icon": "icons/quick-notes.svg",
+      "categories": [
+        "tools"
+      ],
+      "source": "personal",
+      "license": "MIT",
+      "proprietary": false,
+      "updated": "2026-10-02",
+      "package": {
+        "kind": "deb",
+        "name": "quick-notes",
+        "deb": {
+          "version": "1.0.0",
+          "url": "file:///usr/share/agino-store/test-debs/quick-notes.deb",
+          "vendor_url": "https://example.invalid/quick-notes",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "size": 1000000,
+          "installed_size": 5000000
+        }
+      },
+      "detail": {
+        "description": {
+          "zh_CN": [
+            "快速笔记：轻量 Markdown 笔记。",
+            "这是示例目录中的说明文字，用于界面和测试。"
+          ],
+          "en_US": [
+            "Quick Notes: Lightweight Markdown notes.",
+            "This is sample text from the test catalog, used for the UI and tests."
+          ]
+        },
+        "developer": {
+          "zh_CN": "示例开发者",
+          "en_US": "Sample Developer"
+        },
+        "homepage": "https://example.invalid/quick-notes",
+        "maintainer": "Sample Maintainer <maintainer@example.invalid>",
+        "screenshots": {
+          "zh_CN": [
+            {
+              "image": "shots/quick-notes-zh_CN-1.svg",
+              "thumb": "shots/quick-notes-zh_CN-1.svg",
+              "width": 1280,
+              "height": 720
+            },
+            {
+              "image": "shots/quick-notes-zh_CN-2.svg",
+              "thumb": "shots/quick-notes-zh_CN-2.svg",
+              "width": 1280,
+              "height": 720
+            }
+          ],
+          "en_US": [
+            {
+              "image": "shots/quick-notes-en_US-1.svg",
+              "thumb": "shots/quick-notes-en_US-1.svg",
+              "width": 1280,
+              "height": 720
+            },
+            {
+              "image": "shots/quick-notes-en_US-2.svg",
+              "thumb": "shots/quick-notes-en_US-2.svg",
+              "width": 1280,
+              "height": 720
+            }
+          ]
+        },
+        "releases": [
+          {
+            "version": "1.0.0",
+            "date": "2026-10-02",
+            "notes": {
+              "zh_CN": [
+                "修复若干问题",
+                "性能改进"
+              ],
+              "en_US": [
+                "Fixed several issues",
+                "Performance improvements"
+              ]
+            }
+          },
+          {
+            "version": "0.9.0",
+            "date": "2026-07-01",
+            "notes": {
+              "zh_CN": [
+                "首个示例版本"
+              ],
+              "en_US": [
+                "First sample release"
+              ]
+            }
+          }
+        ]
+      },
+      "stats": {
+        "downloads": 800
+      }
+    },
+    {
+      "id": "pixel-forge",
+      "name": {
+        "zh_CN": "像素工坊",
+        "en_US": "Pixel Forge"
+      },
+      "summary": {
+        "zh_CN": "像素画编辑器",
+        "en_US": "Pixel art editor"
+      },
+      "icon": "icons/pixel-forge.svg",
+      "categories": [
+        "graphics"
+      ],
+      "source": "personal",
+      "license": "GPL-3.0-or-later",
+      "proprietary": false,
+      "updated": "2026-09-12",
+      "package": {
+        "kind": "deb",
+        "name": "pixel-forge",
+        "deb": {
+          "version": "1.0.0",
+          "url": "file:///usr/share/agino-store/test-debs/pixel-forge.deb",
+          "vendor_url": "https://example.invalid/pixel-forge",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "size": 1000000,
+          "installed_size": 5000000
+        }
+      },
+      "detail": {
+        "description": {
+          "zh_CN": [
+            "像素工坊：像素画编辑器。",
+            "这是示例目录中的说明文字，用于界面和测试。"
+          ],
+          "en_US": [
+            "Pixel Forge: Pixel art editor.",
+            "This is sample text from the test catalog, used for the UI and tests."
+          ]
+        },
+        "developer": {
+          "zh_CN": "示例开发者",
+          "en_US": "Sample Developer"
+        },
+        "homepage": "https://example.invalid/pixel-forge",
+        "maintainer": "Sample Maintainer <maintainer@example.invalid>",
+        "screenshots": {
+          "zh_CN": [
+            {
+              "image": "shots/pixel-forge-zh_CN-1.svg",
+              "thumb": "shots/pixel-forge-zh_CN-1.svg",
+              "width": 1280,
+              "height": 720
+            },
+            {
+              "image": "shots/pixel-forge-zh_CN-2.svg",
+              "thumb": "shots/pixel-forge-zh_CN-2.svg",
+              "width": 1280,
+              "height": 720
+            }
+          ],
+          "en_US": [
+            {
+              "image": "shots/pixel-forge-en_US-1.svg",
+              "thumb": "shots/pixel-forge-en_US-1.svg",
+              "width": 1280,
+              "height": 720
+            },
+            {
+              "image": "shots/pixel-forge-en_US-2.svg",
+              "thumb": "shots/pixel-forge-en_US-2.svg",
+              "width": 1280,
+              "height": 720
+            }
+          ]
+        },
+        "releases": [
+          {
+            "version": "1.0.0",
+            "date": "2026-09-12",
+            "notes": {
+              "zh_CN": [
+                "修复若干问题",
+                "性能改进"
+              ],
+              "en_US": [
+                "Fixed several issues",
+                "Performance improvements"
+              ]
+            }
+          },
+          {
+            "version": "0.9.0",
+            "date": "2026-07-01",
+            "notes": {
+              "zh_CN": [
+                "首个示例版本"
+              ],
+              "en_US": [
+                "First sample release"
+              ]
+            }
+          }
+        ]
+      },
+      "stats": {
+        "downloads": 650
+      }
+    },
+    {
+      "id": "tg-lite",
+      "name": {
+        "zh_CN": "轻聊",
+        "en_US": "TG Lite"
+      },
+      "summary": {
+        "zh_CN": "轻量聊天客户端",
+        "en_US": "Lightweight chat client"
+      },
+      "icon": "icons/tg-lite.svg",
+      "categories": [
+        "chat"
+      ],
+      "source": "personal",
+      "license": "Apache-2.0",
+      "proprietary": false,
+      "updated": "2026-10-09",
+      "package": {
+        "kind": "deb",
+        "name": "tg-lite",
+        "deb": {
+          "version": "1.0.0",
+          "url": "file:///usr/share/agino-store/test-debs/tg-lite.deb",
+          "vendor_url": "https://example.invalid/tg-lite",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "size": 1000000,
+          "installed_size": 5000000
+        }
+      },
+      "detail": {
+        "description": {
+          "zh_CN": [
+            "轻聊：轻量聊天客户端。",
+            "这是示例目录中的说明文字，用于界面和测试。"
+          ],
+          "en_US": [
+            "TG Lite: Lightweight chat client.",
+            "This is sample text from the test catalog, used for the UI and tests."
+          ]
+        },
+        "developer": {
+          "zh_CN": "示例开发者",
+          "en_US": "Sample Developer"
+        },
+        "homepage": "https://example.invalid/tg-lite",
+        "maintainer": "Sample Maintainer <maintainer@example.invalid>",
+        "screenshots": {
+          "zh_CN": [
+            {
+              "image": "shots/tg-lite-zh_CN-1.svg",
+              "thumb": "shots/tg-lite-zh_CN-1.svg",
+              "width": 1280,
+              "height": 720
+            },
+            {
+              "image": "shots/tg-lite-zh_CN-2.svg",
+              "thumb": "shots/tg-lite-zh_CN-2.svg",
+              "width": 1280,
+              "height": 720
+            }
+          ],
+          "en_US": [
+            {
+              "image": "shots/tg-lite-en_US-1.svg",
+              "thumb": "shots/tg-lite-en_US-1.svg",
+              "width": 1280,
+              "height": 720
+            },
+            {
+              "image": "shots/tg-lite-en_US-2.svg",
+              "thumb": "shots/tg-lite-en_US-2.svg",
+              "width": 1280,
+              "height": 720
+            }
+          ]
+        },
+        "releases": [
+          {
+            "version": "1.0.0",
+            "date": "2026-10-09",
+            "notes": {
+              "zh_CN": [
+                "修复若干问题",
+                "性能改进"
+              ],
+              "en_US": [
+                "Fixed several issues",
+                "Performance improvements"
+              ]
+            }
+          },
+          {
+            "version": "0.9.0",
+            "date": "2026-07-01",
+            "notes": {
+              "zh_CN": [
+                "首个示例版本"
+              ],
+              "en_US": [
+                "First sample release"
+              ]
+            }
+          }
+        ]
+      },
+      "stats": {
+        "downloads": 420
+      }
+    },
+    {
+      "id": "hex-peek",
+      "name": {
+        "zh_CN": "十六进制查看器",
+        "en_US": "Hex Peek"
+      },
+      "summary": {
+        "zh_CN": "二进制文件查看器",
+        "en_US": "Binary file viewer"
+      },
+      "icon": "icons/hex-peek.svg",
+      "categories": [
+        "dev"
+      ],
+      "source": "personal",
+      "license": "MIT",
+      "proprietary": false,
+      "updated": "2026-08-30",
+      "package": {
+        "kind": "deb",
+        "name": "hex-peek",
+        "deb": {
+          "version": "1.0.0",
+          "url": "file:///usr/share/agino-store/test-debs/hex-peek.deb",
+          "vendor_url": "https://example.invalid/hex-peek",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "size": 1000000,
+          "installed_size": 5000000
+        }
+      },
+      "detail": {
+        "description": {
+          "zh_CN": [
+            "十六进制查看器：二进制文件查看器。",
+            "这是示例目录中的说明文字，用于界面和测试。"
+          ],
+          "en_US": [
+            "Hex Peek: Binary file viewer.",
+            "This is sample text from the test catalog, used for the UI and tests."
+          ]
+        },
+        "developer": {
+          "zh_CN": "示例开发者",
+          "en_US": "Sample Developer"
+        },
+        "homepage": "https://example.invalid/hex-peek",
+        "maintainer": "Sample Maintainer <maintainer@example.invalid>",
+        "screenshots": {
+          "zh_CN": [
+            {
+              "image": "shots/hex-peek-zh_CN-1.svg",
+              "thumb": "shots/hex-peek-zh_CN-1.svg",
+              "width": 1280,
+              "height": 720
+            },
+            {
+              "image": "shots/hex-peek-zh_CN-2.svg",
+              "thumb": "shots/hex-peek-zh_CN-2.svg",
+              "width": 1280,
+              "height": 720
+            }
+          ],
+          "en_US": [
+            {
+              "image": "shots/hex-peek-en_US-1.svg",
+              "thumb": "shots/hex-peek-en_US-1.svg",
+              "width": 1280,
+              "height": 720
+            },
+            {
+              "image": "shots/hex-peek-en_US-2.svg",
+              "thumb": "shots/hex-peek-en_US-2.svg",
+              "width": 1280,
+              "height": 720
+            }
+          ]
+        },
+        "releases": [
+          {
+            "version": "1.0.0",
+            "date": "2026-08-30",
+            "notes": {
+              "zh_CN": [
+                "修复若干问题",
+                "性能改进"
+              ],
+              "en_US": [
+                "Fixed several issues",
+                "Performance improvements"
+              ]
+            }
+          },
+          {
+            "version": "0.9.0",
+            "date": "2026-07-01",
+            "notes": {
+              "zh_CN": [
+                "首个示例版本"
+              ],
+              "en_US": [
+                "First sample release"
+              ]
+            }
+          }
+        ]
+      },
+      "stats": {
+        "downloads": 310
+      }
+    }
+  ]
+}

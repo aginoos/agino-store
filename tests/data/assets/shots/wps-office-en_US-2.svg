@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <rect width="1280" height="720" fill="#e9ecef"/>
+  <rect x="40" y="30" width="1200" height="660" rx="14" fill="#ffffff" stroke="#c4c9cf"/>
+  <rect x="40" y="30" width="1200" height="48" rx="14" fill="#f3f4f6"/>
+  <circle cx="68" cy="54" r="7" fill="#ff5f57"/><circle cx="92" cy="54" r="7" fill="#febc2e"/><circle cx="116" cy="54" r="7" fill="#28c840"/>
+  <g transform="translate(120,16)"><text x="24" y="62" font-family="sans-serif" font-size="20" fill="#333">File</text><text x="114" y="62" font-family="sans-serif" font-size="20" fill="#333">Edit</text><text x="204" y="62" font-family="sans-serif" font-size="20" fill="#333">View</text><text x="294" y="62" font-family="sans-serif" font-size="20" fill="#333">Help</text></g>
+  <rect x="60" y="110" width="220" height="560" rx="8" fill="#8e4ec6" opacity="0.18"/>
+  <rect x="300" y="110" width="920" height="560" rx="8" fill="#8e4ec6" opacity="0.08"/>
+  <text x="760" y="330" font-family="sans-serif" font-size="44" fill="#8e4ec6" text-anchor="middle">WPS Office</text>
+  <text x="760" y="390" font-family="sans-serif" font-size="26" fill="#555" text-anchor="middle">Sample view 2 - Sample content</text>
+</svg>

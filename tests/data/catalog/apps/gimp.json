@@ -1,0 +1,77 @@
+{
+  "id": "gimp",
+  "description": {
+    "zh_CN": [
+      "GIMP：图像编辑器。",
+      "这是示例目录中的说明文字，用于界面和测试。"
+    ],
+    "en_US": [
+      "GIMP: Image editor.",
+      "This is sample text from the test catalog, used for the UI and tests."
+    ]
+  },
+  "developer": {
+    "zh_CN": "示例开发者",
+    "en_US": "Sample Developer"
+  },
+  "homepage": "https://example.invalid/gimp",
+  "maintainer": null,
+  "screenshots": {
+    "zh_CN": [
+      {
+        "image": "assets/91fbf5d8d95e9deb0caf54d80c10a75da1b685fddf74d0e5b82ae98ce3d6578a.svg",
+        "thumb": "assets/91fbf5d8d95e9deb0caf54d80c10a75da1b685fddf74d0e5b82ae98ce3d6578a.svg",
+        "width": 1280,
+        "height": 720
+      },
+      {
+        "image": "assets/047461558300e674c2312cd3a3f8537332c0fb7632e0a1d452d8af8f40cd8f92.svg",
+        "thumb": "assets/047461558300e674c2312cd3a3f8537332c0fb7632e0a1d452d8af8f40cd8f92.svg",
+        "width": 1280,
+        "height": 720
+      }
+    ],
+    "en_US": [
+      {
+        "image": "assets/5bae1c76d100e72e783a2f49a1c6c83d3193ab859a3a9376f3e11defd5679dae.svg",
+        "thumb": "assets/5bae1c76d100e72e783a2f49a1c6c83d3193ab859a3a9376f3e11defd5679dae.svg",
+        "width": 1280,
+        "height": 720
+      },
+      {
+        "image": "assets/47aa3c5eb9d22b9923e4bfafea6fe8956baf56d9fe1be213f7371bb9f7036c99.svg",
+        "thumb": "assets/47aa3c5eb9d22b9923e4bfafea6fe8956baf56d9fe1be213f7371bb9f7036c99.svg",
+        "width": 1280,
+        "height": 720
+      }
+    ]
+  },
+  "releases": [
+    {
+      "version": "1.0.0",
+      "date": "2026-10-12",
+      "notes": {
+        "zh_CN": [
+          "修复若干问题",
+          "性能改进"
+        ],
+        "en_US": [
+          "Fixed several issues",
+          "Performance improvements"
+        ]
+      }
+    },
+    {
+      "version": "0.9.0",
+      "date": "2026-07-01",
+      "notes": {
+        "zh_CN": [
+          "首个示例版本"
+        ],
+        "en_US": [
+          "First sample release"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,77 @@
+{
+  "id": "supertuxkart",
+  "description": {
+    "zh_CN": [
+      "SuperTuxKart：卡通赛车游戏。",
+      "这是示例目录中的说明文字，用于界面和测试。"
+    ],
+    "en_US": [
+      "SuperTuxKart: Cartoon kart racing.",
+      "This is sample text from the test catalog, used for the UI and tests."
+    ]
+  },
+  "developer": {
+    "zh_CN": "示例开发者",
+    "en_US": "Sample Developer"
+  },
+  "homepage": "https://example.invalid/supertuxkart",
+  "maintainer": null,
+  "screenshots": {
+    "zh_CN": [
+      {
+        "image": "assets/85afb329a824c44d4e73f7f35532f7cc39e7415249b550ee74c7519383ef3512.svg",
+        "thumb": "assets/85afb329a824c44d4e73f7f35532f7cc39e7415249b550ee74c7519383ef3512.svg",
+        "width": 1280,
+        "height": 720
+      },
+      {
+        "image": "assets/80da53eb1c94bd12480cc90785d20cbce3f8ce30c2f5bfd5688fa0ada0324ee2.svg",
+        "thumb": "assets/80da53eb1c94bd12480cc90785d20cbce3f8ce30c2f5bfd5688fa0ada0324ee2.svg",
+        "width": 1280,
+        "height": 720
+      }
+    ],
+    "en_US": [
+      {
+        "image": "assets/0a85c44c96d42f94e1ea64df1bcbd29ed9866f9d31c8723c697c99808eaf58e5.svg",
+        "thumb": "assets/0a85c44c96d42f94e1ea64df1bcbd29ed9866f9d31c8723c697c99808eaf58e5.svg",
+        "width": 1280,
+        "height": 720
+      },
+      {
+        "image": "assets/dc812d6ce5eeb686ed5954afad12260a2880846e8e48b41fd8729d7c29695612.svg",
+        "thumb": "assets/dc812d6ce5eeb686ed5954afad12260a2880846e8e48b41fd8729d7c29695612.svg",
+        "width": 1280,
+        "height": 720
+      }
+    ]
+  },
+  "releases": [
+    {
+      "version": "1.0.0",
+      "date": "2026-08-22",
+      "notes": {
+        "zh_CN": [
+          "修复若干问题",
+          "性能改进"
+        ],
+        "en_US": [
+          "Fixed several issues",
+          "Performance improvements"
+        ]
+      }
+    },
+    {
+      "version": "0.9.0",
+      "date": "2026-07-01",
+      "notes": {
+        "zh_CN": [
+          "首个示例版本"
+        ],
+        "en_US": [
+          "First sample release"
+        ]
+      }
+    }
+  ]
+}

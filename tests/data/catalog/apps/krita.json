@@ -1,0 +1,77 @@
+{
+  "id": "krita",
+  "description": {
+    "zh_CN": [
+      "Krita：数字绘画。",
+      "这是示例目录中的说明文字，用于界面和测试。"
+    ],
+    "en_US": [
+      "Krita: Digital painting.",
+      "This is sample text from the test catalog, used for the UI and tests."
+    ]
+  },
+  "developer": {
+    "zh_CN": "示例开发者",
+    "en_US": "Sample Developer"
+  },
+  "homepage": "https://example.invalid/krita",
+  "maintainer": null,
+  "screenshots": {
+    "zh_CN": [
+      {
+        "image": "assets/6e9c0caff49229e25a65d8a05d2f434d29faa9815a152d491268422fea0ebaa1.svg",
+        "thumb": "assets/6e9c0caff49229e25a65d8a05d2f434d29faa9815a152d491268422fea0ebaa1.svg",
+        "width": 1280,
+        "height": 720
+      },
+      {
+        "image": "assets/277c1933b87877102fcd3a3216a93ecd0016811cae501deb07618bc410860b7c.svg",
+        "thumb": "assets/277c1933b87877102fcd3a3216a93ecd0016811cae501deb07618bc410860b7c.svg",
+        "width": 1280,
+        "height": 720
+      }
+    ],
+    "en_US": [
+      {
+        "image": "assets/22654cdb7748d98c90361e04549c32ae3272689628ad6748d5e7a2203220f6b2.svg",
+        "thumb": "assets/22654cdb7748d98c90361e04549c32ae3272689628ad6748d5e7a2203220f6b2.svg",
+        "width": 1280,
+        "height": 720
+      },
+      {
+        "image": "assets/acf4d636871649073f01def96355d72eeb11d188031ef92b3c380427eeebe0c2.svg",
+        "thumb": "assets/acf4d636871649073f01def96355d72eeb11d188031ef92b3c380427eeebe0c2.svg",
+        "width": 1280,
+        "height": 720
+      }
+    ]
+  },
+  "releases": [
+    {
+      "version": "1.0.0",
+      "date": "2026-09-30",
+      "notes": {
+        "zh_CN": [
+          "修复若干问题",
+          "性能改进"
+        ],
+        "en_US": [
+          "Fixed several issues",
+          "Performance improvements"
+        ]
+      }
+    },
+    {
+      "version": "0.9.0",
+      "date": "2026-07-01",
+      "notes": {
+        "zh_CN": [
+          "首个示例版本"
+        ],
+        "en_US": [
+          "First sample release"
+        ]
+      }
+    }
+  ]
+}

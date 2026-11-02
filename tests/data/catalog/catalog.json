@@ -1,0 +1,597 @@
+{
+  "schema": 1,
+  "categories": [
+    {
+      "id": "office",
+      "name": {
+        "zh_CN": "办公",
+        "en_US": "Office"
+      },
+      "order": 1
+    },
+    {
+      "id": "chat",
+      "name": {
+        "zh_CN": "聊天",
+        "en_US": "Chat"
+      },
+      "order": 2
+    },
+    {
+      "id": "web",
+      "name": {
+        "zh_CN": "网络",
+        "en_US": "Web"
+      },
+      "order": 3
+    },
+    {
+      "id": "dev",
+      "name": {
+        "zh_CN": "开发",
+        "en_US": "Development"
+      },
+      "order": 4
+    },
+    {
+      "id": "media",
+      "name": {
+        "zh_CN": "影音",
+        "en_US": "Media"
+      },
+      "order": 5
+    },
+    {
+      "id": "graphics",
+      "name": {
+        "zh_CN": "图形",
+        "en_US": "Graphics"
+      },
+      "order": 6
+    },
+    {
+      "id": "games",
+      "name": {
+        "zh_CN": "游戏",
+        "en_US": "Games"
+      },
+      "order": 7
+    },
+    {
+      "id": "tools",
+      "name": {
+        "zh_CN": "工具",
+        "en_US": "Tools"
+      },
+      "order": 8
+    }
+  ],
+  "featured": [
+    {
+      "id": "spotlight-office",
+      "title": {
+        "zh_CN": "高效办公",
+        "en_US": "Get things done"
+      },
+      "subtitle": {
+        "zh_CN": "办公软件精选",
+        "en_US": "Office picks"
+      },
+      "apps": [
+        "wps-office",
+        "libreoffice"
+      ],
+      "banner": true
+    },
+    {
+      "id": "spotlight-create",
+      "title": {
+        "zh_CN": "创作工具",
+        "en_US": "Create"
+      },
+      "subtitle": {
+        "zh_CN": "绘画与设计",
+        "en_US": "Paint and design"
+      },
+      "apps": [
+        "krita",
+        "inkscape",
+        "gimp"
+      ],
+      "banner": true
+    },
+    {
+      "id": "essentials",
+      "title": {
+        "zh_CN": "装机必备",
+        "en_US": "Essentials"
+      },
+      "subtitle": {
+        "zh_CN": "新系统常用软件",
+        "en_US": "Common apps for a new system"
+      },
+      "apps": [
+        "firefox-esr",
+        "wps-office",
+        "wechat",
+        "vlc",
+        "keepassxc"
+      ],
+      "banner": false
+    }
+  ],
+  "apps": [
+    {
+      "id": "gimp",
+      "name": {
+        "zh_CN": "GIMP",
+        "en_US": "GIMP"
+      },
+      "summary": {
+        "zh_CN": "图像编辑器",
+        "en_US": "Image editor"
+      },
+      "icon": "assets/4dd639e0a996caf025907b36befcada98e108932a59e7cd65625168172a0a632.svg",
+      "categories": [
+        "graphics"
+      ],
+      "source": "system",
+      "license": "GPL-3.0-or-later",
+      "proprietary": false,
+      "updated": "2026-10-12",
+      "package": {
+        "kind": "milkyway",
+        "name": "gimp"
+      },
+      "detail": "apps/gimp.json"
+    },
+    {
+      "id": "vlc",
+      "name": {
+        "zh_CN": "VLC 播放器",
+        "en_US": "VLC media player"
+      },
+      "summary": {
+        "zh_CN": "全能媒体播放器",
+        "en_US": "Plays almost any media"
+      },
+      "icon": "assets/26254849ea12d7748835ce8438de85ab49a537a5570a77c56ad17a606d492375.svg",
+      "categories": [
+        "media"
+      ],
+      "source": "system",
+      "license": "GPL-2.0-or-later",
+      "proprietary": false,
+      "updated": "2026-10-20",
+      "package": {
+        "kind": "milkyway",
+        "name": "vlc"
+      },
+      "detail": "apps/vlc.json"
+    },
+    {
+      "id": "libreoffice",
+      "name": {
+        "zh_CN": "LibreOffice",
+        "en_US": "LibreOffice"
+      },
+      "summary": {
+        "zh_CN": "完整的办公套件",
+        "en_US": "Complete office suite"
+      },
+      "icon": "assets/1efde11a72c7bd82e3fa44bed15b86063d830b95362f6c6b9df4338d27ebe04d.svg",
+      "categories": [
+        "office"
+      ],
+      "source": "system",
+      "license": "MPL-2.0",
+      "proprietary": false,
+      "updated": "2026-10-25",
+      "package": {
+        "kind": "milkyway",
+        "name": "libreoffice"
+      },
+      "detail": "apps/libreoffice.json"
+    },
+    {
+      "id": "firefox-esr",
+      "name": {
+        "zh_CN": "Firefox ESR",
+        "en_US": "Firefox ESR"
+      },
+      "summary": {
+        "zh_CN": "网页浏览器（长期支持版）",
+        "en_US": "Web browser (extended support)"
+      },
+      "icon": "assets/be8fc0ff0b1b98eb0d1920dc35a4cd2a09ba1bb62c63a26919bdc4a2c4ffb143.svg",
+      "categories": [
+        "web"
+      ],
+      "source": "system",
+      "license": "MPL-2.0",
+      "proprietary": false,
+      "updated": "2026-10-28",
+      "package": {
+        "kind": "milkyway",
+        "name": "firefox-esr"
+      },
+      "detail": "apps/firefox-esr.json"
+    },
+    {
+      "id": "krita",
+      "name": {
+        "zh_CN": "Krita",
+        "en_US": "Krita"
+      },
+      "summary": {
+        "zh_CN": "数字绘画",
+        "en_US": "Digital painting"
+      },
+      "icon": "assets/d44c57732a634827ecc467c43d970e47dc6a9e406e82ed5aa37586ebfd75ec96.svg",
+      "categories": [
+        "graphics"
+      ],
+      "source": "system",
+      "license": "GPL-3.0-or-later",
+      "proprietary": false,
+      "updated": "2026-09-30",
+      "package": {
+        "kind": "milkyway",
+        "name": "krita"
+      },
+      "detail": "apps/krita.json"
+    },
+    {
+      "id": "inkscape",
+      "name": {
+        "zh_CN": "Inkscape",
+        "en_US": "Inkscape"
+      },
+      "summary": {
+        "zh_CN": "矢量图形编辑器",
+        "en_US": "Vector graphics editor"
+      },
+      "icon": "assets/7c640346f9270c5f7929c04811a1bdb595fd6cf72fa5fc94c47ed8f4df4a408a.svg",
+      "categories": [
+        "graphics"
+      ],
+      "source": "system",
+      "license": "GPL-3.0-or-later",
+      "proprietary": false,
+      "updated": "2026-09-18",
+      "package": {
+        "kind": "milkyway",
+        "name": "inkscape"
+      },
+      "detail": "apps/inkscape.json"
+    },
+    {
+      "id": "obs-studio",
+      "name": {
+        "zh_CN": "OBS Studio",
+        "en_US": "OBS Studio"
+      },
+      "summary": {
+        "zh_CN": "录屏和直播",
+        "en_US": "Screen recording and streaming"
+      },
+      "icon": "assets/00a78abc35604cffe972e141d1359c9024c831f880eb3f386631d517a3a2d6f1.svg",
+      "categories": [
+        "media"
+      ],
+      "source": "system",
+      "license": "GPL-2.0-or-later",
+      "proprietary": false,
+      "updated": "2026-10-05",
+      "package": {
+        "kind": "milkyway",
+        "name": "obs-studio"
+      },
+      "detail": "apps/obs-studio.json"
+    },
+    {
+      "id": "keepassxc",
+      "name": {
+        "zh_CN": "KeePassXC",
+        "en_US": "KeePassXC"
+      },
+      "summary": {
+        "zh_CN": "本地密码管理器",
+        "en_US": "Offline password manager"
+      },
+      "icon": "assets/885e1f26f7c575e643c89f2f8d7b4e5ef3365d90d9af2fb0b82a147b9ae0724d.svg",
+      "categories": [
+        "tools"
+      ],
+      "source": "system",
+      "license": "GPL-3.0-or-later",
+      "proprietary": false,
+      "updated": "2026-10-14",
+      "package": {
+        "kind": "milkyway",
+        "name": "keepassxc"
+      },
+      "detail": "apps/keepassxc.json"
+    },
+    {
+      "id": "supertuxkart",
+      "name": {
+        "zh_CN": "SuperTuxKart",
+        "en_US": "SuperTuxKart"
+      },
+      "summary": {
+        "zh_CN": "卡通赛车游戏",
+        "en_US": "Cartoon kart racing"
+      },
+      "icon": "assets/7db60bbcc10e2b143126b188935bc83ea80b7b1a0de51a3048c00f9a9ddf5da1.svg",
+      "categories": [
+        "games"
+      ],
+      "source": "system",
+      "license": "GPL-3.0-or-later",
+      "proprietary": false,
+      "updated": "2026-08-22",
+      "package": {
+        "kind": "milkyway",
+        "name": "supertuxkart"
+      },
+      "detail": "apps/supertuxkart.json"
+    },
+    {
+      "id": "wps-office",
+      "name": {
+        "zh_CN": "WPS Office",
+        "en_US": "WPS Office"
+      },
+      "summary": {
+        "zh_CN": "办公套件",
+        "en_US": "Office suite"
+      },
+      "icon": "assets/c292eca131fe477f7a0f9adf54eb62bb5ffcf048f7ef4ac78f1840e9b43081ce.svg",
+      "categories": [
+        "office"
+      ],
+      "source": "official",
+      "license": "LicenseRef-proprietary",
+      "proprietary": true,
+      "updated": "2026-10-28",
+      "package": {
+        "kind": "deb",
+        "name": "wps-office",
+        "deb": {
+          "version": "1.0.0",
+          "url": "file:///usr/share/agino-store/test-debs/wps-office.deb",
+          "vendor_url": "https://example.invalid/wps-office",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "size": 1000000,
+          "installed_size": 5000000
+        }
+      },
+      "detail": "apps/wps-office.json"
+    },
+    {
+      "id": "google-chrome",
+      "name": {
+        "zh_CN": "Google Chrome",
+        "en_US": "Google Chrome"
+      },
+      "summary": {
+        "zh_CN": "网页浏览器",
+        "en_US": "Web browser"
+      },
+      "icon": "assets/2493e53c13180e4f9e765381ca25a0beaa16ca2bff3c50a2315ebcd24480c49c.svg",
+      "categories": [
+        "web"
+      ],
+      "source": "official",
+      "license": "LicenseRef-proprietary",
+      "proprietary": true,
+      "updated": "2026-10-30",
+      "package": {
+        "kind": "deb",
+        "name": "google-chrome",
+        "deb": {
+          "version": "1.0.0",
+          "url": "file:///usr/share/agino-store/test-debs/google-chrome.deb",
+          "vendor_url": "https://example.invalid/google-chrome",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "size": 1000000,
+          "installed_size": 5000000
+        }
+      },
+      "detail": "apps/google-chrome.json"
+    },
+    {
+      "id": "code",
+      "name": {
+        "zh_CN": "Visual Studio Code",
+        "en_US": "Visual Studio Code"
+      },
+      "summary": {
+        "zh_CN": "代码编辑器",
+        "en_US": "Code editor"
+      },
+      "icon": "assets/ba4449cb5b569f28a988cb0eb42a54939a5b5cea3c6e85bad9dfdc0e6420c33a.svg",
+      "categories": [
+        "dev"
+      ],
+      "source": "official",
+      "license": "LicenseRef-proprietary",
+      "proprietary": true,
+      "updated": "2026-10-27",
+      "package": {
+        "kind": "deb",
+        "name": "code",
+        "deb": {
+          "version": "1.0.0",
+          "url": "file:///usr/share/agino-store/test-debs/code.deb",
+          "vendor_url": "https://example.invalid/code",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "size": 1000000,
+          "installed_size": 5000000
+        }
+      },
+      "detail": "apps/code.json"
+    },
+    {
+      "id": "wechat",
+      "name": {
+        "zh_CN": "微信",
+        "en_US": "WeChat"
+      },
+      "summary": {
+        "zh_CN": "即时通讯",
+        "en_US": "Instant messaging"
+      },
+      "icon": "assets/0354c2aeae2b7bbe3737992bb3b32332cb2e4c7207477bd7f178a41beec3eba2.svg",
+      "categories": [
+        "chat"
+      ],
+      "source": "official",
+      "license": "LicenseRef-proprietary",
+      "proprietary": true,
+      "updated": "2026-10-22",
+      "package": {
+        "kind": "deb",
+        "name": "wechat",
+        "deb": {
+          "version": "1.0.0",
+          "url": "file:///usr/share/agino-store/test-debs/wechat.deb",
+          "vendor_url": "https://example.invalid/wechat",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "size": 1000000,
+          "installed_size": 5000000
+        }
+      },
+      "detail": "apps/wechat.json"
+    },
+    {
+      "id": "quick-notes",
+      "name": {
+        "zh_CN": "快速笔记",
+        "en_US": "Quick Notes"
+      },
+      "summary": {
+        "zh_CN": "轻量 Markdown 笔记",
+        "en_US": "Lightweight Markdown notes"
+      },
+      "icon": "assets/4ea554ee0ff329fb9ceffaaee83923a9574097ba39cf6ac5ae5d96b8d82b3587.svg",
+      "categories": [
+        "tools"
+      ],
+      "source": "personal",
+      "license": "MIT",
+      "proprietary": false,
+      "updated": "2026-10-02",
+      "package": {
+        "kind": "deb",
+        "name": "quick-notes",
+        "deb": {
+          "version": "1.0.0",
+          "url": "file:///usr/share/agino-store/test-debs/quick-notes.deb",
+          "vendor_url": "https://example.invalid/quick-notes",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "size": 1000000,
+          "installed_size": 5000000
+        }
+      },
+      "detail": "apps/quick-notes.json"
+    },
+    {
+      "id": "pixel-forge",
+      "name": {
+        "zh_CN": "像素工坊",
+        "en_US": "Pixel Forge"
+      },
+      "summary": {
+        "zh_CN": "像素画编辑器",
+        "en_US": "Pixel art editor"
+      },
+      "icon": "assets/019dd9ebdb8be91b231818a15c4b17de0b80984e8a7638555358daaffe55ecbd.svg",
+      "categories": [
+        "graphics"
+      ],
+      "source": "personal",
+      "license": "GPL-3.0-or-later",
+      "proprietary": false,
+      "updated": "2026-09-12",
+      "package": {
+        "kind": "deb",
+        "name": "pixel-forge",
+        "deb": {
+          "version": "1.0.0",
+          "url": "file:///usr/share/agino-store/test-debs/pixel-forge.deb",
+          "vendor_url": "https://example.invalid/pixel-forge",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "size": 1000000,
+          "installed_size": 5000000
+        }
+      },
+      "detail": "apps/pixel-forge.json"
+    },
+    {
+      "id": "tg-lite",
+      "name": {
+        "zh_CN": "轻聊",
+        "en_US": "TG Lite"
+      },
+      "summary": {
+        "zh_CN": "轻量聊天客户端",
+        "en_US": "Lightweight chat client"
+      },
+      "icon": "assets/6a6ebb49ac5e48c303cdb29e654a8bbf5165a54ed9b346824f4cf86a6f88a033.svg",
+      "categories": [
+        "chat"
+      ],
+      "source": "personal",
+      "license": "Apache-2.0",
+      "proprietary": false,
+      "updated": "2026-10-09",
+      "package": {
+        "kind": "deb",
+        "name": "tg-lite",
+        "deb": {
+          "version": "1.0.0",
+          "url": "file:///usr/share/agino-store/test-debs/tg-lite.deb",
+          "vendor_url": "https://example.invalid/tg-lite",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "size": 1000000,
+          "installed_size": 5000000
+        }
+      },
+      "detail": "apps/tg-lite.json"
+    },
+    {
+      "id": "hex-peek",
+      "name": {
+        "zh_CN": "十六进制查看器",
+        "en_US": "Hex Peek"
+      },
+      "summary": {
+        "zh_CN": "二进制文件查看器",
+        "en_US": "Binary file viewer"
+      },
+      "icon": "assets/343de9a359f663183ab0f9b549ecfeb53389cb165b003da34ea2ecffbd30d44e.svg",
+      "categories": [
+        "dev"
+      ],
+      "source": "personal",
+      "license": "MIT",
+      "proprietary": false,
+      "updated": "2026-08-30",
+      "package": {
+        "kind": "deb",
+        "name": "hex-peek",
+        "deb": {
+          "version": "1.0.0",
+          "url": "file:///usr/share/agino-store/test-debs/hex-peek.deb",
+          "vendor_url": "https://example.invalid/hex-peek",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "size": 1000000,
+          "installed_size": 5000000
+        }
+      },
+      "detail": "apps/hex-peek.json"
+    }
+  ]
+}

@@ -1,0 +1,77 @@
+{
+  "id": "wps-office",
+  "description": {
+    "zh_CN": [
+      "WPS Office：办公套件。",
+      "这是示例目录中的说明文字，用于界面和测试。"
+    ],
+    "en_US": [
+      "WPS Office: Office suite.",
+      "This is sample text from the test catalog, used for the UI and tests."
+    ]
+  },
+  "developer": {
+    "zh_CN": "示例开发者",
+    "en_US": "Sample Developer"
+  },
+  "homepage": "https://example.invalid/wps-office",
+  "maintainer": null,
+  "screenshots": {
+    "zh_CN": [
+      {
+        "image": "assets/ab0e56f1a48328dd8fdcd3d3b42853e122da27c4d3eaf80a577b5cadc70ca255.svg",
+        "thumb": "assets/ab0e56f1a48328dd8fdcd3d3b42853e122da27c4d3eaf80a577b5cadc70ca255.svg",
+        "width": 1280,
+        "height": 720
+      },
+      {
+        "image": "assets/dd371407df23d09ccbc8274f44fdd00709383df040886d0382d4ee7265b140d3.svg",
+        "thumb": "assets/dd371407df23d09ccbc8274f44fdd00709383df040886d0382d4ee7265b140d3.svg",
+        "width": 1280,
+        "height": 720
+      }
+    ],
+    "en_US": [
+      {
+        "image": "assets/390326105026098d40dbcf13438a13340105bceaa55b28b6bdaec83dd56ab29f.svg",
+        "thumb": "assets/390326105026098d40dbcf13438a13340105bceaa55b28b6bdaec83dd56ab29f.svg",
+        "width": 1280,
+        "height": 720
+      },
+      {
+        "image": "assets/76fd0e6f25bb344774e1772fc9321e34f3f80ebe2f29aadd5264ec30d9586f49.svg",
+        "thumb": "assets/76fd0e6f25bb344774e1772fc9321e34f3f80ebe2f29aadd5264ec30d9586f49.svg",
+        "width": 1280,
+        "height": 720
+      }
+    ]
+  },
+  "releases": [
+    {
+      "version": "1.0.0",
+      "date": "2026-10-28",
+      "notes": {
+        "zh_CN": [
+          "修复若干问题",
+          "性能改进"
+        ],
+        "en_US": [
+          "Fixed several issues",
+          "Performance improvements"
+        ]
+      }
+    },
+    {
+      "version": "0.9.0",
+      "date": "2026-07-01",
+      "notes": {
+        "zh_CN": [
+          "首个示例版本"
+        ],
+        "en_US": [
+          "First sample release"
+        ]
+      }
+    }
+  ]
+}

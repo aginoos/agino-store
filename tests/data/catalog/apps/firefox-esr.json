@@ -1,0 +1,77 @@
+{
+  "id": "firefox-esr",
+  "description": {
+    "zh_CN": [
+      "Firefox ESR：网页浏览器（长期支持版）。",
+      "这是示例目录中的说明文字，用于界面和测试。"
+    ],
+    "en_US": [
+      "Firefox ESR: Web browser (extended support).",
+      "This is sample text from the test catalog, used for the UI and tests."
+    ]
+  },
+  "developer": {
+    "zh_CN": "示例开发者",
+    "en_US": "Sample Developer"
+  },
+  "homepage": "https://example.invalid/firefox-esr",
+  "maintainer": null,
+  "screenshots": {
+    "zh_CN": [
+      {
+        "image": "assets/e2bd13e3dc87ade7351ca7e728ef01171924974693a31f51481c2ff6f3564ff6.svg",
+        "thumb": "assets/e2bd13e3dc87ade7351ca7e728ef01171924974693a31f51481c2ff6f3564ff6.svg",
+        "width": 1280,
+        "height": 720
+      },
+      {
+        "image": "assets/99d81d6a5e2d8f876fd61639556c60ff099767ecb6bc1c755ea819939953ed2b.svg",
+        "thumb": "assets/99d81d6a5e2d8f876fd61639556c60ff099767ecb6bc1c755ea819939953ed2b.svg",
+        "width": 1280,
+        "height": 720
+      }
+    ],
+    "en_US": [
+      {
+        "image": "assets/16465182ede1f9e8791c389603bf5b86100c0a626d8509d042ddd4e658ce7246.svg",
+        "thumb": "assets/16465182ede1f9e8791c389603bf5b86100c0a626d8509d042ddd4e658ce7246.svg",
+        "width": 1280,
+        "height": 720
+      },
+      {
+        "image": "assets/d2cc131627649cd3bb74823091c96da22bdb183990ccb1fc24b618cbb7ff1008.svg",
+        "thumb": "assets/d2cc131627649cd3bb74823091c96da22bdb183990ccb1fc24b618cbb7ff1008.svg",
+        "width": 1280,
+        "height": 720
+      }
+    ]
+  },
+  "releases": [
+    {
+      "version": "1.0.0",
+      "date": "2026-10-28",
+      "notes": {
+        "zh_CN": [
+          "修复若干问题",
+          "性能改进"
+        ],
+        "en_US": [
+          "Fixed several issues",
+          "Performance improvements"
+        ]
+      }
+    },
+    {
+      "version": "0.9.0",
+      "date": "2026-07-01",
+      "notes": {
+        "zh_CN": [
+          "首个示例版本"
+        ],
+        "en_US": [
+          "First sample release"
+        ]
+      }
+    }
+  ]
+}

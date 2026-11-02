@@ -1,0 +1,77 @@
+{
+  "id": "hex-peek",
+  "description": {
+    "zh_CN": [
+      "十六进制查看器：二进制文件查看器。",
+      "这是示例目录中的说明文字，用于界面和测试。"
+    ],
+    "en_US": [
+      "Hex Peek: Binary file viewer.",
+      "This is sample text from the test catalog, used for the UI and tests."
+    ]
+  },
+  "developer": {
+    "zh_CN": "示例开发者",
+    "en_US": "Sample Developer"
+  },
+  "homepage": "https://example.invalid/hex-peek",
+  "maintainer": "Sample Maintainer <maintainer@example.invalid>",
+  "screenshots": {
+    "zh_CN": [
+      {
+        "image": "assets/15f1f78583017b338663d94644e69f968a240af5ff012f01a16347fbd0cacac6.svg",
+        "thumb": "assets/15f1f78583017b338663d94644e69f968a240af5ff012f01a16347fbd0cacac6.svg",
+        "width": 1280,
+        "height": 720
+      },
+      {
+        "image": "assets/dbb7e27845d6531ecf6cc2d7a918bc8175371bc7f58869a210f3033d6d1c98c2.svg",
+        "thumb": "assets/dbb7e27845d6531ecf6cc2d7a918bc8175371bc7f58869a210f3033d6d1c98c2.svg",
+        "width": 1280,
+        "height": 720
+      }
+    ],
+    "en_US": [
+      {
+        "image": "assets/03f6287cbcb91fa263ed245badb091526e061fc6b7bbb65f1b921a62a90fc9e8.svg",
+        "thumb": "assets/03f6287cbcb91fa263ed245badb091526e061fc6b7bbb65f1b921a62a90fc9e8.svg",
+        "width": 1280,
+        "height": 720
+      },
+      {
+        "image": "assets/3be6086c6eccd38f32cc94f5caeb6999206cf733ab631be4bdf6a79d7db39e35.svg",
+        "thumb": "assets/3be6086c6eccd38f32cc94f5caeb6999206cf733ab631be4bdf6a79d7db39e35.svg",
+        "width": 1280,
+        "height": 720
+      }
+    ]
+  },
+  "releases": [
+    {
+      "version": "1.0.0",
+      "date": "2026-08-30",
+      "notes": {
+        "zh_CN": [
+          "修复若干问题",
+          "性能改进"
+        ],
+        "en_US": [
+          "Fixed several issues",
+          "Performance improvements"
+        ]
+      }
+    },
+    {
+      "version": "0.9.0",
+      "date": "2026-07-01",
+      "notes": {
+        "zh_CN": [
+          "首个示例版本"
+        ],
+        "en_US": [
+          "First sample release"
+        ]
+      }
+    }
+  ]
+}

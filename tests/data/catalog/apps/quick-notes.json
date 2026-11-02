@@ -1,0 +1,77 @@
+{
+  "id": "quick-notes",
+  "description": {
+    "zh_CN": [
+      "快速笔记：轻量 Markdown 笔记。",
+      "这是示例目录中的说明文字，用于界面和测试。"
+    ],
+    "en_US": [
+      "Quick Notes: Lightweight Markdown notes.",
+      "This is sample text from the test catalog, used for the UI and tests."
+    ]
+  },
+  "developer": {
+    "zh_CN": "示例开发者",
+    "en_US": "Sample Developer"
+  },
+  "homepage": "https://example.invalid/quick-notes",
+  "maintainer": "Sample Maintainer <maintainer@example.invalid>",
+  "screenshots": {
+    "zh_CN": [
+      {
+        "image": "assets/d3997b50328935c1ee0ab1e29e44ad791fa123b2e5f7905ab511e6583b0daacb.svg",
+        "thumb": "assets/d3997b50328935c1ee0ab1e29e44ad791fa123b2e5f7905ab511e6583b0daacb.svg",
+        "width": 1280,
+        "height": 720
+      },
+      {
+        "image": "assets/3709f864cbb8076e3ff7a6e8a485c21624b6864d3bae202ebfeeb34e061c3382.svg",
+        "thumb": "assets/3709f864cbb8076e3ff7a6e8a485c21624b6864d3bae202ebfeeb34e061c3382.svg",
+        "width": 1280,
+        "height": 720
+      }
+    ],
+    "en_US": [
+      {
+        "image": "assets/9a0687bead0152b5d75c9a157f0abc04ff0acd0ae7bf2f4dce0a699193479fdd.svg",
+        "thumb": "assets/9a0687bead0152b5d75c9a157f0abc04ff0acd0ae7bf2f4dce0a699193479fdd.svg",
+        "width": 1280,
+        "height": 720
+      },
+      {
+        "image": "assets/dd119d76ad39ca29b1ffc7cba2173c44e0fce4d408890a53306253efe76e4952.svg",
+        "thumb": "assets/dd119d76ad39ca29b1ffc7cba2173c44e0fce4d408890a53306253efe76e4952.svg",
+        "width": 1280,
+        "height": 720
+      }
+    ]
+  },
+  "releases": [
+    {
+      "version": "1.0.0",
+      "date": "2026-10-02",
+      "notes": {
+        "zh_CN": [
+          "修复若干问题",
+          "性能改进"
+        ],
+        "en_US": [
+          "Fixed several issues",
+          "Performance improvements"
+        ]
+      }
+    },
+    {
+      "version": "0.9.0",
+      "date": "2026-07-01",
+      "notes": {
+        "zh_CN": [
+          "首个示例版本"
+        ],
+        "en_US": [
+          "First sample release"
+        ]
+      }
+    }
+  ]
+}

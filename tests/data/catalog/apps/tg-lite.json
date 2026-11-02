@@ -1,0 +1,77 @@
+{
+  "id": "tg-lite",
+  "description": {
+    "zh_CN": [
+      "轻聊：轻量聊天客户端。",
+      "这是示例目录中的说明文字，用于界面和测试。"
+    ],
+    "en_US": [
+      "TG Lite: Lightweight chat client.",
+      "This is sample text from the test catalog, used for the UI and tests."
+    ]
+  },
+  "developer": {
+    "zh_CN": "示例开发者",
+    "en_US": "Sample Developer"
+  },
+  "homepage": "https://example.invalid/tg-lite",
+  "maintainer": "Sample Maintainer <maintainer@example.invalid>",
+  "screenshots": {
+    "zh_CN": [
+      {
+        "image": "assets/ba65364ec0bcd74b759e0b9984e86e8a4147f9a6eb0481e7f06e361c20fc78c1.svg",
+        "thumb": "assets/ba65364ec0bcd74b759e0b9984e86e8a4147f9a6eb0481e7f06e361c20fc78c1.svg",
+        "width": 1280,
+        "height": 720
+      },
+      {
+        "image": "assets/b9fbaa7ae4c1af454dd3af8b83de9a686ccd13aa7863e3de1f483fa2b5de0cf8.svg",
+        "thumb": "assets/b9fbaa7ae4c1af454dd3af8b83de9a686ccd13aa7863e3de1f483fa2b5de0cf8.svg",
+        "width": 1280,
+        "height": 720
+      }
+    ],
+    "en_US": [
+      {
+        "image": "assets/6667bb0c25c20bc34c35a7ac14186cecd9d1d2f2f49bd1d8b449166ce4ddef40.svg",
+        "thumb": "assets/6667bb0c25c20bc34c35a7ac14186cecd9d1d2f2f49bd1d8b449166ce4ddef40.svg",
+        "width": 1280,
+        "height": 720
+      },
+      {
+        "image": "assets/d1f5e60a29baaf05abe26a324846c1d311590776049e36174a487c010e85c75b.svg",
+        "thumb": "assets/d1f5e60a29baaf05abe26a324846c1d311590776049e36174a487c010e85c75b.svg",
+        "width": 1280,
+        "height": 720
+      }
+    ]
+  },
+  "releases": [
+    {
+      "version": "1.0.0",
+      "date": "2026-10-09",
+      "notes": {
+        "zh_CN": [
+          "修复若干问题",
+          "性能改进"
+        ],
+        "en_US": [
+          "Fixed several issues",
+          "Performance improvements"
+        ]
+      }
+    },
+    {
+      "version": "0.9.0",
+      "date": "2026-07-01",
+      "notes": {
+        "zh_CN": [
+          "首个示例版本"
+        ],
+        "en_US": [
+          "First sample release"
+        ]
+      }
+    }
+  ]
+}
