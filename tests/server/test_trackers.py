@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
+import datetime
 import os
 import sys
 import tempfile
@@ -122,6 +123,53 @@ class HttpTrackerTests(TrackerBase):
         self.assertEqual(self.levels(self.track(self.content({"v1": vendor_def(track)}))), ["info"])
         self.assertEqual(self.st.candidates(app="v1")[0]["version"], "3.1")
 
+    def test_page_regex_backtracking_times_out_as_vendor_error(self):
+        self.server.routes["/downloads"] = fixtures.Route(body=b"a" * 40 + b"!")
+        track = {"type": "page", "url": self.server.base + "/downloads", "link_regex": r"(?P<url>(a+)+$)"}
+        old = trackers.REGEX_TIMEOUT
+        trackers.REGEX_TIMEOUT = 2
+        self.addCleanup(setattr, trackers, "REGEX_TIMEOUT", old)
+        problems = self.track(self.content({"v1": vendor_def(track)}))
+        self.assertEqual(self.levels(problems), ["error"])
+        self.assertIn("did not finish", problems[0]["message"])
+
+    def test_regex_matches_unit(self):
+        got = trackers.regex_matches(r"(?P<url>/f_(?P<version>[0-9.]+))", "x /f_1.0 /f_2.0", "finditer")
+        self.assertEqual([m["version"] for m in got["matches"]], ["1.0", "2.0"])
+        self.assertTrue(got["has_version"])
+        with self.assertRaises(trackers.TrackError):
+            trackers.regex_matches("(", "x", "search")
+
+    def test_regex_input_is_capped_at_1_mib(self):
+        text = "x" * trackers.MAX_REGEX_TEXT + "/f_9.9"
+        got = trackers.regex_matches(r"/f_(?P<version>[0-9.]+)", text, "search")
+        self.assertEqual(got["matches"], [])
+
+    def test_page_version_must_start_with_a_digit(self):
+        self.server.routes["/downloads"] = fixtures.Route(body=b'<a href="/files/demo_-9_amd64.deb">x</a>')
+        track = {"type": "page", "url": self.server.base + "/downloads",
+                 "link_regex": r'href="(?P<url>/files/demo_(?P<version>[-0-9.]+)_amd64\.deb)"'}
+        self.assertEqual(self.levels(self.track(self.content({"v1": vendor_def(track)}))), ["error"])
+
+    def test_same_version_with_other_size_alerts(self):
+        self.serve_deb("/files/demo_2.1_amd64.deb", "2.1")
+        self.server.routes["/latest.json"] = fixtures.Route(
+            body=b'{"version": "2.1", "url": "/files/demo_2.1_amd64.deb"}')
+        track = {"type": "json", "url": self.server.base + "/latest.json",
+                 "version_path": "version", "url_path": "url"}
+        content = self.content({"v1": vendor_def(track)})
+        self.assertEqual(self.levels(self.track(content)), ["info"])
+        self.assertEqual(self.track(content), [])                       # same size: quiet
+        self.serve_deb("/files/demo_2.1_amd64.deb", "2.1", files={"usr/share/demo/x": b"y" * 5000})
+        problems = self.track(content)
+        self.assertEqual(self.levels(problems), ["alert"])
+        self.assertIn("same version, different file", problems[0]["message"])
+        self.assertEqual(len(self.st.candidates(app="v1")), 1)
+
+    def test_messages_have_no_control_characters(self):
+        problem = trackers._problem("alert", "v1", "a", "bad \x1b[31mtext\nline\tok")
+        self.assertEqual(problem["message"], "bad [31mtextline\tok")
+
     def test_one_failing_vendor_does_not_stop_the_others(self):
         self.serve_deb("/dl/demo.deb", "2.0")
         good = {"type": "head", "url": self.server.base + "/dl/demo.deb"}
@@ -159,9 +207,9 @@ class IntakeTests(TrackerBase):
         self.assertEqual(self.track(content), [])           # still just one
         deb = fixtures.build_deb(self.tmp.name, "demo", "2.1", files={"usr/bin/demo": b"x"},
                                  modes={"usr/bin/demo": 0o6755})
-        cand = trackers.intake(self.cfg, self.st, content, "v1", deb, "https://vendor.example/download")
+        cand = trackers.intake(self.cfg, self.st, content, "v1", deb, "https://127.0.0.1/download")
         self.assertEqual((cand["status"], cand["origin"]["type"]), ("pending", "manual"))
-        self.assertEqual(cand["origin"]["url"], "https://vendor.example/download")
+        self.assertEqual(cand["origin"]["url"], "https://127.0.0.1/download")
         self.assertIn("setuid usr/bin/demo", cand["checks"]["inspect"]["flags"])
         self.assertIn("setgid usr/bin/demo", cand["checks"]["inspect"]["flags"])
         self.assertEqual(self.st.candidates(app="v1", status="awaiting-upload"), [])
@@ -176,24 +224,34 @@ class IntakeTests(TrackerBase):
             deb = fixtures.build_deb(self.tmp.name, kwargs["package"], kwargs["version"],
                                      arch=kwargs.get("arch", "amd64"))
             with self.assertRaises(trackers.TrackError, msg=str(kwargs)):
-                trackers.intake(self.cfg, self.st, content, "v1", deb, "u")
+                trackers.intake(self.cfg, self.st, content, "v1", deb, None)
 
     def test_intake_without_awaiting_must_be_higher_than_approved(self):
         content = self.json_vendor()
         self.st.set_approved("v1", {"version": "2.0", "sha256": "0" * 64}, {"event": "approve"})
         low = fixtures.build_deb(self.tmp.name, "demo", "1.9")
         with self.assertRaises(trackers.TrackError):
-            trackers.intake(self.cfg, self.st, content, "v1", low, "u")
+            trackers.intake(self.cfg, self.st, content, "v1", low, None)
         high = fixtures.build_deb(self.tmp.name, "demo", "2.5")
-        cand = trackers.intake(self.cfg, self.st, content, "v1", high, "u")
+        cand = trackers.intake(self.cfg, self.st, content, "v1", high, None)
         self.assertEqual(cand["version"], "2.5")
 
     def test_intake_same_file_twice_returns_existing(self):
         content = self.json_vendor()
         deb = fixtures.build_deb(self.tmp.name, "demo", "2.5")
-        first = trackers.intake(self.cfg, self.st, content, "v1", deb, "u")
-        second = trackers.intake(self.cfg, self.st, content, "v1", deb, "u")
+        first = trackers.intake(self.cfg, self.st, content, "v1", deb, None)
+        second = trackers.intake(self.cfg, self.st, content, "v1", deb, None)
         self.assertEqual(first["_path"], second["_path"])
+
+    def test_intake_url_must_be_https_on_an_allowed_host(self):
+        content = self.json_vendor()
+        deb = fixtures.build_deb(self.tmp.name, "demo", "2.5")
+        for url in ("http://127.0.0.1/x", "https://evil.example/x", "file:///etc/passwd",
+                    "https://user:pw@127.0.0.1/x", "javascript:alert(1)"):
+            with self.assertRaises(trackers.TrackError, msg=url):
+                trackers.intake(self.cfg, self.st, content, "v1", deb, url)
+        self.assertEqual(self.st.candidates(app="v1"), [])
+        self.assertEqual(trackers.intake(self.cfg, self.st, content, "v1", deb, None)["version"], "2.5")
 
     def test_manual_head_is_refused(self):
         track = {"type": "head", "url": self.server.base + "/x"}
@@ -215,10 +273,10 @@ class AptTrackerTests(TrackerBase):
         fixtures.stop_agent(cls.other)
         cls.keydir.cleanup()
 
-    def publish(self, versions, **kw):
+    def publish(self, versions, date=fixtures.RELEASE_DATE, **kw):
         repo = os.path.join(self.tmp.name, "repo")
         debs = [fixtures.build_deb(self.tmp.name, "demo", v, **kw) for v in versions]
-        fixtures.write_apt_repo(repo, self.key, debs)
+        fixtures.write_apt_repo(repo, self.key, debs, date=date)
         self.server.mount(repo, "/apt")
 
     def apt_vendor(self, fetch_mode="auto", fingerprint=None):
@@ -237,7 +295,7 @@ class AptTrackerTests(TrackerBase):
         self.assertEqual(cand["origin"]["signed_by"], self.key.fingerprint)
         self.assertEqual(len(cand["origin"]["inrelease_sha256"]), 64)
         memo = self.st.vendor_memo("v1")
-        self.assertEqual((memo["inrelease_date"], memo["seen_version"]), ("2026-11-02T08:00:00Z", "1.1"))
+        self.assertEqual((memo["inrelease_date"], memo["seen_version"]), (fixtures.RELEASE_ISO, "1.1"))
         gets = self.server.count("GET", "/apt/pool/demo_1.1_amd64.deb")
         self.assertEqual(self.track(content), [])
         self.assertEqual(self.server.count("GET", "/apt/pool/demo_1.1_amd64.deb"), gets)
@@ -246,7 +304,8 @@ class AptTrackerTests(TrackerBase):
         self.publish(["1.0"])
         content = self.content({"v1": self.apt_vendor()})
         self.track(content)
-        self.publish(["1.0"], files={"usr/share/demo/README": b"changed\n"})
+        self.publish(["1.0"], date=fixtures.release_date(datetime.timedelta(minutes=30)),
+                     files={"usr/share/demo/README": b"changed\n"})
         problems = self.track(content)
         self.assertEqual(self.levels(problems), ["alert"])
         self.assertEqual(len(self.st.candidates(app="v1")), 1)

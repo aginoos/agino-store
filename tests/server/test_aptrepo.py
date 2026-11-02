@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
+import datetime
 import os
 import sys
 import tempfile
@@ -57,7 +58,7 @@ class AptRepoTests(unittest.TestCase):
         res = self.find()
         self.assertEqual(res.version, "1.10")
         self.assertEqual(res.signed_by, self.key.fingerprint)
-        self.assertEqual(res.inrelease_date, "2026-11-02T08:00:00Z")
+        self.assertEqual(res.inrelease_date, fixtures.RELEASE_ISO)
         self.assertTrue(res.deb_url.endswith("/apt/pool/demo_1.10_amd64.deb"))
 
     def test_download_deb_verifies_hash(self):
@@ -88,14 +89,62 @@ class AptRepoTests(unittest.TestCase):
 
     def test_unsigned_release_text_not_trusted(self):
         path = "/apt/dists/stable/InRelease"
-        self.server.routes[path] = fixtures.Route(body=b"Date: Mon, 02 Nov 2026 08:00:00 UTC\nSHA256:\n")
+        self.server.routes[path] = fixtures.Route(body=("Date: %s\nSHA256:\n" % fixtures.RELEASE_DATE).encode())
         with self.assertRaises(aptrepo.AptError):
             self.find()
 
     def test_rollback_rejected(self):
+        later = (datetime.datetime.fromisoformat(fixtures.RELEASE_ISO) + datetime.timedelta(hours=1))
         with self.assertRaises(aptrepo.AptError):
-            self.find(memo={"inrelease_date": "2026-11-03T00:00:00Z"})
-        self.assertEqual(self.find(memo={"inrelease_date": "2026-11-02T08:00:00Z"}).version, "1.10")
+            self.find(memo={"inrelease_date": later.strftime("%Y-%m-%dT%H:%M:%SZ")})
+        self.assertEqual(self.find(memo={"inrelease_date": fixtures.RELEASE_ISO}).version, "1.10")
+
+    def test_equal_date_with_other_content_rejected(self):
+        res = self.find()
+        memo = {"inrelease_date": res.inrelease_date, "inrelease_sha256": res.inrelease_sha256}
+        self.assertEqual(self.find(memo=memo).version, "1.10")
+        with self.assertRaises(aptrepo.AptError):
+            self.find(memo=dict(memo, inrelease_sha256="0" * 64))
+
+    def test_wrong_suite_rejected(self):
+        debs = [fixtures.build_deb(self.tmp.name, "demo", "1.0")]
+        fixtures.write_apt_repo(self.repo, self.key, debs, suite="testing")
+        self.server.mount(self.repo, "/apt")
+        # a validly signed InRelease of another suite served where "stable" is requested
+        self.server.routes["/apt/dists/stable/InRelease"] = self.server.routes["/apt/dists/testing/InRelease"]
+        with self.assertRaises(aptrepo.AptError):
+            self.find()
+
+    def test_codename_match_accepted(self):
+        debs = [fixtures.build_deb(self.tmp.name, "demo", "3.0")]
+        fixtures.write_apt_repo(self.repo, self.key, debs, suite="stable-updates", codename="stable")
+        self.server.mount(self.repo, "/apt")
+        self.server.routes["/apt/dists/stable/InRelease"] = self.server.routes["/apt/dists/stable-updates/InRelease"]
+        for suffix in ("Packages", "Packages.gz"):
+            self.server.routes["/apt/dists/stable/main/binary-amd64/" + suffix] = \
+                self.server.routes["/apt/dists/stable-updates/main/binary-amd64/" + suffix]
+        self.assertEqual(self.find().version, "3.0")
+
+    def test_expired_and_stale_release_rejected(self):
+        for kw in ({"release_extra": ["Valid-Until: " + fixtures.release_date(datetime.timedelta(hours=1))]},
+                   {"date": fixtures.release_date(datetime.timedelta(days=31))}):
+            self.write_signed(**kw)
+            with self.assertRaises(aptrepo.AptError, msg=str(kw)):
+                self.find()
+        self.write_signed(release_extra=["Valid-Until: " + fixtures.release_date(-datetime.timedelta(days=5))])
+        self.assertEqual(self.find().version, "1.0")
+
+    def write_signed(self, **kw):
+        debs = [fixtures.build_deb(self.tmp.name, "demo", "1.0")]
+        fixtures.write_apt_repo(self.repo, self.key, debs, **kw)
+        self.server.mount(self.repo, "/apt")
+
+    def test_check_release_unit(self):
+        rel = aptrepo.Release(datetime.datetime.now(datetime.UTC), {}, "stable", "trixie", None)
+        aptrepo.check_release(rel, "stable")
+        aptrepo.check_release(rel, "trixie")
+        with self.assertRaises(aptrepo.AptError):
+            aptrepo.check_release(rel, "other")
 
     def test_packages_hash_mismatch_rejected(self):
         for suffix in (".gz", ""):

@@ -10,7 +10,7 @@ Adapter used from the content module (all read-only):
 import getpass
 import json
 import os
-import re
+import sys
 import urllib.parse
 from dataclasses import dataclass, field
 
@@ -18,6 +18,27 @@ from . import aptrepo, checks, debinfo, fetch
 from .state import StateError
 
 MAX_PAGE_MATCHES = 200
+MAX_REGEX_TEXT = 1 << 20
+REGEX_TIMEOUT = 10
+SAME_FILE_CHECKED = ("json", "page", "redirect")
+# Runs vendor-supplied regexes away from the server process (catastrophic backtracking).
+_REGEX_SCRIPT = """
+import json, re, sys
+req = json.load(sys.stdin)
+try:
+    rx = re.compile(req["pattern"])
+except re.error as e:
+    print(json.dumps({"error": "bad regex: %s" % e}))
+    sys.exit(0)
+found = rx.finditer(req["text"]) if req["mode"] == "finditer" else filter(None, [rx.search(req["text"])])
+out = []
+for m in found:
+    d = m.groupdict()
+    out.append({"url": d.get("url"), "version": d.get("version")})
+    if len(out) >= req["limit"]:
+        break
+print(json.dumps({"has_version": "version" in rx.groupindex, "matches": out}))
+"""
 
 
 class TrackError(Exception):
@@ -45,7 +66,7 @@ class Target:
 
 
 def _problem(level, vendor_id, app_id, message):
-    return {"level": level, "vendor": vendor_id, "app": app_id, "message": message}
+    return {"level": level, "vendor": vendor_id, "app": app_id, "message": debinfo.clean_text(message)}
 
 
 # Discovery, one function per track type: (cfg, fetcher, vendor, root, memo) -> Found
@@ -72,7 +93,8 @@ def discover_apt(cfg, fetcher, vendor, root, memo):
     res = aptrepo.find_latest(cfg, fetcher, vendor, root, memo)
     origin = {"type": "apt", "signed_by": res.signed_by, "inrelease_sha256": res.inrelease_sha256}
     return Found(res.version, res.deb_url, origin, sha256=res.sha256, size=res.size,
-                 filename=res.filename, apt=res, memo={"inrelease_date": res.inrelease_date})
+                 filename=res.filename, apt=res, memo={"inrelease_date": res.inrelease_date,
+                           "inrelease_sha256": res.inrelease_sha256})
 
 
 def _parse_json_text(text, strip_js):
@@ -114,13 +136,37 @@ def discover_head(cfg, fetcher, vendor, root, memo):
                  memo=validators)
 
 
+def regex_matches(pattern, text, mode, limit=MAX_PAGE_MATCHES):
+    """Run a vendor regex over at most 1 MiB of text in a child process with a 10 s timeout.
+
+    Returns {"has_version": bool, "matches": [{"url": str|None, "version": str|None}]}.
+    """
+    if not isinstance(pattern, str):
+        raise TrackError("regex must be a string")
+    request = json.dumps({"pattern": pattern, "text": text[:MAX_REGEX_TEXT], "mode": mode, "limit": limit})
+    try:
+        proc = debinfo.run_tool([sys.executable, "-I", "-c", _REGEX_SCRIPT], timeout=REGEX_TIMEOUT,
+                                stdin=request.encode("utf-8"))
+    except debinfo.DebError as e:
+        raise TrackError("regex did not finish: %s" % e) from e
+    try:
+        result = json.loads(proc.stdout)
+    except ValueError as e:
+        raise TrackError("regex helper failed") from e
+    if proc.returncode != 0 or not isinstance(result, dict):
+        raise TrackError("regex helper failed")
+    if result.get("error"):
+        raise TrackError(str(result["error"]))
+    return result
+
+
 def _best_match(matches, has_version):
     if not has_version:
         return matches[0]
     best = None
     for m in matches:
-        v = _checked_version(m.group("version"))
-        if best is None or debinfo.version_gt(v, best.group("version")):
+        v = _checked_version(m["version"])
+        if best is None or debinfo.version_gt(v, best["version"]):
             best = m
     return best
 
@@ -128,28 +174,24 @@ def _best_match(matches, has_version):
 def discover_page(cfg, fetcher, vendor, root, memo):
     track = vendor["track"]
     text = fetcher.get(track["url"], max_bytes=cfg.max_index_bytes).data.decode("utf-8", "replace")
-    rx = re.compile(track["link_regex"])
-    matches = []
-    for m in rx.finditer(text):
-        matches.append(m)
-        if len(matches) >= MAX_PAGE_MATCHES:
-            break
+    result = regex_matches(track["link_regex"], text, "finditer")
+    matches = [m for m in result["matches"] if isinstance(m.get("url"), str)]
     if not matches:
         raise TrackError("link_regex matched nothing on the page")
-    has_version = "version" in rx.groupindex
+    has_version = bool(result["has_version"])
     best = _best_match(matches, has_version)
-    url = urllib.parse.urljoin(track["url"], best.group("url"))
-    version = best.group("version") if has_version else None
+    url = urllib.parse.urljoin(track["url"], best["url"])
+    version = _checked_version(best["version"]) if has_version else None
     return Found(version, url, _origin_https(url))
 
 
 def discover_redirect(cfg, fetcher, vendor, root, memo):
     track = vendor["track"]
     final = fetcher.head(track["url"]).url
-    m = re.search(track["version_regex"], final)
-    if not m:
+    result = regex_matches(track["version_regex"], final, "search", limit=1)
+    if not result["matches"] or result["matches"][0].get("version") is None:
         raise TrackError("version_regex did not match the final URL")
-    return Found(_checked_version(m.group("version")), final, _origin_https(final))
+    return Found(_checked_version(result["matches"][0]["version"]), final, _origin_https(final))
 
 
 DISCOVER = {"apt": discover_apt, "json": discover_json, "head": discover_head,
@@ -247,6 +289,25 @@ def _after_download(cfg, st, target, found, dl, approved):
     return [_problem("info", target.vendor_id, target.app_id, msg)], version
 
 
+def same_file_alert(st, fetcher, target, found):
+    """Same version again: the download must still have the size of the candidate we hold."""
+    if target.vendor["track"]["type"] not in SAME_FILE_CHECKED:
+        return []
+    known = st.find_candidate(target.app_id, found.version)
+    if known is None or known.get("size") is None:
+        return []
+    try:
+        length = fetcher.head(found.url).content_length
+    except fetch.FetchError as e:
+        return [_problem("info", target.vendor_id, target.app_id,
+                         "cannot HEAD %s to compare sizes: %s" % (found.url, e))]
+    if length is None or length == known["size"]:
+        return []
+    return [_problem("alert", target.vendor_id, target.app_id,
+                     "version %s of %s is now %d bytes, the candidate has %d (same version, different file)"
+                     % (found.version, target.app_id, length, known["size"]))]
+
+
 def process_app(cfg, st, fetcher, target, found, memo):
     """Returns (problems, seen_version)."""
     if found.unchanged:
@@ -257,7 +318,7 @@ def process_app(cfg, st, fetcher, target, found, memo):
         if verdict == "alert":
             return [_problem("alert", target.vendor_id, target.app_id, message)], found.version
         if verdict == "skip":
-            return [], found.version
+            return same_file_alert(st, fetcher, target, found), found.version
         if target.vendor["fetch"] == "manual":
             st.add_candidate(_awaiting_record(target, found))
             msg = "new version %s of %s awaits manual upload (%s)" % (found.version, target.app_id, found.url)
@@ -350,11 +411,23 @@ def _intake_target(st, target, version):
     return None
 
 
+def check_intake_url(url, vendor):
+    """The recorded download URL must be None or an https URL on one of the vendor's hosts."""
+    if url is None:
+        return
+    parts = urllib.parse.urlsplit(str(url))
+    allowed = {h.lower() for h in vendor.get("allowed_hosts", [])}
+    if (parts.scheme != "https" or parts.username is not None or parts.password is not None
+            or (parts.hostname or "").lower() not in allowed):
+        raise TrackError("intake url must be https on one of the vendor's allowed_hosts")
+
+
 def intake(cfg, st, content, vendor_id, path, url):
     """Take a manually downloaded deb into the candidate list. Returns the candidate record."""
     if vendor_id not in content.vendors:
         raise TrackError("unknown vendor %s" % vendor_id)
     target = target_for(content, vendor_id)
+    check_intake_url(url, target.vendor)
     if os.path.islink(path) or not os.path.isfile(path):
         raise TrackError("not a regular file: %s" % path)
     if os.path.getsize(path) > cfg.max_deb_bytes:
@@ -369,9 +442,9 @@ def intake(cfg, st, content, vendor_id, path, url):
         if same.get("sha256") == sha:
             return same
         raise TrackError("version %s already has a candidate with different content" % version)
-    dl = fetch.Download(url, stored, sha, size, os.path.basename(stored), None, None)
+    dl = fetch.Download(url or "", stored, sha, size, os.path.basename(stored), None, None)
     origin = {"type": "manual", "by": _current_user(), "url": url}
     try:
-        return ingest(cfg, st, target, dl, url, origin, None, awaiting=awaiting)
+        return ingest(cfg, st, target, dl, url or "", origin, None, awaiting=awaiting)
     except StateError as e:
         raise TrackError(str(e)) from e

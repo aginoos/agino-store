@@ -33,6 +33,8 @@ class Config:
     max_deb_bytes: int
     max_index_bytes: int
     allow_insecure: bool
+    milkyway_keyring: str | None = None
+    milkyway_fingerprints: tuple = ()
 
 
 def _get(cp, section, key, conv=str):
@@ -53,6 +55,13 @@ def _bool(raw):
     if low in ("0", "false", "no", "off"):
         return False
     raise ValueError(raw)
+
+
+def _opt(cp, section, key):
+    try:
+        return cp.get(section, key).strip() or None
+    except (configparser.NoSectionError, configparser.NoOptionError):
+        return None
 
 
 def load(path=DEFAULT_PATH):
@@ -83,7 +92,11 @@ def load(path=DEFAULT_PATH):
         max_deb_bytes=_get(cp, "fetch", "max_deb_bytes", int),
         max_index_bytes=_get(cp, "fetch", "max_index_bytes", int),
         allow_insecure=_get(cp, "fetch", "allow_insecure", _bool),
+        milkyway_keyring=_opt(cp, "milkyway", "keyring"),
+        milkyway_fingerprints=tuple((_opt(cp, "milkyway", "fingerprints") or "").split()),
     )
+    if cfg.milkyway_keyring and not cfg.milkyway_fingerprints:
+        raise ConfigError("[milkyway] keyring needs fingerprints")
     if not cfg.deb_base_url.endswith("/"):
         raise ConfigError("[catalog] deb_base_url must end with /")
     if cfg.valid_days <= 0 or cfg.renew_after_hours <= 0 or cfg.keep_catalogs <= 0:

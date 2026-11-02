@@ -16,6 +16,7 @@ from . import debinfo
 _FILENAME_RE = re.compile(r"\A[A-Za-z0-9._+~/-]+\Z")
 _SHA256_RE = re.compile(r"\A[0-9a-f]{64}\Z")
 _INDEX_SUFFIXES = (".gz", ".xz", "")
+MAX_RELEASE_AGE = datetime.timedelta(days=30)
 
 
 class AptError(Exception):
@@ -26,6 +27,9 @@ class AptError(Exception):
 class Release:
     date: datetime.datetime
     sha256: dict            # relative path -> (hash, size)
+    suite: str = ""
+    codename: str = ""
+    valid_until: datetime.datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -88,6 +92,7 @@ def verify_inrelease(data, keyring, fingerprints, workdir):
     The signed content comes from gpgv itself (--output file); the unsigned file is never parsed.
     The status stream goes to stdout, the data to a file, so hostile content cannot forge status lines.
     """
+    os.makedirs(os.path.join(workdir, "gnupg"), mode=0o700, exist_ok=True)
     src = os.path.join(workdir, "InRelease")
     out = os.path.join(workdir, "Release.signed")
     with open(src, "wb") as f:
@@ -109,31 +114,49 @@ def verify_inrelease(data, keyring, fingerprints, workdir):
 
 # Release and Packages
 
+def _parse_date(value, what):
+    try:
+        date = email.utils.parsedate_to_datetime(value)
+    except (TypeError, ValueError, IndexError) as e:
+        raise AptError("bad Release %s" % what) from e
+    return date if date.tzinfo is not None else date.replace(tzinfo=datetime.UTC)
+
+
 def parse_release(content):
     stanzas = debinfo.parse_stanzas(content.decode("utf-8", "replace"))
     if not stanzas or "Date" not in stanzas[0]:
         raise AptError("Release has no Date")
-    try:
-        date = email.utils.parsedate_to_datetime(stanzas[0]["Date"])
-    except (TypeError, ValueError, IndexError) as e:
-        raise AptError("bad Release Date") from e
-    if date.tzinfo is None:
-        date = date.replace(tzinfo=datetime.UTC)
+    top = stanzas[0]
+    date = _parse_date(top["Date"], "Date")
+    valid_until = _parse_date(top["Valid-Until"], "Valid-Until") if top.get("Valid-Until") else None
     hashes = {}
-    for line in stanzas[0].get("SHA256", "").split("\n"):
+    for line in top.get("SHA256", "").split("\n"):
         parts = line.split()
         if len(parts) == 3 and _SHA256_RE.match(parts[0]) and parts[1].isdigit():
             hashes[parts[2]] = (parts[0], int(parts[1]))
-    return Release(date, hashes)
+    return Release(date, hashes, top.get("Suite", ""), top.get("Codename", ""), valid_until)
 
 
-def check_rollback(date, previous_iso):
+def check_release(release, suite, now=None):
+    """Suite/Codename must match the tracked suite; Valid-Until and Date must be current."""
+    now = now or datetime.datetime.now(datetime.UTC)
+    if suite not in (release.suite, release.codename):
+        raise AptError("Release is for suite %r, not %r" % (debinfo.clean_text(release.suite or release.codename), suite))
+    if release.valid_until is not None and release.valid_until < now:
+        raise AptError("Release expired (Valid-Until %s)" % fmt_date(release.valid_until))
+    if now - release.date > MAX_RELEASE_AGE:
+        raise AptError("Release is older than %d days (Date %s)" % (MAX_RELEASE_AGE.days, fmt_date(release.date)))
+
+
+def check_rollback(date, previous_iso, sha256=None, previous_sha256=None):
     if not previous_iso:
         return
     previous = datetime.datetime.fromisoformat(previous_iso)
     if date < previous:
         raise AptError("InRelease Date %s is older than the recorded %s (rollback?)"
                        % (fmt_date(date), previous_iso))
+    if date == previous and previous_sha256 and sha256 and sha256 != previous_sha256:
+        raise AptError("InRelease Date %s unchanged but the content differs (replay?)" % previous_iso)
 
 
 def _decompress(name, data, limit):
@@ -199,7 +222,9 @@ def find_latest(cfg, fetcher, vendor, content_root, memo):
         keyring = build_keyring(content_root, track["keys"], work)
         content, signer = verify_inrelease(inrelease.data, keyring, track["fingerprints"], work)
     release = parse_release(content)
-    check_rollback(release.date, memo.get("inrelease_date"))
+    check_release(release, track["suite"])
+    release_sha = hashlib.sha256(inrelease.data).hexdigest()
+    check_rollback(release.date, memo.get("inrelease_date"), release_sha, memo.get("inrelease_sha256"))
     text = fetch_packages(fetcher, base, track["suite"], track["component"], vendor["arch"],
                           release, cfg.max_index_bytes)
     best = pick_latest(debinfo.parse_stanzas(text), vendor["package"], vendor["arch"])
@@ -208,7 +233,7 @@ def find_latest(cfg, fetcher, vendor, content_root, memo):
     return AptResult(
         version=best["Version"], filename=os.path.basename(best["Filename"]),
         deb_url="%s/%s" % (base, best["Filename"]), sha256=best["SHA256"], size=int(best["Size"]),
-        signed_by=signer, inrelease_sha256=hashlib.sha256(inrelease.data).hexdigest(),
+        signed_by=signer, inrelease_sha256=release_sha,
         inrelease_date=fmt_date(release.date),
     )
 

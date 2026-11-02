@@ -32,6 +32,61 @@ class SanitizeTests(unittest.TestCase):
         fetch.check_url("http://example.org/x", allowed, True)
 
 
+class SsrfTests(unittest.TestCase):
+    def test_forbidden_addresses(self):
+        for addr in ("127.0.0.1", "10.1.2.3", "192.168.0.1", "172.16.5.5", "169.254.169.254", "0.0.0.0",
+                     "224.0.0.1", "240.0.0.1", "::1", "::", "fe80::1", "fc00::1", "::ffff:127.0.0.1",
+                     "ff02::1", "not-an-ip"):
+            self.assertTrue(fetch.forbidden_address(addr), addr)
+        for addr in ("93.184.216.34", "2606:2800:220:1:248:1893:25c8:1946"):
+            self.assertFalse(fetch.forbidden_address(addr), addr)
+
+    def test_forbidden_hosts(self):
+        for host in ("127.0.0.1", "10.0.0.1", "::1", "localhost", "LOCALHOST", "intranet", "a.localhost", ""):
+            self.assertTrue(fetch.forbidden_host(host), host)
+        for host in ("example.org", "dl.google.com"):
+            self.assertFalse(fetch.forbidden_host(host), host)
+
+    def test_check_url_strict_refuses_literals_and_ports(self):
+        allowed = frozenset(["127.0.0.1", "localhost", "intranet", "example.org", "[::1]", "::1"])
+        for url in ("https://127.0.0.1/x", "https://localhost/x", "https://intranet/x",
+                    "https://[::1]/x", "https://example.org:8443/x", "https://example.org:80/x"):
+            with self.assertRaises(fetch.FetchError, msg=url):
+                fetch.check_url(url, allowed, False)
+        fetch.check_url("https://example.org/x", allowed, False)
+        fetch.check_url("https://example.org:443/x", allowed, False)
+
+    def test_check_url_insecure_allows_local_server(self):
+        fetch.check_url("http://127.0.0.1:8080/x", frozenset(["127.0.0.1"]), True)
+
+
+class DeadlineTests(unittest.TestCase):
+    def test_deadline_expired_raises(self):
+        deadline = fetch._Deadline(0.0)
+        self.addCleanup(deadline.stop)
+        time.sleep(0.01)
+        with self.assertRaises(fetch.FetchError):
+            deadline.timeout()
+
+    def test_timeout_is_capped(self):
+        deadline = fetch._Deadline(10_000)
+        self.addCleanup(deadline.stop)
+        self.assertEqual(deadline.timeout(), fetch.CONNECT_TIMEOUT)
+
+    def test_chunks_stop_after_deadline(self):
+        deadline = fetch._Deadline(0.0)
+        self.addCleanup(deadline.stop)
+        time.sleep(0.01)
+
+        class Body:
+            @staticmethod
+            def read(n):
+                return b"x"
+
+        with self.assertRaises(fetch.FetchError):
+            list(fetch.Fetcher._chunks(Body(), 1000, deadline))
+
+
 class FetcherTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -100,6 +155,12 @@ class FetcherTests(unittest.TestCase):
             self.fetcher.get(self.server.base + "/big", max_bytes=1000)
         with self.assertRaises(fetch.FetchTooLarge):
             self.fetcher.download(self.server.base + "/big", self.downloads, max_bytes=1000)
+
+    def test_expected_size_is_the_cap(self):
+        self.route("/f.deb", body=b"x" * 5000)
+        with self.assertRaises(fetch.FetchTooLarge):
+            self.fetcher.download(self.server.base + "/f.deb", self.downloads, expected_size=100)
+        self.assertEqual(os.listdir(self.downloads) if os.path.isdir(self.downloads) else [], [])
 
     def test_download_stores_by_hash_and_reuses(self):
         self.route("/files/My%20App.deb", body=b"payload")
