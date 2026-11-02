@@ -1,0 +1,5 @@
+[D-BUS Service]
+Name=org.aginoos.Store1
+Exec=/bin/false
+User=root
+SystemdService=agino-store-helper.service
