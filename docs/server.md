@@ -78,6 +78,9 @@ featured.yaml
 apps/<id>/app.yaml
 apps/<id>/icon.svg | icon.png
 apps/<id>/screenshots/zh_CN/*.png, en_US/*.png     （可选）
+apps/<id>/shots.yaml                               （可选）自动截图的场景脚本
+apps/<id>/promo/…                                  （可选）厂商宣传图，人工审核
+demo/<name>/…                                      （可选）自动截图用的演示数据
 vendors/<vendor-id>.yaml
 vendors/keys/<name>.asc                            厂商 apt 源的公钥（审核后入库，不在运行时下载）
 ```
@@ -138,6 +141,35 @@ release_notes:                        # 可选，按版本号
 - `kind: milkyway` 的 `source` 只能是 `system`；`kind: deb` 只能是 `official` 或 `personal`。
 - 截图的宽高由 build 从 PNG 头读出；PoC 不生成缩略图（`thumb` 与 `image` 相同）。
 - 未知字段报错（防止拼错的字段被静默忽略）。
+
+`apps/<id>/shots.yaml`（可选；没有这个文件就不为该应用自动截图。完整约定见 research/app-store-13/shots-contract.md）：
+
+```yaml
+schema: 1
+window: {width: 1600, height: 1000}   # 可选，默认 1600x1000；宽 800..1900，高 600..1050
+scenes:                               # 1..6 个（建议 4..6，校验器不对少于 4 个报警）
+  - id: editor                        # ^[a-z0-9][a-z0-9-]{0,30}$，不重复
+    caption: {zh_CN: …, en_US: …}     # 两种语言都必填，单行，<= 80 字符
+    demo: [code-project]              # 可选：场景前复制到 ~/Demo/<name>/ 的演示树，必须存在于 demo/
+    args: ["~/Demo/code-project"]     # 可选：<= 8 项，每项 <= 300 字符，不含换行
+    window: {width: 1400, height: 900}  # 可选：本场景的窗口大小
+    steps:                            # 可选，<= 30 步，只能是下面五种之一
+      - wait: 3                       # 秒，0 < x <= 20
+      - key: "ctrl+shift+p"           # ^[A-Za-z0-9_+]{1,40}$
+      - type: "hello"                 # 可打印字符，<= 200，无换行
+      - click: [200, 150]             # 窗口内逻辑像素，可加第三项 left|right|middle
+      - wait_window: "Preferences"    # <= 80 字符
+    capture: window                   # 目前只有 window
+promo:                                # 可选：登录后才能看的应用的厂商宣传图
+  - {image: promo/zh_CN/1.png, lang: zh_CN, source: "https://…", license: "…"}
+```
+
+规则：
+- 未知字段报错；任何一项不合规，整个内容仓库无效（和其他错误一样，一行 `路径: 原因`）。
+- `promo[].image` 必须是应用目录里已存在的 PNG 文件（检查文件头），<= 10 MiB；`lang` 只能是 `zh_CN` 或 `en_US`；`source`、`license` 必填。promo 只做校验和保存，build 不用它，目录里的截图以后只来自审核过的文件。
+- `demo/<name>/`：`<name>` 匹配 `^[a-z0-9][a-z0-9-]{0,40}$`；每棵树合计 <= 20 MiB，单个文件 <= 5 MiB，最多 5000 项、16 层；任何位置都不许符号链接，只许普通文件和目录（权限位不保留）。`demo/` 里所有树都会校验，包括暂时没人用的。
+- `shots.yaml`、`promo/` 和 `demo/` 都不进 `content_digest`，所以改它们不会让 build 的输入哈希变化、也不会生成新的目录序列号。
+- 校验后的结果挂在应用条目上：`shots`（没有文件就是 `None`；`window` 已按默认值补全，每个场景的 `window` 也已补全，`demo`、`args`、`steps` 缺省为空列表，`capture` 缺省为 `window`）和 `promo`。
 
 `vendors/<vendor-id>.yaml`：
 
@@ -336,5 +368,11 @@ agino-store ALL=(agino-store-sign) NOPASSWD: /usr/local/bin/agino-store-sign pre
 - 已有的一对且 JSON 内容（`queued` 除外）一致、deb 大小对：不动，所以重复运行没有输出。JSON 内容变了（比如 app.yaml 改了 `launchable`）只重写 JSON；deb 不在或大小不对则先删掉 JSON 再重放整对。
 - 候选不再是 pending 且沙箱缺失（已放行、拒绝、被取代、已有沙箱结果）时，对应的一对从队列删除，先删 JSON 再删 deb。只删文件名严格匹配 `^[a-z0-9][a-z0-9-]*_[0-9a-f]{12}\.(json|deb)$` 的项，别的文件不碰；超过 1 小时的自己的临时文件（`.tmp-sbxq-` 前缀）也清掉。
 - 符号链接安全：队列目录用 `O_DIRECTORY|O_NOFOLLOW` 打开（是符号链接或不是目录则报错，退出码 1），之后一律用目录 fd、`O_NOFOLLOW`、`O_EXCL` 临时文件和 `rename`；沙箱用户在目录里放的符号链接不会被跟随，要删的话只删链接本身。
+
+应用有有效的 `shots.yaml` 时，JSON 多一个 `shots`（`{"schema": 1, "window": …, "scenes": […]}`，即上面校验后的结果，不含 `promo`）。只要有场景用到 demo 树，队列里还有第三个文件：
+
+- `<应用>_<sha12>.demo.tar`：所用 demo 树（去重、按名字排序）的未压缩 POSIX tar，成员名 `<name>/…`，只有普通文件和目录，成员按路径排序，uid/gid 0、uname/gname 为空、mtime 0、文件 0644、目录 0755，所以同样内容得到逐字节相同的文件。和 deb 一样先写临时文件再 rename（`O_NOFOLLOW`、`O_EXCL`），**先于 JSON** 写入；JSON 里加 `"demo": "<应用>_<sha12>.demo.tar"` 和 `"demo_size": <字节数>`。
+
+已有的 tar 与要写的内容（比较 sha256）一致就不动；内容变了先删 JSON、重写 tar、再写 JSON；不再需要 demo 时 tar 随之删除。清理时文件名正则扩为 `\.(json|deb|demo\.tar)$`，仍然只删严格匹配的名字，JSON 先于 deb 和 tar 删除。
 
 每个新增、更新、删除输出一行（`queued|updated|removed ...`），退出码 0。沙箱主机处理完一个条目后把报告写回 `paths.reports`（第 9 节）；候选一旦有了沙箱结果，下一次 `sandbox-queue` 就把它从队列里清掉。

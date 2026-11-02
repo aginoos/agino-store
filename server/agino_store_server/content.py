@@ -16,6 +16,8 @@ from urllib.parse import urlsplit
 
 import yaml
 
+from . import demo, shots
+
 ID_RE = re.compile(r"\A[a-z0-9][a-z0-9.+-]*\Z")
 LANG_RE = re.compile(r"\A[a-z]{2,3}(_[A-Z]{2})?\Z")
 REQUIRED_LANGS = ("zh_CN", "en_US")
@@ -107,6 +109,8 @@ class App:
     vendor: str | None
     install_profile: dict | None
     release_notes: dict     # version -> {lang: tuple of lines}
+    shots: dict | None = None   # validated shots.yaml (schema, window, scenes), None without the file
+    promo: tuple = ()           # vendor promo images from shots.yaml (reviewed by hand, not built)
 
 
 @dataclass(frozen=True)
@@ -502,7 +506,34 @@ def _app_package(chk, where, data, vendors):
     return (kind, name, vendor)
 
 
-def _app(chk, root, app_id, vendors, category_ids):
+def _shots(chk, root, app_id, app_dir, demo_names):
+    """(shots, promo) of an app; (None, ()) without apps/<id>/shots.yaml."""
+    rel = "apps/%s/shots.yaml" % app_id
+    if not os.path.lexists(os.path.join(root, rel)):
+        return None, ()
+    data = _load_yaml(chk, root, rel)
+    if data is None:
+        return None, ()
+    before = len(chk.errors)
+    parsed = shots.validate(chk, rel, data, demo_names)
+    promo = shots.promo(chk, rel + ".promo", data.get("promo", []), lambda p, r: _promo_image(chk, p, app_dir, r))
+    if len(chk.errors) != before:
+        return None, ()
+    return parsed, promo or ()
+
+
+def _promo_image(chk, path, base, rel):
+    rel = _asset(chk, path, base, rel, (".png",))
+    if rel is None:
+        return None
+    with open(_inside(base, rel), "rb") as f:
+        if f.read(8) != b"\x89PNG\r\n\x1a\n":
+            chk.fail(path, "not a PNG file: %r" % rel)
+            return None
+    return rel
+
+
+def _app(chk, root, app_id, vendors, category_ids, demo_names=frozenset()):
     rel = "apps/%s/app.yaml" % app_id
     app_dir = os.path.join(root, "apps", app_id)
     data = _load_yaml(chk, root, rel)
@@ -522,10 +553,11 @@ def _app(chk, root, app_id, vendors, category_ids):
             chk.fail("%s.categories[%d]" % (rel, i), "unknown category %r" % cat)
     if data["source"] == "personal" and not fields["maintainer"]:
         chk.fail(rel + ".maintainer", "required for source personal")
+    app_shots, promo = _shots(chk, root, app_id, app_dir, demo_names)
     if len(chk.errors) != before or package is None:
         return None
     return App(id=app_id, dir=app_dir, source=data["source"], kind=package[0],
-               package=package[1], vendor=package[2], **fields)
+               package=package[1], vendor=package[2], shots=app_shots, promo=promo, **fields)
 
 
 # vendors/<id>.yaml
@@ -702,7 +734,8 @@ def load(root, allow_insecure=False):
     app_ids = _app_ids(chk, root)
     categories = _categories(chk, root)
     category_ids = {c.id for c in categories}
-    apps = [_app(chk, root, i, vendors, category_ids) for i in app_ids]
+    demo_names = demo.scan(chk, root)
+    apps = [_app(chk, root, i, vendors, category_ids, demo_names) for i in app_ids]
     featured = _featured(chk, root, set(app_ids))
     if chk.errors:
         raise ContentError(chk.errors)
@@ -711,7 +744,10 @@ def load(root, allow_insecure=False):
 
 
 def content_digest(root):
-    """Hash over the sorted (path, sha256) of every relevant file; symlinks count by target."""
+    """Hash over the sorted (path, sha256) of every relevant file; symlinks count by target.
+
+    shots.yaml, promo/ and demo/ are left out: they never change the built catalog.
+    """
     root = os.path.abspath(root)
     entries = []
     for top in ("categories.yaml", "featured.yaml", "apps", "vendors"):
@@ -720,11 +756,18 @@ def content_digest(root):
             entries.append(_digest_entry(root, start))
             continue
         for base, _dirs, files in os.walk(start):
-            entries.extend(_digest_entry(root, os.path.join(base, n)) for n in files)
+            entries.extend(_digest_entry(root, os.path.join(base, n)) for n in files
+                           if not _screenshot_only(root, os.path.join(base, n)))
     h = hashlib.sha256()
     for line in sorted(entries):
         h.update(line.encode("utf-8", "surrogateescape") + b"\n")
     return h.hexdigest()
+
+
+def _screenshot_only(root, path):
+    """apps/<id>/shots.yaml and apps/<id>/promo/** do not feed the catalog (docs/server.md section 3)."""
+    parts = os.path.relpath(path, root).split(os.sep)
+    return len(parts) >= 3 and parts[0] == "apps" and (parts[2] == "promo" or parts == [*parts[:2], "shots.yaml"])
 
 
 def _digest_entry(root, path):
