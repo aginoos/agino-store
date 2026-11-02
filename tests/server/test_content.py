@@ -228,6 +228,37 @@ class TestVendor(ContentCase):
         self.set_track(url="https://evil.example.org/x/")
         self.assertRejected("host is not in allowed_hosts")
 
+    def set_hosts(self, host, url=None):
+        self.edit_vendor(lambda d: dict(d, allowed_hosts=[host], track=dict(
+            d["track"], url=url or "https://%s/x/" % host)))
+
+    def test_ip_literal_host_rejected(self):
+        for host in ("127.0.0.1", "10.0.0.5", "2130706433", "0x7f.1"):
+            self.set_hosts(host)
+            self.assertRejected("allowed_hosts[0]")
+
+    def test_local_and_single_label_hosts_rejected(self):
+        for host in ("localhost", "foo.localhost", "intranet"):
+            self.set_hosts(host)
+            self.assertRejected("fully qualified")
+
+    def test_local_hosts_allowed_when_insecure(self):
+        self.set_hosts("127.0.0.1", "http://127.0.0.1:8000/x/")
+        self.assertEqual(C.load(self.root, allow_insecure=True).vendor("chrome").allowed_hosts, ("127.0.0.1",))
+
+    def test_track_url_port(self):
+        self.set_track(url="https://dl.google.com:8443/x/")
+        self.assertRejected("port must be 443")
+        self.set_track(url="https://dl.google.com:443/x/")
+        C.load(self.root)
+        self.set_track(url="https://dl.google.com:8443/x/")
+        C.load(self.root, allow_insecure=True)
+
+    def test_nested_quantifier_regex_rejected(self):
+        for regex in (r"(?P<url>(a+)+)", r"(?P<url>(a*)*b)", r"(?P<url>(x+)*)", r"(?P<url>([a-z]+?)+)"):
+            self.page_track(regex)
+            self.assertRejected("nested quantifiers")
+
     def test_bad_fingerprint(self):
         self.set_track(fingerprints=["1234"])
         self.assertRejected("bad format")

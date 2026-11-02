@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
+import base64
 import json
 import os
+import subprocess
 import tempfile
 import unittest
 
@@ -20,6 +22,27 @@ def report(**changes):
     return doc
 
 
+def raw_public_key(private_pem):
+    """The 32 raw bytes of the Ed25519 public key belonging to a PEM private key."""
+    der = subprocess.run(["openssl", "pkey", "-in", private_pem, "-pubout", "-outform", "DER"],
+                         check=True, capture_output=True).stdout
+    return der[-32:]
+
+
+def sign_bytes(private_pem, data, workdir):
+    """One line of base64: the Ed25519 signature of data."""
+    src, out = os.path.join(workdir, ".sign-in"), os.path.join(workdir, ".sign-out")
+    H.write(src, data)
+    subprocess.run(["openssl", "pkeyutl", "-sign", "-rawin", "-inkey", private_pem, "-in", src, "-out", out],
+                   check=True, capture_output=True)
+    with open(out, "rb") as f:
+        return base64.b64encode(f.read()).decode("ascii") + "\n"
+
+
+def install_key(private_pem, keys_dir, name="sandbox.pub"):
+    H.write(os.path.join(keys_dir, name), base64.b64encode(raw_public_key(private_pem)) + b"\n")
+
+
 class TestReports(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -27,10 +50,19 @@ class TestReports(unittest.TestCase):
         self.cfg = H.make_config(self._tmp.name)
         self.st = State(self.cfg.state)
         self.st.add_candidate(H.candidate(checks={"deps": {"ok": True}, "sandbox": {"status": "missing"}}))
+        self.keys = os.path.join(self._tmp.name, "sandbox-keys")
+        self.private, _ = H.make_key(self._tmp.name)
+        install_key(self.private, self.keys)
 
-    def put(self, name, doc):
+    def ingest(self):
+        return reports.ingest(self.cfg, self.st, self.keys)
+
+    def put(self, name, doc, sign=True):
         path = os.path.join(self.cfg.reports, name)
-        H.write(path, doc if isinstance(doc, bytes) else json.dumps(doc).encode("utf-8"))
+        data = doc if isinstance(doc, bytes) else json.dumps(doc).encode("utf-8")
+        H.write(path, data)
+        if sign:
+            H.write(path + ".sig", sign_bytes(self.private, data, self._tmp.name), "w")
         return path
 
     def sandbox(self):
@@ -41,7 +73,7 @@ class TestReports(unittest.TestCase):
 
     def test_valid_report_is_applied_and_moved(self):
         self.put("chrome-1.json", report())
-        results = reports.ingest(self.cfg, self.st)
+        results = self.ingest()
         self.assertEqual([r["result"] for r in results], ["done"])
         sandbox = self.sandbox()
         self.assertEqual((sandbox["status"], sandbox["report"], sandbox["summary"]), ("pass", "chrome-1.json", "all good"))
@@ -52,12 +84,12 @@ class TestReports(unittest.TestCase):
 
     def test_fail_report_is_recorded(self):
         self.put("r.json", report(status="fail", summary="crashed"))
-        reports.ingest(self.cfg, self.st)
+        self.ingest()
         self.assertEqual(self.sandbox()["status"], "fail")
 
     def rejected(self, name, doc):
         self.put(name, doc)
-        results = reports.ingest(self.cfg, self.st)
+        results = self.ingest()
         self.assertEqual([r["result"] for r in results], ["rejected"], results)
         self.assertTrue(self.where("rejected", name))
         self.assertEqual(self.sandbox()["status"], "missing")
@@ -101,14 +133,82 @@ class TestReports(unittest.TestCase):
         record = self.st.find_candidate("chrome", "2.0-1")
         self.st.update_candidate(record, {"status": "rejected"})
         self.put("a.json", report())
-        self.assertEqual(reports.ingest(self.cfg, self.st)[0]["result"], "rejected")
+        self.assertEqual(self.ingest()[0]["result"], "rejected")
+
+    def test_unsigned_report_is_rejected(self):
+        self.put("a.json", report(), sign=False)
+        results = self.ingest()
+        self.assertEqual([r["result"] for r in results], ["rejected"])
+        self.assertIn("unsigned", results[0]["reason"])
+        self.assertEqual(self.sandbox()["status"], "missing")
+
+    def test_bad_signature_is_rejected(self):
+        path = self.put("a.json", report())
+        H.write(path, json.dumps(report(summary="tampered")).encode("utf-8"))
+        self.assertIn("signature", self.ingest()[0]["reason"])
+        self.assertEqual(self.sandbox()["status"], "missing")
+        self.assertTrue(self.where("rejected", "a.json.sig"))
+
+    def test_signature_by_unknown_key_is_rejected(self):
+        other = os.path.join(self._tmp.name, "other")
+        os.makedirs(other)
+        key, _ = H.make_key(other)
+        data = json.dumps(report()).encode("utf-8")
+        H.write(os.path.join(self.cfg.reports, "a.json"), data)
+        H.write(os.path.join(self.cfg.reports, "a.json.sig"), sign_bytes(key, data, other), "w")
+        self.assertEqual(self.ingest()[0]["result"], "rejected")
+
+    def test_garbage_signature_is_rejected(self):
+        path = self.put("a.json", report())
+        H.write(path + ".sig", "not base64!!\n", "w")
+        self.assertEqual(self.ingest()[0]["result"], "rejected")
+
+    def test_no_keys_configured_rejects_everything(self):
+        self.put("a.json", report())
+        results = reports.ingest(self.cfg, self.st, os.path.join(self._tmp.name, "nokeys"))
+        self.assertEqual([r["result"] for r in results], ["rejected"])
+
+    def test_sig_symlink_is_not_followed(self):
+        path = self.put("a.json", report())
+        os.unlink(path + ".sig")
+        outside = os.path.join(self._tmp.name, "outside.sig")
+        H.write(outside, sign_bytes(self.private, json.dumps(report()).encode("utf-8"), self._tmp.name), "w")
+        os.symlink(outside, path + ".sig")
+        self.assertEqual(self.ingest()[0]["result"], "rejected")
+
+    def test_done_symlink_is_refused(self):
+        self.put("a.json", report())
+        outside = os.path.join(self._tmp.name, "elsewhere")
+        os.makedirs(outside)
+        os.symlink(outside, os.path.join(self.cfg.reports, "done"))
+        with self.assertRaises(reports.ReportError):
+            self.ingest()
+        self.assertEqual(os.listdir(outside), [])
+        self.assertTrue(self.where("", "a.json"))
+        self.assertEqual(self.sandbox()["status"], "missing")
+
+    def test_rejected_not_a_directory_is_refused(self):
+        self.put("a.json", report())
+        H.write(os.path.join(self.cfg.reports, "rejected"), b"x")
+        with self.assertRaises(reports.ReportError):
+            self.ingest()
+        self.assertTrue(self.where("", "a.json"))
+
+    def test_reports_dir_symlink_is_refused(self):
+        real = os.path.join(self._tmp.name, "real-reports")
+        os.makedirs(real)
+        os.symlink(real, self.cfg.reports)
+        with self.assertRaises(reports.ReportError):
+            self.ingest()
 
     def test_symlink_is_not_followed(self):
         outside = os.path.join(self._tmp.name, "outside.json")
         H.write(outside, json.dumps(report()).encode("utf-8"))
         os.makedirs(self.cfg.reports)
         os.symlink(outside, os.path.join(self.cfg.reports, "link.json"))
-        results = reports.ingest(self.cfg, self.st)
+        H.write(os.path.join(self.cfg.reports, "link.json.sig"),
+                sign_bytes(self.private, json.dumps(report()).encode("utf-8"), self._tmp.name), "w")
+        results = self.ingest()
         self.assertEqual([r["result"] for r in results], ["rejected"])
         self.assertTrue(os.path.islink(os.path.join(self.cfg.reports, "rejected", "link.json")))
         self.assertTrue(os.path.isfile(outside))
@@ -118,18 +218,18 @@ class TestReports(unittest.TestCase):
         self.put("notes.txt", b"hello")
         self.put(".hidden.json", report())
         os.makedirs(os.path.join(self.cfg.reports, "dir.json"))
-        self.assertEqual(reports.ingest(self.cfg, self.st), [])
+        self.assertEqual(self.ingest(), [])
         self.assertTrue(self.where("", "notes.txt"))
 
     def test_name_collision_in_done(self):
         for _ in range(2):
             self.put("same.json", report())
-            reports.ingest(self.cfg, self.st)
+            self.ingest()
         self.assertTrue(self.where("done", "same.json"))
         self.assertTrue(self.where("done", "same.json.1"))
 
     def test_missing_reports_dir(self):
-        self.assertEqual(reports.ingest(self.cfg, self.st), [])
+        self.assertEqual(self.ingest(), [])
 
 
 if __name__ == "__main__":

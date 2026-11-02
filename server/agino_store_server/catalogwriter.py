@@ -11,12 +11,14 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import subprocess
 import tempfile
 
 ASSET_EXTS = {".svg", ".png", ".webp", ".jpg", ".jpeg"}
 KNOWN_OUTPUTS = ("catalog.json", "apps", "stats.json", "assets", "manifest.json", "manifest.json.sig")
 TIME_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+MAX_ASSET_BYTES = 10 << 20
 
 
 class CatalogWriterError(Exception):
@@ -57,6 +59,8 @@ class AssetStore:
         ext = os.path.splitext(src)[1].lower()
         if ext not in ASSET_EXTS:
             raise CatalogWriterError("unsupported asset type: %s" % name)
+        if os.path.getsize(src) > MAX_ASSET_BYTES:
+            raise CatalogWriterError("asset larger than 10 MiB: %s" % name)
         published = "assets/%s%s" % (sha256_file(src), ext)
         self.files[published] = ("file", src)
         self._by_source[src] = published
@@ -121,12 +125,27 @@ def write_tree(out, files, serial, revision, valid_days, key, when=None):
     return manifest
 
 
+def _check_key_file(key):
+    """The signing key must be a regular file of the current user without group/other access."""
+    try:
+        st = os.stat(key)
+    except OSError:
+        raise CatalogWriterError("signing failed: key file is not readable") from None
+    if not stat.S_ISREG(st.st_mode) or st.st_mode & 0o077 or st.st_uid != os.getuid():
+        raise CatalogWriterError("signing failed: key file must be a regular file owned by the current user "
+                                 "with mode 0600")
+
+
 def sign(manifest_path, key):
     """Write <manifest_path>.sig: base64 of the Ed25519 signature over the raw bytes."""
+    _check_key_file(key)
     with tempfile.TemporaryDirectory() as tmp:
         sig_path = os.path.join(tmp, "sig.bin")
-        subprocess.run(["openssl", "pkeyutl", "-sign", "-rawin", "-inkey", key,
-                        "-in", manifest_path, "-out", sig_path], check=True)
+        try:
+            subprocess.run(["openssl", "pkeyutl", "-sign", "-rawin", "-inkey", key,
+                            "-in", manifest_path, "-out", sig_path], check=True, capture_output=True)
+        except (subprocess.CalledProcessError, OSError):
+            raise CatalogWriterError("signing failed") from None
         with open(sig_path, "rb") as f:
             sig = f.read()
     if len(sig) != 64:

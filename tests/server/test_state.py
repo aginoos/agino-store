@@ -77,6 +77,12 @@ class TestState(unittest.TestCase):
         record = self.st.add_candidate(H.candidate(version="1:2.0-1"))
         self.assertNotIn(":", os.path.basename(record["_path"]))
 
+    def test_version_must_start_with_a_digit(self):
+        for bad in ("-rf", "~x", ".1", ":1", "a1", "1:", "1:-x", "1 2", "1/2", "1\n"):
+            with self.assertRaises(state.StateError, msg=bad):
+                self.st.add_candidate(H.candidate(version=bad))
+        self.st.add_candidate(H.candidate(version="1:2.0~rc1+dfsg-1"))
+
     def test_approved_and_log(self):
         self.assertEqual(self.st.approved(), {})
         self.st.set_approved("chrome", {"version": "2.0-1"}, {"action": "approve", "app": "chrome"})

@@ -1,20 +1,22 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import datetime
+import hashlib
 import json
 import os
 import struct
-import subprocess
 import tempfile
 import unittest
 from unittest import mock
 
-from agino_store_server import catalog, content as C
+from agino_store_server import catalog, catalogwriter as cw, content as C
 from agino_store_server.state import State
 
 from . import helpers as H
 
 UTC = datetime.timezone.utc
 DAY = datetime.datetime(2026, 11, 2, 12, 0, tzinfo=UTC)
+DEB = b"x" * 11
+DEB_SHA = hashlib.sha256(DEB).hexdigest()
 MILKYWAY = {"gimp": {"version": "3.0.4-3", "first_seen": "2026-10-01T00:00:00Z", "size": 1, "installed_size": 2}}
 
 
@@ -43,10 +45,10 @@ class CatalogCase(unittest.TestCase):
     def build(self, **kw):
         return catalog.build(self.cfg, self.st, self.load(), **kw)
 
-    def publish_all(self, version="2.0-1", sha=H.SHA):
+    def publish_all(self, version="2.0-1", sha=DEB_SHA, content=DEB):
         """Approve a chrome deb and make gimp available in milkyway."""
         record = H.candidate(version=version, sha=sha, status="approved")
-        H.write(os.path.join(self.cfg.downloads, record["file"]), b"x" * record["size"])
+        H.write(os.path.join(self.cfg.downloads, record["file"]), content)
         added = self.st.add_candidate(record)
         entry = {"version": version, "sha256": sha, "candidate": os.path.basename(added["_path"]),
                  "approved_at": "2026-11-02T08:00:00Z", "by": "t", "note": ""}
@@ -87,7 +89,7 @@ class TestBuild(CatalogCase):
         self.assertEqual([a["id"] for a in data["apps"]], ["chrome", "gimp"])
         chrome, gimp = data["apps"]
         deb = chrome["package"]["deb"]
-        self.assertEqual(deb["url"], "https://store.example.invalid/debs/%s/google-chrome-stable_2.0-1_amd64.deb" % H.SHA)
+        self.assertEqual(deb["url"], "https://store.example.invalid/debs/%s/google-chrome-stable_2.0-1_amd64.deb" % DEB_SHA)
         self.assertEqual((deb["version"], deb["size"], deb["installed_size"]), ("2.0-1", 11, 4096))
         self.assertEqual(chrome["updated"], "2026-11-02")
         self.assertEqual(gimp["updated"], "2026-10-01")
@@ -126,8 +128,8 @@ class TestBuild(CatalogCase):
         self.publish_all()
         self.build()
         name = "google-chrome-stable_2.0-1_amd64.deb"
-        src = os.path.join(self.cfg.downloads, H.SHA, name)
-        dest = os.path.join(self.cfg.preview, "debs", H.SHA, name)
+        src = os.path.join(self.cfg.downloads, DEB_SHA, name)
+        dest = os.path.join(self.cfg.preview, "debs", DEB_SHA, name)
         self.assertEqual(os.stat(src).st_ino, os.stat(dest).st_ino)
 
     def test_skips_apps_without_inputs(self):
@@ -140,7 +142,7 @@ class TestBuild(CatalogCase):
 
     def test_skips_deb_with_bad_record_or_missing_file(self):
         self.publish_all()
-        os.unlink(os.path.join(self.cfg.downloads, H.SHA, "google-chrome-stable_2.0-1_amd64.deb"))
+        os.unlink(os.path.join(self.cfg.downloads, DEB_SHA, "google-chrome-stable_2.0-1_amd64.deb"))
         summary = self.build()
         self.assertEqual([s["id"] for s in summary["skipped"]], ["chrome"])
         self.assertIn("missing", summary["skipped"][0]["reason"])
@@ -149,7 +151,7 @@ class TestBuild(CatalogCase):
     def test_record_with_path_traversal_is_skipped(self):
         self.publish_all()
         record = self.st.find_candidate("chrome", "2.0-1")
-        self.st.update_candidate(record, {"filename": "../../evil.deb", "file": H.SHA + "/../../evil.deb"})
+        self.st.update_candidate(record, {"filename": "../../evil.deb", "file": DEB_SHA + "/../../evil.deb"})
         summary = self.build()
         self.assertIn("bad file name", summary["skipped"][0]["reason"])
 
@@ -164,14 +166,77 @@ class TestBuild(CatalogCase):
         self.build()
         broken = H.make_config(self.base, os.path.join(self.base, "missing.pem"), keep_catalogs=self.keep)
         self.set_time(DAY + datetime.timedelta(hours=30))
-        with self.assertRaises(subprocess.CalledProcessError):
+        with self.assertRaises(catalog.CatalogError) as ctx:
             catalog.build(broken, self.st, self.load())
+        self.assertNotIn("missing.pem", str(ctx.exception))
         self.assertEqual(os.readlink(self.current()), "catalog-2026110201")
         self.assertEqual(self.tree_dirs(), ["catalog-2026110201"])
         self.assertEqual(self.st.catalog_state()["serial"], 2026110201)
 
 
+class TestDebVerification(CatalogCase):
+    def skipped(self):
+        return {s["id"]: s["reason"] for s in self.build()["skipped"]}
+
+    def deb_path(self):
+        return os.path.join(self.cfg.downloads, DEB_SHA, "google-chrome-stable_2.0-1_amd64.deb")
+
+    def test_candidate_must_be_approved(self):
+        self.publish_all()
+        record = self.st.find_candidate("chrome", "2.0-1")
+        self.st.update_candidate(record, {"status": "revoked"})
+        self.assertIn("not approved", self.skipped()["chrome"])
+
+    def test_dependency_check_must_have_passed(self):
+        self.publish_all()
+        record = self.st.find_candidate("chrome", "2.0-1")
+        self.st.update_candidate(record, {"checks": {"deps": {"ok": False}}})
+        self.assertIn("dependency check", self.skipped()["chrome"])
+
+    def test_modified_deb_is_not_published(self):
+        self.publish_all()
+        with open(self.deb_path(), "wb") as f:
+            f.write(b"y" * 11)
+        self.assertIn("approved sha256", self.skipped()["chrome"])
+        self.assertFalse(os.path.exists(os.path.join(self.cfg.preview, "debs")))
+
+    def test_existing_copy_with_other_content_is_replaced(self):
+        self.publish_all()
+        dest_dir = os.path.join(self.cfg.preview, "debs", DEB_SHA)
+        dest = os.path.join(dest_dir, "google-chrome-stable_2.0-1_amd64.deb")
+        H.write(dest, b"evil")
+        self.assertNotIn("chrome", self.skipped())
+        with open(dest, "rb") as f:
+            self.assertEqual(f.read(), DEB)
+
+    def test_existing_copy_with_matching_hash_is_kept(self):
+        self.publish_all()
+        dest = os.path.join(self.cfg.preview, "debs", DEB_SHA, "google-chrome-stable_2.0-1_amd64.deb")
+        H.write(dest, DEB)
+        inode = os.stat(dest).st_ino
+        self.assertNotIn("chrome", self.skipped())
+        self.assertEqual(os.stat(dest).st_ino, inode)
+
+    def test_symlink_at_destination_is_replaced(self):
+        self.publish_all()
+        dest_dir = os.path.join(self.cfg.preview, "debs", DEB_SHA)
+        os.makedirs(dest_dir)
+        target = os.path.join(self.base, "target.deb")
+        H.write(target, DEB)
+        dest = os.path.join(dest_dir, "google-chrome-stable_2.0-1_amd64.deb")
+        os.symlink(target, dest)
+        self.build()
+        self.assertFalse(os.path.islink(dest))
+
+
 class TestSerialAndRenewal(CatalogCase):
+    def test_leftover_directory_does_not_wedge_the_build(self):
+        self.publish_all()
+        os.makedirs(os.path.join(self.cfg.preview, "catalog-2026110201"))   # crash between swap and save
+        summary = self.build()
+        self.assertEqual(summary["serial"], 2026110202)
+        self.assertEqual(os.readlink(self.current()), "catalog-2026110202")
+
     def test_serial_counts_up_within_a_day_and_resets(self):
         self.publish_all()
         self.assertEqual([self.build()["serial"] for _ in range(2)], [2026110201, 2026110202])
@@ -255,6 +320,66 @@ class TestPrune(CatalogCase):
             self.build()
         self.assertIn("catalog-old", os.listdir(self.cfg.preview))
         self.assertIn("notes", os.listdir(self.cfg.preview))
+
+
+class TestPruneDebs(CatalogCase):
+    def make(self, sha, age_days):
+        directory = os.path.join(self.cfg.preview, "debs", sha)
+        H.write(os.path.join(directory, "x.deb"), b"x")
+        stamp = DAY.timestamp() - age_days * 86400
+        os.utime(directory, (stamp, stamp))
+        return directory
+
+    def test_old_unreferenced_removed_and_young_or_referenced_kept(self):
+        self.publish_all()
+        self.build()
+        old, young = self.make("b" * 64, 30), self.make("c" * 64, 5)
+        referenced = os.path.join(self.cfg.preview, "debs", DEB_SHA)
+        os.utime(referenced, (DAY.timestamp() - 90 * 86400,) * 2)
+        foreign = os.path.join(self.cfg.preview, "debs", "notes")
+        os.makedirs(foreign)
+        os.utime(foreign, (0, 0))
+        self.build()
+        self.assertFalse(os.path.exists(old))
+        self.assertTrue(os.path.isdir(young))
+        self.assertTrue(os.path.isdir(referenced))
+        self.assertTrue(os.path.isdir(foreign))
+
+
+class TestSigningAndAssets(CatalogCase):
+    def sign_with(self, key):
+        path = os.path.join(self.base, "manifest.json")
+        H.write(path, b"{}")
+        cw.sign(path, key)
+
+    def test_group_readable_key_refused(self):
+        os.chmod(self.key, 0o640)
+        with self.assertRaises(cw.CatalogWriterError):
+            self.sign_with(self.key)
+
+    def test_symlinked_or_missing_key_message_has_no_path(self):
+        link = os.path.join(self.base, "link.pem")
+        os.symlink(self.key, link)
+        self.sign_with(link)    # a symlink to a 0600 regular file owned by us is fine
+        with self.assertRaises(cw.CatalogWriterError) as ctx:
+            self.sign_with(os.path.join(self.base, "secret-name.pem"))
+        self.assertNotIn("secret-name", str(ctx.exception))
+
+    def test_broken_key_reports_signing_failed(self):
+        bad = os.path.join(self.base, "bad.pem")
+        H.write(bad, b"not a key")
+        os.chmod(bad, 0o600)
+        with self.assertRaises(cw.CatalogWriterError) as ctx:
+            self.sign_with(bad)
+        self.assertEqual(str(ctx.exception), "signing failed")
+
+    def test_oversized_asset_refused(self):
+        big = os.path.join(self.base, "assets", "big.png")
+        H.write(big, b"\0" * ((10 << 20) + 1))
+        with self.assertRaises(cw.CatalogWriterError):
+            cw.AssetStore(os.path.join(self.base, "assets")).add("big.png")
+        with self.assertRaises(catalog.CatalogError):
+            catalog.image_size(big)
 
 
 class TestImageSize(unittest.TestCase):

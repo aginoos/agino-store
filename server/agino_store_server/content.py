@@ -7,6 +7,7 @@ of frozen dataclasses built fresh from the parsed data.
 """
 
 import hashlib
+import ipaddress
 import os
 import re
 import stat
@@ -19,7 +20,7 @@ ID_RE = re.compile(r"\A[a-z0-9][a-z0-9.+-]*\Z")
 LANG_RE = re.compile(r"\A[a-z]{2,3}(_[A-Z]{2})?\Z")
 REQUIRED_LANGS = ("zh_CN", "en_US")
 SCREENSHOT_LANGS = REQUIRED_LANGS
-VERSION_RE = re.compile(r"\A[A-Za-z0-9.+~:-]+\Z")
+VERSION_RE = re.compile(r"\A(?:[0-9]+:)?[0-9][A-Za-z0-9.+~-]*\Z")
 LICENSE_RE = re.compile(r"\A[A-Za-z0-9.+():\- ]{1,200}\Z")
 LAUNCHABLE_RE = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9._-]{0,200}\.desktop\Z")
 DEFAULT_PATH_RE = re.compile(r"\A/etc/default/[a-z0-9][a-z0-9.+-]*\Z")
@@ -38,6 +39,8 @@ MAX_YAML_BYTES = 1 << 20
 MAX_ASSET_BYTES = 10 << 20
 MAX_DEFAULT_FILE_BYTES = 4096
 MAX_REGEX_LEN = 500
+# Heuristic: a repeat right before a group's closing paren and the group repeated again, e.g. (a+)+ (.*)* (a+)*.
+NESTED_QUANTIFIER_RE = re.compile(r"[+*}]\??\)[+*{]")
 MAX_TEXT_LEN = 4000
 
 # track type -> (required keys, optional keys) besides the common ones
@@ -531,6 +534,9 @@ def _regex(chk, path, value, required_groups, optional_groups=()):
     text = chk.string(path, value, max_len=MAX_REGEX_LEN)
     if text is None:
         return None
+    if NESTED_QUANTIFIER_RE.search(text):
+        chk.fail(path, "nested quantifiers (catastrophic backtracking) are not allowed")
+        return None
     try:
         groups = re.compile(text).groupindex
     except re.error as e:
@@ -572,6 +578,8 @@ def _track(chk, where, vendors_dir, track, fetch, hosts, allow_insecure):
     url = chk.url(where + ".url", track["url"], allow_insecure)
     if url and urlsplit(url).hostname not in hosts:
         chk.fail(where + ".url", "host is not in allowed_hosts")
+    if url and not allow_insecure and _port(url) not in (None, 443):
+        chk.fail(where + ".url", "port must be 443")
     out["url"] = url
     key_files = ()
     if kind == "apt":
@@ -601,10 +609,37 @@ def _fingerprints(chk, path, value):
     return tuple(s.upper() for s in items if s) if None not in items else None
 
 
-def _hosts(chk, path, value):
+def _port(url):
+    try:
+        return urlsplit(url).port
+    except ValueError:
+        return -1
+
+
+def _bad_host(host):
+    """Why a host cannot be an allowed vendor host (IP literal, local or single-label name), or None."""
+    try:
+        ipaddress.ip_address(host)
+        return "IP literals are not allowed"
+    except ValueError:
+        pass
+    labels = host.split(".")
+    if len(labels) < 2 or labels[-1] == "localhost":
+        return "must be a fully qualified public name (not localhost or a single label)"
+    if labels[-1].isdigit() or labels[-1].startswith("0x"):
+        return "IP literals are not allowed"
+    return None
+
+
+def _hosts(chk, path, value, allow_insecure=False):
     items = [chk.string("%s[%d]" % (path, i), h, HOST_RE, 253)
              for i, h in enumerate(chk.sequence(path, value, 1, 20) or [])]
-    return tuple(items) if None not in items else ()
+    if None in items:
+        return ()
+    bad = [(i, _bad_host(h)) for i, h in enumerate(items) if not allow_insecure and _bad_host(h)]
+    for i, reason in bad:
+        chk.fail("%s[%d]" % (path, i), reason)
+    return () if bad else tuple(items)
 
 
 def _vendor(chk, root, vendor_id, allow_insecure):
@@ -618,7 +653,7 @@ def _vendor(chk, root, vendor_id, allow_insecure):
     fetch = data["fetch"]
     if fetch not in ("auto", "manual"):
         chk.fail(rel + ".fetch", "must be auto or manual")
-    hosts = _hosts(chk, rel + ".allowed_hosts", data["allowed_hosts"])
+    hosts = _hosts(chk, rel + ".allowed_hosts", data["allowed_hosts"], allow_insecure)
     track, key_files = _track(chk, rel + ".track", os.path.join(root, "vendors"),
                               data["track"], fetch, hosts, allow_insecure)
     if len(chk.errors) != before:
