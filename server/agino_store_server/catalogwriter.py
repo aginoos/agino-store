@@ -87,7 +87,7 @@ def _write_files(out, files):
     return entries
 
 
-def _now():
+def now():
     epoch = os.environ.get("SOURCE_DATE_EPOCH")
     if epoch:
         stamp = datetime.datetime.fromtimestamp(int(epoch), datetime.timezone.utc)
@@ -96,16 +96,16 @@ def _now():
     return stamp.replace(microsecond=0)
 
 
-def write_tree(out, files, serial, revision, valid_days, key, now=None):
+def write_tree(out, files, serial, revision, valid_days, key, when=None):
     """Write files (path -> bytes or ("file", src)), manifest.json and manifest.json.sig into out.
 
-    Returns the manifest dict. `now` (aware datetime) overrides SOURCE_DATE_EPOCH and the clock.
+    Returns the manifest dict. `when` (aware datetime) overrides SOURCE_DATE_EPOCH and the clock.
     """
     out = os.path.abspath(out)
     os.makedirs(out, exist_ok=True)
     _clean_outputs(out)
     entries = _write_files(out, files)
-    created = (now or _now()).replace(microsecond=0)
+    created = (when or now()).replace(microsecond=0)
     manifest = {
         "schema": 1,
         "serial": serial,
