@@ -73,29 +73,44 @@ bool isLocalId(const QString &id)
     return Daemon::packageData(id).startsWith(QLatin1String("local"));
 }
 
+// Simulated transactions mark package ids with the reason ("+auto:REPO", "manual:REPO");
+// GetDetails only knows the plain repository id "name;version;arch;REPO".
+QString repoId(const QString &id)
+{
+    QStringList parts = id.split(QLatin1Char(';'));
+    if (parts.size() != 4)
+        return id;
+    const qsizetype colon = parts[3].lastIndexOf(QLatin1Char(':'));
+    if (colon >= 0)
+        parts[3] = parts[3].mid(colon + 1);
+    return parts.join(QLatin1Char(';'));
+}
+
 // Adds sizes from PackageKit details (when available) and the catalog's deb numbers.
 void finishPlan(PkClient *pk, const AppSummary &app, const Plan &plan, bool debInPlan, SimulateDone done)
 {
     QStringList lookup;
     for (const QString &id : plan.installIds + plan.removeIds) {
         if (!isLocalId(id))
-            lookup.append(id);
+            lookup.append(repoId(id));
     }
     auto emitResult = [app, plan, debInPlan, done](const PkResult &details) {
         QHash<QString, qulonglong> size;
         QHash<QString, qulonglong> download;
         for (const PackageKit::Details &d : details.details) {
+            // size() is the installed size; the archive size is only in the raw map (PackageKit
+            // >= 1.2 sends "download-size", PackageKit-Qt 1.1 has no accessor for it).
             size.insert(d.packageId(), d.size());
-            download.insert(d.packageId(), d.downloadSize());
+            download.insert(d.packageId(), d.value(QStringLiteral("download-size")).toULongLong());
         }
         qint64 downloadBytes = 0;
         qint64 delta = 0;
         for (const QString &id : plan.installIds) {
-            downloadBytes += static_cast<qint64>(download.value(id));
-            delta += static_cast<qint64>(size.value(id));
+            downloadBytes += static_cast<qint64>(download.value(repoId(id)));
+            delta += static_cast<qint64>(size.value(repoId(id)));
         }
         for (const QString &id : plan.removeIds)
-            delta -= static_cast<qint64>(size.value(id));
+            delta -= static_cast<qint64>(size.value(repoId(id)));
         if (debInPlan && app.package.deb) {
             // The vendor deb is not in any repository: use the numbers from the catalog.
             downloadBytes += app.package.deb->size;
