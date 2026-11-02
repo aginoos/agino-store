@@ -57,6 +57,24 @@ QHash<QString, QString> installedVersions(const QStringList &packageNames)
     return out;
 }
 
+qint64 installedSizeBytes(const QString &packageName)
+{
+    if (!isValidPackageName(packageName))
+        return 0;
+    const QStringList args{QStringLiteral("-W"),
+                           QStringLiteral("--showformat=${db:Status-Status}\\t${Installed-Size}\\n"),
+                           packageName};
+    const ProcessResult result = runProcess(dpkgQueryPath(), args, QByteArray(), 10000);
+    if (!result.started || result.timedOut)
+        return 0;
+    const QList<QByteArray> fields = result.out.trimmed().split('\t');
+    if (fields.size() != 2 || fields.at(0) != "installed")
+        return 0;
+    bool ok = false;
+    const qint64 kib = fields.at(1).toLongLong(&ok);
+    return ok && kib > 0 ? kib * 1024 : 0;
+}
+
 bool dpkgVersionGreater(const QString &a, const QString &b)
 {
     if (!isValidVersion(a) || !isValidVersion(b))

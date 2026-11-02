@@ -16,6 +16,9 @@ bool isValidVersion(const QString &version);
 // package name -> installed version, only for packages whose dpkg status is "installed".
 QHash<QString, QString> installedVersions(const QStringList &packageNames);
 
+// Installed-Size of an installed package in bytes; 0 when it is not installed or unknown.
+qint64 installedSizeBytes(const QString &packageName);
+
 // True when `a` is strictly newer than `b` (dpkg --compare-versions a gt b).
 bool dpkgVersionGreater(const QString &a, const QString &b);
 

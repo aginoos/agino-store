@@ -114,7 +114,8 @@ void finishPlan(PkClient *pk, const AppSummary &app, const Plan &plan, bool debI
         if (debInPlan && app.package.deb) {
             // The vendor deb is not in any repository: use the numbers from the catalog.
             downloadBytes += app.package.deb->size;
-            delta += app.package.deb->installedSize;
+            // An update replaces the installed version: count only the difference.
+            delta += app.package.deb->installedSize - installedSizeBytes(app.package.name);
         }
         const QJsonObject json{{QStringLiteral("install"), entries(plan.installIds)},
                                {QStringLiteral("remove"), entries(plan.removeIds)},
