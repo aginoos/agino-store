@@ -152,14 +152,14 @@ scenes:                               # 1..6 个（建议 4..6，校验器不对
   - id: editor                        # ^[a-z0-9][a-z0-9-]{0,30}$，不重复
     caption: {zh_CN: …, en_US: …}     # 两种语言都必填，单行，<= 80 字符
     demo: [code-project]              # 可选：场景前复制到 ~/Demo/<name>/ 的演示树，必须存在于 demo/
-    args: ["~/Demo/code-project"]     # 可选：<= 8 项，每项 <= 300 字符，不含换行
+    args: ["~/Demo/code-project"]     # 可选：<= 8 项，每项 <= 300 字符，不含换行；{lang} 在运行时换成 zh_CN / en_US
     window: {width: 1400, height: 900}  # 可选：本场景的窗口大小
     steps:                            # 可选，<= 30 步，只能是下面五种之一
       - wait: 3                       # 秒，0 < x <= 20
       - key: "ctrl+shift+p"           # ^[A-Za-z0-9_+]{1,40}$
-      - type: "hello"                 # 可打印字符，<= 200，无换行
+      - type: "hello"                 # 可打印字符，<= 200，无换行；也可写 {zh_CN: …, en_US: …}
       - click: [200, 150]             # 窗口内逻辑像素，可加第三项 left|right|middle
-      - wait_window: "Preferences"    # <= 80 字符
+      - wait_window: {zh_CN: "首选项", en_US: "Preferences"}  # <= 80 字符；一个字符串表示两种语言相同
     capture: window                   # 目前只有 window
 promo:                                # 可选：登录后才能看的应用的厂商宣传图
   - {image: promo/zh_CN/1.png, lang: zh_CN, source: "https://…", license: "…"}

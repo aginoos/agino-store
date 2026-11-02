@@ -40,6 +40,21 @@ def _text(value, limit, what, minimum=1):
     return value
 
 
+def _localized(value, limit, what):
+    """{lang: text} from one string for both languages or a {zh_CN, en_US} mapping."""
+    if isinstance(value, dict):
+        if set(value) != set(LANGS):
+            raise ShotsError("%s must name exactly %s" % (what, ", ".join(LANGS)))
+        return {lang: _text(value[lang], limit, what) for lang in LANGS}
+    text = _text(value, limit, what)
+    return {lang: text for lang in LANGS}
+
+
+def scene_args(args, lang):
+    """The scene's arguments for one language: {lang} becomes zh_CN or en_US (per-language demo files)."""
+    return [a.replace("{lang}", lang) for a in args]
+
+
 def validate_window(value, default):
     if value is None:
         return default
@@ -63,9 +78,9 @@ def validate_step(step):
             raise ShotsError("bad key")
         return kind, value
     if kind == "type":
-        return kind, _text(value, 200, "type text")
+        return kind, _localized(value, 200, "type text")
     if kind == "wait_window":
-        return kind, _text(value, 80, "wait_window title")
+        return kind, _localized(value, 80, "wait_window title")
     if kind == "click":
         if not isinstance(value, list) or len(value) not in (2, 3):
             raise ShotsError("click needs [x, y] or [x, y, button]")

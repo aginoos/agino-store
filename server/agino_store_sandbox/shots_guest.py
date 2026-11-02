@@ -12,6 +12,7 @@ SWITCH_SCRIPT_PATH = "/var/tmp/sbx/shots-locale.sh"
 DEMO_TAR = "/var/tmp/sbx/demo.tar"
 DEMO_DIR = shots_scene.HOME + "/Demo"
 MAX_PIDS = 500
+TRANSIENT_TYPES = ("SPLASH", "DIALOG", "NOTIFICATION", "TOOLTIP", "POPUP_MENU", "DROPDOWN_MENU", "UTILITY")
 
 # Port of infra tools/iso-test/login-as.sh for the existing user: sets the language with
 # LangSelector1.SetLocale, removes the generated input method files, restarts LightDM and waits
@@ -150,9 +151,16 @@ class ShotsGuest:
         res = self.guest.as_tester(["/usr/bin/xprop", "-id", wid, "_NET_FRAME_EXTENTS"], 10)
         return shots_scene.parse_extents(res.text) if res.ok else (0, 0, 0, 0)
 
-    def is_dialog(self, wid):
+    def window_type(self, wid):
         res = self.guest.as_tester(["/usr/bin/xprop", "-id", wid, "_NET_WM_WINDOW_TYPE"], 10)
-        return res.ok and "_NET_WM_WINDOW_TYPE_DIALOG" in res.text
+        return res.text if res.ok else ""
+
+    def is_dialog(self, wid):
+        return "_NET_WM_WINDOW_TYPE_DIALOG" in self.window_type(wid)
+
+    def is_main_candidate(self, wid):
+        """Not a splash screen, dialog or other transient window (GIMP shows a splash before its window)."""
+        return not any("_NET_WM_WINDOW_TYPE_" + t in self.window_type(wid) for t in TRANSIENT_TYPES)
 
     def active_window(self):
         res = self.xdotool(["getactivewindow"], 10)

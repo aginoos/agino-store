@@ -47,6 +47,13 @@ class TestShotsValidation(ContentCase):
         self.assertEqual(scene["demo"], ["code-project"])
         self.assertIsNone(C.load(self.root).app("chrome").shots)
 
+    def test_localized_steps(self):
+        steps = [{"wait_window": {"zh_CN": "首选项", "en_US": "Preferences"}}, {"type": {"zh_CN": "你好", "en_US": "hi"}}]
+        self.scene(steps=steps, args=["~/Demo/code-project/{lang}"])
+        scene = C.load(self.root).app("gimp").shots["scenes"][0]
+        self.assertEqual(scene["steps"], steps)
+        self.assertEqual(scene["args"], ["~/Demo/code-project/{lang}"])
+
     def test_defaults(self):
         add_shots(self.root, {"schema": 1, "scenes": [{"id": "a", "caption": H.text("甲", "A")}]}, demo=False)
         shots = C.load(self.root).app("gimp").shots
@@ -104,6 +111,8 @@ class TestShotsValidation(ContentCase):
             (dict(steps=[{"wait_window": "x" * 81}]), "wait_window"),
             (dict(steps=[{"wait": 1, "key": "a"}]), "exactly one"), (dict(steps=[{"sleep": 1}]), "exactly one"),
             (dict(steps=["wait"]), "exactly one"),
+            (dict(steps=[{"wait_window": {"zh_CN": "x"}}]), "wait_window"),
+            (dict(steps=[{"type": {"zh_CN": "a", "en_US": "a\nb"}}]), "type.en_US"),
         ]
         for change, needle in cases:
             self.scene(**change)

@@ -13,6 +13,7 @@ from .util import InfraError, SandboxError, clean
 
 WINDOW_WAIT = 30
 SETTLE = 2
+STABLE = 3
 MAX_PPM_FILE = shots_img.MAX_PPM
 
 
@@ -97,7 +98,7 @@ class Phase:
         def problem(text):
             problems.append("%s: %s" % (lang, text))
 
-        argv = shots_scene.build_command(exec_value, sc["args"])
+        argv = shots_scene.build_command(exec_value, shots_scene.scene_args(sc["args"], lang))
         if argv is None:
             problem("unusable Exec line")
             return
@@ -113,22 +114,25 @@ class Phase:
                 problem("window not found")
                 return
             self._arrange(target, sc["window"])
-            target = self._steps(sc["steps"], target, baseline, problem)
+            target = self._steps(sc["steps"], lang, target, baseline, problem)
             time.sleep(SETTLE)
             self._capture(lang, result, target, baseline, problem)
         finally:
             self.g.kill_new(base_pids)
 
     def _main_window(self, baseline):
+        """The largest new normal window once it stayed the same for STABLE polls (splash screens come first)."""
         deadline = time.monotonic() + WINDOW_WAIT
+        last, seen = None, 0
         while time.monotonic() < deadline:
-            if self.g.windows() - baseline:
-                time.sleep(1.5)
-                new = self.g.windows() - baseline
-                if new:
-                    return max(sorted(new), key=self._area)
+            new = [w for w in sorted(self.g.windows() - baseline) if self.g.is_main_candidate(w)]
+            best = max(new, key=self._area) if new else None
+            seen = seen + 1 if best is not None and best == last else 1
+            last = best
+            if best is not None and seen >= STABLE:
+                return best
             time.sleep(1)
-        return None
+        return last
 
     def _area(self, wid):
         geo = self.g.geometry(wid)
@@ -142,8 +146,10 @@ class Phase:
         self.g.xdotool(["windowactivate", wid])
         time.sleep(1)
 
-    def _steps(self, steps, target, baseline, problem):
+    def _steps(self, steps, lang, target, baseline, problem):
         for kind, value in steps:
+            if kind in ("type", "wait_window"):
+                value = value[lang]
             if kind == "wait":
                 time.sleep(value)
             elif kind == "key":

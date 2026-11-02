@@ -18,6 +18,7 @@ MAX_ARGS = 8
 MAX_PROMO = 20
 CLICK_BUTTONS = ("left", "right", "middle")
 STEP_KEYS = ("wait", "key", "type", "click", "wait_window")
+LANGS = ("zh_CN", "en_US")
 
 
 def _int(value):
@@ -57,15 +58,31 @@ def _step(chk, path, step):
         text = chk.string(path + ".key", value, KEY_RE, 40)
         return {"key": text} if text else None
     if kind == "type":
-        text = chk.string(path + ".type", value, max_len=200)
-        if text is not None and (not text.isprintable() or "\n" in text):
-            chk.fail(path + ".type", "must be printable text without newlines (use key: Return)")
-            return None
+        text = _localized(chk, path + ".type", value, _type_text)
         return {"type": text} if text is not None else None
     if kind == "wait_window":
-        text = _printable(chk, path + ".wait_window", value, 80)
-        return {"wait_window": text} if text else None
+        text = _localized(chk, path + ".wait_window", value, lambda c, p, v: _printable(c, p, v, 80) or None)
+        return {"wait_window": text} if text is not None else None
     return _click(chk, path + ".click", value)
+
+
+def _type_text(chk, path, value):
+    text = chk.string(path, value, max_len=200)
+    if text is not None and (not text.isprintable() or "\n" in text):
+        chk.fail(path, "must be printable text without newlines (use key: Return)")
+        return None
+    return text
+
+
+def _localized(chk, path, value, check):
+    """One string for both languages, or {zh_CN: ..., en_US: ...} (titles and typed text differ by language)."""
+    if not isinstance(value, dict):
+        return check(chk, path, value)
+    if set(value) != set(LANGS):
+        chk.fail(path, "must be a string or a mapping with exactly %s" % ", ".join(LANGS))
+        return None
+    out = {lang: check(chk, "%s.%s" % (path, lang), value[lang]) for lang in LANGS}
+    return out if None not in out.values() else None
 
 
 def _click(chk, path, value):

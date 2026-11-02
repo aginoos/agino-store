@@ -123,6 +123,17 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(sc["steps"][0], ("wait", 3.0))
         self.assertEqual(sc["steps"][3], ("click", (200, 150, "left")))
         self.assertEqual(sc["steps"][4], ("click", (1, 2, "right")))
+        self.assertEqual(sc["steps"][2], ("type", {"zh_CN": "hello", "en_US": "hello"}))
+
+    def test_localized_steps_and_lang_args(self):
+        doc = deep(GOOD)
+        doc["scenes"][0]["steps"] = [{"wait_window": {"zh_CN": "首选项", "en_US": "Preferences"}},
+                                     {"type": {"zh_CN": "你好", "en_US": "hello"}}]
+        steps = shots_scene.validate(doc)["scenes"][0]["steps"]
+        self.assertEqual(steps[0], ("wait_window", {"zh_CN": "首选项", "en_US": "Preferences"}))
+        self.assertEqual(steps[1][1]["zh_CN"], "你好")
+        self.assertEqual(shots_scene.scene_args(["~/Demo/website/{lang}/index.html", "-x"], "zh_CN"),
+                         ["~/Demo/website/zh_CN/index.html", "-x"])
 
     def mutate(self, fn):
         doc = deep(GOOD)
@@ -153,6 +164,9 @@ class ValidationTests(unittest.TestCase):
         self.mutate(lambda d: scene(d).update(steps=[{"wait": 1, "key": "a"}]))
         self.mutate(lambda d: scene(d).update(steps=[{"sleep": 1}]))
         self.mutate(lambda d: scene(d).update(capture="screen"))
+        self.mutate(lambda d: scene(d).update(steps=[{"wait_window": {"zh_CN": "x"}}]))
+        self.mutate(lambda d: scene(d).update(steps=[{"type": {"zh_CN": "a", "en_US": "b", "de_DE": "c"}}]))
+        self.mutate(lambda d: scene(d).update(steps=[{"type": {"zh_CN": "a", "en_US": "a\nb"}}]))
 
 
 class GeometryTests(unittest.TestCase):
@@ -264,3 +278,39 @@ class ConfigVmTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FakeWindows:
+    """Guest stand-in for Phase._main_window: a list of window sets returned by successive polls."""
+
+    def __init__(self, polls, types, areas):
+        self.polls, self.types, self.areas = list(polls), types, areas
+
+    def windows(self):
+        return set(self.polls.pop(0) if len(self.polls) > 1 else self.polls[0])
+
+    def is_main_candidate(self, wid):
+        return self.types.get(wid, "NORMAL") not in ("SPLASH", "DIALOG")
+
+    def geometry(self, wid):
+        return (0, 0, self.areas[wid], 1)
+
+
+class MainWindowTests(unittest.TestCase):
+    def find(self, polls, types=None, areas=None):
+        from unittest import mock
+        from agino_store_sandbox import shots
+        phase = shots.Phase.__new__(shots.Phase)
+        phase.g = FakeWindows(polls, types or {}, areas or {"0x1": 900, "0x2": 500, "0x3": 2000})
+        with mock.patch.object(shots.time, "sleep"):
+            return phase._main_window(set())
+
+    def test_splash_is_skipped_and_window_must_be_stable(self):
+        polls = [{"0x3"}, {"0x3", "0x2"}, {"0x2"}, {"0x2", "0x1"}, {"0x2", "0x1"}, {"0x2", "0x1"}]
+        self.assertEqual(self.find(polls, types={"0x3": "SPLASH"}), "0x1")
+
+    def test_dialog_alone_is_no_main_window(self):
+        from unittest import mock
+        from agino_store_sandbox import shots
+        with mock.patch.object(shots, "WINDOW_WAIT", 0):
+            self.assertIsNone(self.find([{"0x2"}], types={"0x2": "DIALOG"}))
