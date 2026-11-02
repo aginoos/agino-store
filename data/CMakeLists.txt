@@ -1,4 +1,4 @@
-# Files shipped by agino-store-helper (docs/design.md section 2). The client's desktop file, icons
+# Files of the helper (docs/design.md section 2), shipped in the agino-store package. The client's desktop file, icons
 # and DConfig metadata are added by the client part.
 
 install(FILES org.aginoos.Store1.conf

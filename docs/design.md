@@ -4,10 +4,10 @@
 
 ## 1. 目标与范围
 
-agino 的应用商店客户端和特权辅助程序：
+agino 的应用商店客户端和特权辅助程序，打成一个 deb 包 `agino-store`（2026-11-03 用户决定合包，D-192 补充；两个进程照旧分开）：
 
 - `agino-store`：客户端（Qt6/QML + DTK），用户权限运行。浏览、搜索、详情、安装、更新、卸载、任务、设置。
-- `agino-store-helper`：root 辅助程序，D-Bus 系统服务，按需激活。唯一的特权入口：拉取并验证目录、下载厂商 deb、校验、调用 PackageKit 安装和卸载。
+- helper（`/usr/libexec/agino-store-helper`）：root 辅助程序，D-Bus 系统服务，按需激活。唯一的特权入口：拉取并验证目录、下载厂商 deb、校验、调用 PackageKit 安装和卸载。
 
 第一版（0.1.0）是可运行骨架：客户端做出界面稿的全部页面，读本地已验证的目录；helper 实现下面的 D-Bus 接口、目录验签、PackageKit 安装卸载 milkyway 包和目录里的 deb；polkit 规则；能打成 deb。服务端流水线和真实目录在 infra 里另做。
 
@@ -30,14 +30,14 @@ translations/ Qt 翻译（源字符串英文，第一版带 zh_CN）
 | 路径 | 内容 | 属于 |
 |---|---|---|
 | `/usr/bin/agino-store` | 客户端 | agino-store |
-| `/usr/libexec/agino-store-helper` | helper | agino-store-helper |
-| `/usr/share/dbus-1/system.d/org.aginoos.Store1.conf` | 总线策略：root 拥有名字，所有人可调用 | agino-store-helper |
-| `/usr/share/dbus-1/system-services/org.aginoos.Store1.service` | D-Bus 激活（`SystemdService=agino-store-helper.service`） | agino-store-helper |
-| `/usr/lib/systemd/system/agino-store-helper.service` | `Type=dbus`，`BusName=org.aginoos.Store1` | agino-store-helper |
-| `/usr/share/polkit-1/actions/org.aginoos.store.policy` | 动作 `org.aginoos.store.manage` | agino-store-helper |
-| `/usr/share/polkit-1/rules.d/50-agino-store.rules` | sudo 组本地活动会话免密 | agino-store-helper |
-| `/etc/agino-store/store.conf` | 配置（conffile） | agino-store-helper |
-| `/usr/share/agino-store/keys/*.pub` | 受信任的目录公钥 | agino-store-helper |
+| `/usr/libexec/agino-store-helper` | helper | agino-store |
+| `/usr/share/dbus-1/system.d/org.aginoos.Store1.conf` | 总线策略：root 拥有名字，所有人可调用 | agino-store |
+| `/usr/share/dbus-1/system-services/org.aginoos.Store1.service` | D-Bus 激活（`SystemdService=agino-store-helper.service`） | agino-store |
+| `/usr/lib/systemd/system/agino-store-helper.service` | `Type=dbus`，`BusName=org.aginoos.Store1` | agino-store |
+| `/usr/share/polkit-1/actions/org.aginoos.store.policy` | 动作 `org.aginoos.store.manage` | agino-store |
+| `/usr/share/polkit-1/rules.d/50-agino-store.rules` | sudo 组本地活动会话免密 | agino-store |
+| `/etc/agino-store/store.conf` | 配置（conffile） | agino-store |
+| `/usr/share/agino-store/keys/*.pub` | 受信任的目录公钥 | agino-store |
 | `/var/cache/agino-store/catalog/` | 已验证的目录（0755，文件 0644，客户端可读） | helper 运行时 |
 | `/var/cache/agino-store/debs/` | 下载的 deb（0700） | helper 运行时 |
 | `/var/lib/agino-store/installed.json` | 商店装过的应用 | helper 运行时 |
@@ -58,7 +58,7 @@ AllowInsecureUrls=false
 
 [Packages]
 # Never removed through the store.
-Protected=agino-desktop-dde;agino-desktop-base;dde-session-shell;dde-shell;dde-control-center;agino-store;agino-store-helper
+Protected=agino-desktop-dde;agino-desktop-base;dde-session-shell;dde-shell;dde-control-center;agino-store
 ```
 
 客户端和 helper 都读这个文件（客户端只读 `Url` 和 `AllowInsecureUrls`，用来拼图标和截图的地址并按同一规则限制协议）。
