@@ -76,7 +76,7 @@ def clearsign(key, text, out_path):
     with open(src, "w", encoding="utf-8") as f:
         f.write(text)
     run(["gpg", "--batch", "--homedir", key.home, "--pinentry-mode", "loopback", "--passphrase", "",
-         "--default-key", key.fingerprint, "--digest-algo", "SHA256", "--clearsign", "--output", out_path, src])
+         "--default-key", key.fingerprint, "--digest-algo", "SHA256", "--yes", "--clearsign", "--output", out_path, src])
     os.unlink(src)
 
 

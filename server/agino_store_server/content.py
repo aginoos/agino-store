@@ -484,9 +484,11 @@ def _app(chk, root, app_id, vendors, category_ids):
                 "developer", "icon", "package")
     optional = ("proprietary", "homepage", "maintainer", "launchable", "screenshots",
                 "install_profile", "release_notes")
-    if data is None or not chk.mapping(rel, data, required, optional):
-        return None
     before = len(chk.errors)
+    # Unknown keys are reported but do not stop the remaining checks; missing ones do.
+    if data is None or (not chk.mapping(rel, data, required, optional)
+                        and (not isinstance(data, dict) or any(k not in data for k in required))):
+        return None
     fields = _app_fields(chk, rel, data, app_dir)
     package = _app_package(chk, rel, data, vendors)
     for i, cat in enumerate(fields["categories"]):
