@@ -8,54 +8,20 @@ from . import shots_scene
 from .guest import USER, WINDOW_RE
 from .util import InfraError, clean
 
-SWITCH_SCRIPT_PATH = "/var/tmp/sbx/shots-locale.sh"
 DEMO_TAR = "/var/tmp/sbx/demo.tar"
 DEMO_DIR = shots_scene.HOME + "/Demo"
 MAX_PIDS = 500
 TRANSIENT_TYPES = ("SPLASH", "DIALOG", "NOTIFICATION", "TOOLTIP", "POPUP_MENU", "DROPDOWN_MENU", "UTILITY")
 
-# Port of infra tools/iso-test/login-as.sh for the existing user: sets the language with
-# LangSelector1.SetLocale, removes the generated input method files, restarts LightDM and waits
-# for dde-shell. Prints the session's LANG; exit 1 when it is not the wanted locale.
-SWITCH_SCRIPT = r"""#!/bin/bash
-set -u
-user=tester locale=$1
-dropin=/etc/lightdm/lightdm.conf.d/99-agino-test-autologin.conf
-home=/home/tester
-mkdir -p "$(dirname "$dropin")"
-printf '[Seat:*]\nautologin-user=%s\nautologin-user-timeout=0\nautologin-session=deepin\n' "$user" > "$dropin"
-wait_shell() {
-    local sp
-    for _ in $(seq 60); do
-        sp=$(pgrep -u "$user" -x dde-shell | head -1)
-        [ -n "$sp" ] && { sleep 10; echo "$sp"; return 0; }
-        sleep 2
-    done
-    return 1
-}
-session_lang() { tr '\0' '\n' < "/proc/$1/environ" | sed -n 's/^LANG=//p'; }
-sp=$(wait_shell) || { echo "no dde-shell" >&2; exit 1; }
-if [ "$(session_lang "$sp")" != "$locale" ]; then
-    runuser -u "$user" -- /usr/bin/env -i $(tr '\0' '\n' < "/proc/$sp/environ" | grep -E '^(DBUS_SESSION_BUS_ADDRESS|DISPLAY|XDG_RUNTIME_DIR)=') \
-        gdbus call --session -d org.deepin.dde.LangSelector1 -o /org/deepin/dde/LangSelector1 \
-        -m org.deepin.dde.LangSelector1.SetLocale "$locale" >/dev/null || exit 1
-    want=$(printf '%s' "${locale%%.*}" | tr 'A-Z' 'a-z')
-    for _ in $(seq 90); do
-        locale -a 2>/dev/null | tr 'A-Z' 'a-z' | grep -q "^$want\.utf-\?8$" && break
-        sleep 2
-    done
-    sleep 30
-    systemctl stop display-manager.service
-    for _ in $(seq 30); do pgrep -u "$user" -x dde-shell >/dev/null || break; sleep 1; done
-    rm -rf "$home/.config/fcitx5" "$home/.local/share/fcitx5/rime"
-    systemctl start display-manager.service
-    sp=$(wait_shell) || { echo "no dde-shell" >&2; exit 1; }
-fi
-echo "LANG=$(session_lang "$sp")"
-[ "$(session_lang "$sp")" = "$locale" ]
+# Both languages run in the same session: each app gets LANG/LANGUAGE/LC_ALL at launch and only
+# its window is captured, so the session's language does not matter. The locales must exist.
+ENSURE_LOCALES = r"""
+for l in "$@"; do
+    want=$(printf '%s' "$l" | tr 'A-Z' 'a-z' | sed 's/utf-8$/utf8/')
+    locale -a 2>/dev/null | tr 'A-Z' 'a-z' | grep -qx "$want" && continue
+    localedef -i "${l%%.*}" -c -f UTF-8 -A /usr/share/locale/locale.alias "$l" || exit 1
+done
 """
-
-MAKE_WORK_DIR = "mkdir -p /var/tmp/sbx && chmod 755 /var/tmp/sbx"
 COPY_DEMO = """
 mkdir -p /var/tmp/sbx && chmod 755 /var/tmp/sbx || exit 3
 i=0
@@ -105,16 +71,10 @@ class ShotsGuest:
     def fresh_demo(self, names):
         return self.qga.sh(FRESH_DEMO, list(names), timeout=120).ok
 
-    def switch_locale(self, lang):
-        """Switch tester's session to lang; True when it now runs with that LANG."""
-        # /var/tmp/sbx exists only after a deb or demo copy; a milkyway shots job without demo has neither
-        if not self.qga.sh(MAKE_WORK_DIR, timeout=20).ok:
-            raise InfraError("cannot create the work directory in the guest")
-        self.qga.write_file(SWITCH_SCRIPT_PATH, SWITCH_SCRIPT.encode("utf-8"))
-        res = self.qga.exec([SWITCH_SCRIPT_PATH, shots_scene.LOCALES[lang]], 600)
-        self.guest.env = None
-        self.guest.wait_session()
-        return res.ok
+    def ensure_locales(self):
+        """Generate the scene locales when the base image lacks them; InfraError otherwise."""
+        if not self.qga.sh(ENSURE_LOCALES, list(shots_scene.LOCALES.values()), timeout=300).ok:
+            raise InfraError("cannot generate the zh_CN and en_US locales in the guest")
 
     def tester_pids(self):
         res = self.qga.exec(["/usr/bin/pgrep", "-u", USER], 20)

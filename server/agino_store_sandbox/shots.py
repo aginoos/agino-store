@@ -50,6 +50,7 @@ class Phase:
             self.g.kill_new(base_pids)  # the check's own app instance must not be reused by the scenes
             if self.job.demo_path:
                 self.g.stage_demo(self.job)
+            self.g.ensure_locales()
             for lang in LANGS:
                 self._language(lang, command)
         except (InfraError, SandboxError, OSError) as e:
@@ -64,10 +65,6 @@ class Phase:
         return exec_value
 
     def _language(self, lang, exec_value):
-        if not self.g.switch_locale(lang):
-            for r in self.results:
-                r["problems"].append("%s: switching the session language failed" % lang)
-            return
         for r in self.results:
             try:
                 self._scene(lang, r, exec_value)
