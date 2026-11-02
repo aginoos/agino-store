@@ -1,0 +1,86 @@
+{
+    "magic": "dsg.config.meta",
+    "version": "1.0",
+    "contents": {
+        "autoCheckUpdates": {
+            "value": true,
+            "serial": 0,
+            "flags": [],
+            "name": "Check for updates automatically",
+            "name[zh_CN]": "自动检查更新",
+            "description": "Check the software catalog for updates once a day",
+            "permissions": "readwrite",
+            "visibility": "private"
+        },
+        "noDownloadOnMetered": {
+            "value": true,
+            "serial": 0,
+            "flags": [],
+            "name": "Do not download on metered networks",
+            "name[zh_CN]": "计量网络时不自动下载",
+            "description": "Skip automatic downloads while the connection is metered",
+            "permissions": "readwrite",
+            "visibility": "private"
+        },
+        "notifyUpdates": {
+            "value": true,
+            "serial": 0,
+            "flags": [],
+            "name": "Notify about updates",
+            "name[zh_CN]": "有更新时通知我",
+            "description": "Show a notification when store apps have updates",
+            "permissions": "readwrite",
+            "visibility": "private"
+        },
+        "autoInstallUpdates": {
+            "value": false,
+            "serial": 0,
+            "flags": [],
+            "name": "Install store app updates automatically",
+            "name[zh_CN]": "自动安装商店应用的更新",
+            "description": "Second phase: not changeable in the interface yet",
+            "permissions": "readwrite",
+            "visibility": "private"
+        },
+        "createDesktopIcon": {
+            "value": true,
+            "serial": 0,
+            "flags": [],
+            "name": "Create a desktop icon after installing",
+            "name[zh_CN]": "安装后创建桌面图标",
+            "description": "Copy the launcher of a newly installed app to the desktop",
+            "permissions": "readwrite",
+            "visibility": "private"
+        },
+        "deletePackagesAfterInstall": {
+            "value": true,
+            "serial": 0,
+            "flags": [],
+            "name": "Delete packages after installing",
+            "name[zh_CN]": "安装完成后删除安装包",
+            "description": "Remove downloaded installer packages once the app is installed",
+            "permissions": "readwrite",
+            "visibility": "private"
+        },
+        "showPersonal": {
+            "value": true,
+            "serial": 0,
+            "flags": [],
+            "name": "Show community-maintained apps",
+            "name[zh_CN]": "显示个人维护的软件",
+            "description": "Include apps packaged by individual maintainers in lists and search",
+            "permissions": "readwrite",
+            "visibility": "private"
+        },
+        "showProprietary": {
+            "value": true,
+            "serial": 0,
+            "flags": [],
+            "name": "Show proprietary apps",
+            "name[zh_CN]": "显示专有软件",
+            "description": "Include proprietary apps in lists and search",
+            "permissions": "readwrite",
+            "visibility": "private"
+        }
+    }
+}
