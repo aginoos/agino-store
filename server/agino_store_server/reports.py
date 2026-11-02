@@ -17,7 +17,10 @@ MAX_REPORT_BYTES = 1 << 20
 MAX_TEXT = 2000
 MAX_SIG_BYTES = 256
 ED25519_DER_PREFIX = bytes.fromhex("302a300506032b6570032100")
-TOP_KEYS = {"schema", "app", "version", "sha256", "status", "started", "finished", "host", "checks", "summary"}
+# "details": the sandbox's step-by-step data; only type-checked here. It stays in reports/done/
+# for people to read and is not copied into the candidate.
+TOP_KEYS = {"schema", "app", "version", "sha256", "status", "started", "finished", "host", "checks", "summary",
+            "details"}
 REQUIRED_KEYS = {"schema", "app", "version", "sha256", "status"}
 CHECK_TYPES = {"installed": bool, "third_party_sources": list, "desktop_file": (str, type(None)),
                "window_seen": bool, "new_errors": int, "removed_clean": bool}
@@ -124,6 +127,8 @@ def parse(raw):
         raise ReportError("bad version")
     if not isinstance(doc["sha256"], str) or not SHA256_RE.match(doc["sha256"]):
         raise ReportError("bad sha256")
+    if not isinstance(doc.get("details", {}), dict):
+        raise ReportError("bad details")
     if doc["status"] not in ("pass", "fail"):
         raise ReportError("status must be pass or fail")
     out = {k: doc[k] for k in REQUIRED_KEYS}

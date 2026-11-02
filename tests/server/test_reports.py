@@ -95,6 +95,14 @@ class TestReports(unittest.TestCase):
         self.assertEqual(self.sandbox()["status"], "missing")
         return results[0]["reason"]
 
+    def test_sandbox_details_are_accepted_but_not_copied(self):
+        self.put("d.json", report(details={"apt_install": {"rc": 0}, "journal_errors": ["x"]}))
+        self.assertEqual([r["result"] for r in self.ingest()], ["done"])
+        self.assertNotIn("apt_install", str(self.sandbox()))
+
+    def test_details_must_be_an_object(self):
+        self.assertIn("details", self.rejected("a.json", report(details=["x"])))
+
     def test_unknown_field(self):
         self.assertIn("unexpected", self.rejected("a.json", report(extra=1)))
 
