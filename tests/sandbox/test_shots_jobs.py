@@ -81,6 +81,12 @@ class ParseTests(unittest.TestCase):
         self.assertEqual((job.mode, job.source, job.sha256, job.deb_path, job.package),
                          ("shots", "milkyway", None, None, "app-pkg"))
 
+    def test_milkyway_job_keeps_launchable(self):
+        job = jobs.read_job(self.tmp.name, write(self.tmp.name, mw_stem(), mw_doc(launchable="calibre-gui.desktop")))
+        self.assertEqual(job.launchable, "calibre-gui.desktop")
+        with self.assertRaises(jobs.JobError):
+            jobs.read_job(self.tmp.name, write(self.tmp.name, mw_stem(), mw_doc(launchable="../x.desktop")))
+
     def test_rejects_malformed_shots_jobs(self):
         cases = [
             mw_doc(package="Bad Pkg"), mw_doc(package="a"), mw_doc(package="-x"), mw_doc(version="x y"),

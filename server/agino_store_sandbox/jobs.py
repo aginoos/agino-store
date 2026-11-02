@@ -94,12 +94,7 @@ def read_job(queue, name):
         raise JobError("bad job fields")
     if not isinstance(size, int) or isinstance(size, bool) or not 0 < size <= MAX_DEB:
         raise JobError("bad job size")
-    if launchable is not None:
-        if not isinstance(launchable, str):
-            raise JobError("bad launchable")
-        launchable = launchable if launchable.endswith(".desktop") else launchable + ".desktop"
-        if not DESKTOP_RE.match(launchable):
-            raise JobError("bad launchable")
+    launchable = _launchable(launchable)
     if doc.get("deb") != stem + ".deb":
         raise JobError("deb name does not match the job")
     try:
@@ -119,6 +114,18 @@ def read_job(queue, name):
     return job
 
 
+def _launchable(value):
+    """Desktop file id of the job (None: the runner takes the package's first desktop file)."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise JobError("bad launchable")
+    value = value if value.endswith(".desktop") else value + ".desktop"
+    if not DESKTOP_RE.match(value):
+        raise JobError("bad launchable")
+    return value
+
+
 def milkyway_stem(app, package, version):
     h = hashlib.sha256(("milkyway:%s=%s" % (package, version)).encode("utf-8")).hexdigest()[:12]
     return "%s_%s" % (app, h)
@@ -134,7 +141,8 @@ def _read_milkyway(doc, stem, queue):
         raise JobError("a milkyway job has no deb")
     if stem != milkyway_stem(app, package, version):
         raise JobError("job name does not match package and version")
-    job = Job(stem, app, version, None, 0, package, None, [], [], None, mode="shots", source="milkyway")
+    job = Job(stem, app, version, None, 0, package, _launchable(doc.get("launchable")), [], [], None, mode="shots",
+              source="milkyway")
     job = _with_shots(job, doc, queue)
     if job.shots is None:
         raise JobError("shots job without usable shots: %s" % (job.shots_error or "missing"))
