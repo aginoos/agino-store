@@ -7,7 +7,7 @@ import fcntl
 import os
 import shutil
 
-from . import jobs, report
+from . import jobs, report, shots_job
 from .guest import Guest, run_job
 from .shots import Phase
 from .util import InfraError, SandboxError, log, now
@@ -84,6 +84,8 @@ def run_job_file(cfg, name, slot, sandbox, forced=False):
         return state
     attempts = 0 if forced else jobs.previous_attempts(cfg.state, stem)
     attempts += 1
+    if job.mode == "shots":
+        return _run_shots(cfg, job, slot, sandbox, attempts)
     started = now()
     try:
         checks, details, problems = execute(cfg, job, slot, sandbox)
@@ -98,6 +100,26 @@ def run_job_file(cfg, name, slot, sandbox, forced=False):
     written = report.write(cfg.reports, cfg.key, stem, doc)
     state = {"status": "done", "result": doc["status"], "report": written, "attempts": attempts}
     jobs.write_state(cfg.state, stem, state)
+    return state
+
+
+def _run_shots(cfg, job, slot, sandbox, attempts):
+    """Shots-only job: state done/error, never a report; errors retry like check jobs."""
+    if not cfg.shots:
+        state = {"status": "invalid", "reason": "screenshots are switched off (shots = off)", "attempts": 0}
+        jobs.write_state(cfg.state, job.stem, state)
+        return state
+    try:
+        details = shots_job.execute_shots(cfg, job, slot, sandbox)
+        if details.get("error") and not details.get("images"):
+            raise InfraError(details["error"])
+        state = {"status": "done", "mode": "shots", "shots": details, "attempts": attempts}
+    except shots_job.InstallError as e:
+        state = {"status": "error", "mode": "shots", "reason": str(e)[:200], "apt_exit": e.exitcode,
+                 "apt_tail": e.tail[:900], "attempts": attempts}
+    except InfraError as e:
+        state = {"status": "error", "mode": "shots", "reason": str(e)[:200], "attempts": attempts}
+    jobs.write_state(cfg.state, job.stem, state)
     return state
 
 

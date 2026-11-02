@@ -17,6 +17,8 @@ MAX_JSON = 1 << 20
 MAX_DEB = 4 << 30
 MAX_DEMO = 256 << 20
 MAX_ATTEMPTS = 3
+MODES = ("check", "shots")
+PACKAGE_RE = re.compile(r"\A[a-z0-9][a-z0-9+.-]+\Z")
 
 
 class JobError(SandboxError):
@@ -40,6 +42,8 @@ class Job:
     demo_path: object = None
     demo_size: int = 0
     demo_sha256: object = None
+    mode: str = "check"  # "check" (sandbox checks) or "shots" (screenshots only)
+    source: str = "deb"  # "deb" or "milkyway" (shots jobs only)
 
 
 def _regular(path, limit):
@@ -74,6 +78,15 @@ def read_job(queue, name):
         raise JobError("job file is not valid JSON") from None
     if not isinstance(doc, dict) or doc.get("schema") != 1:
         raise JobError("unsupported job schema")
+    mode = doc.get("mode", "check")
+    if mode not in MODES:
+        raise JobError("unknown job mode")
+    if mode == "shots" and doc.get("source") == "milkyway":
+        return _read_milkyway(doc, stem, queue)
+    if mode == "check" and "source" in doc:
+        raise JobError("source is only valid for shots jobs")
+    if mode == "shots" and doc.get("source") != "deb":
+        raise JobError("bad shots source")
     app, version, sha, size = doc.get("app"), doc.get("version"), doc.get("sha256"), doc.get("size")
     package, launchable = doc.get("package"), doc.get("launchable")
     if not (isinstance(app, str) and ID_RE.match(app) and isinstance(version, str) and VERSION_RE.match(version)
@@ -98,8 +111,34 @@ def read_job(queue, name):
         raise JobError("deb size differs from the job")
     if file_sha256(deb) != sha:
         raise JobError("deb sha256 differs from the job")
-    job = Job(stem, app, version, sha, size, package, launchable, debconf, files, deb)
-    return _with_shots(job, doc, queue)
+    job = Job(stem, app, version, sha, size, package, launchable, debconf, files, deb, mode=mode,
+              source="deb")
+    job = _with_shots(job, doc, queue)
+    if mode == "shots" and job.shots is None:
+        raise JobError("shots job without usable shots: %s" % (job.shots_error or "missing"))
+    return job
+
+
+def milkyway_stem(app, package, version):
+    h = hashlib.sha256(("milkyway:%s=%s" % (package, version)).encode("utf-8")).hexdigest()[:12]
+    return "%s_%s" % (app, h)
+
+
+def _read_milkyway(doc, stem, queue):
+    """A shots job for a package from the milkyway repository: no deb, no hash, install by name."""
+    app, version, package = doc.get("app"), doc.get("version"), doc.get("package")
+    if not (isinstance(app, str) and ID_RE.match(app) and isinstance(version, str) and VERSION_RE.match(version)
+            and isinstance(package, str) and PACKAGE_RE.match(package)):
+        raise JobError("bad job fields")
+    if doc.get("sha256") is not None or doc.get("deb") is not None or doc.get("size") is not None:
+        raise JobError("a milkyway job has no deb")
+    if stem != milkyway_stem(app, package, version):
+        raise JobError("job name does not match package and version")
+    job = Job(stem, app, version, None, 0, package, None, [], [], None, mode="shots", source="milkyway")
+    job = _with_shots(job, doc, queue)
+    if job.shots is None:
+        raise JobError("shots job without usable shots: %s" % (job.shots_error or "missing"))
+    return job
 
 
 def _with_shots(job, doc, queue):
