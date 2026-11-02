@@ -109,6 +109,7 @@ private:
     void applyState(const QString &json);
     void bumpState();
     QString packageName(const QString &appId) const;
+    QString launchable(const QString &appId) const;
     static QString friendlyError(const QString &code, const QString &message);
 
     void onSimulated(const QString &appId, const QString &action, const QString &json);

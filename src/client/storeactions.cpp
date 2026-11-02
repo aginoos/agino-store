@@ -163,7 +163,7 @@ void Store::maybeHandleFinished(uint jobId)
             emit toast(tr("%1 was uninstalled").arg(name));
         } else {
             if (task.kind == QLatin1String("install") && AppSettings::instance()->createDesktopIcon())
-                DesktopIcons::instance()->installed(task.appId, packageName(task.appId));
+                DesktopIcons::instance()->installed(task.appId, packageName(task.appId), launchable(task.appId));
             emit toast(task.kind == QLatin1String("update") ? tr("%1 was updated").arg(name)
                                                             : tr("%1 is installed").arg(name));
         }

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "desktopicons.h"
 
+#include "catalog.h"
+
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
@@ -58,8 +60,16 @@ DesktopIcons::DesktopIcons(QObject *parent)
 {
 }
 
-QString DesktopIcons::desktopFileFor(const QString &packageName)
+QString DesktopIcons::desktopFileFor(const QString &packageName, const QString &launchable)
 {
+    // The catalog's launchable names the launcher even when another package (a dependency of a
+    // metapackage) ships it.
+    if (AginoStore::isValidDesktopId(launchable)) {
+        const QString found = QStandardPaths::locate(QStandardPaths::GenericDataLocation,
+                                                     QStringLiteral("applications/") + launchable);
+        if (!found.isEmpty())
+            return found;
+    }
     if (!isSafePackageName(packageName))
         return {};
     // TODO(verify): the first /usr/share/applications/*.desktop owned by the package is taken to
@@ -108,9 +118,9 @@ void DesktopIcons::saveRecord(const QVariantMap &record) const
     }
 }
 
-void DesktopIcons::installed(const QString &appId, const QString &packageName)
+void DesktopIcons::installed(const QString &appId, const QString &packageName, const QString &launchable)
 {
-    const QString source = desktopFileFor(packageName);
+    const QString source = desktopFileFor(packageName, launchable);
     if (source.isEmpty())
         return;
     const QString dir = desktopDir();
@@ -140,9 +150,9 @@ void DesktopIcons::removed(const QString &appId)
     saveRecord(record);
 }
 
-void DesktopIcons::launch(const QString &packageName)
+void DesktopIcons::launch(const QString &packageName, const QString &launchable)
 {
-    const QString file = desktopFileFor(packageName);
+    const QString file = desktopFileFor(packageName, launchable);
     if (file.isEmpty())
         return;
     // TODO(verify): "gio launch" (libglib2.0-bin) starts a desktop file the way the launcher does.

@@ -23,14 +23,14 @@ public:
     static DesktopIcons *create(QQmlEngine *, QJSEngine *);
 
     // Copies the package's desktop file to the desktop when none exists there yet.
-    void installed(const QString &appId, const QString &packageName);
+    void installed(const QString &appId, const QString &packageName, const QString &launchable);
     // Removes the shortcut this store created for the app, if any.
     void removed(const QString &appId);
-    Q_INVOKABLE void launch(const QString &packageName);
+    Q_INVOKABLE void launch(const QString &packageName, const QString &launchable);
 
 private:
     explicit DesktopIcons(QObject *parent = nullptr);
-    static QString desktopFileFor(const QString &packageName);
+    static QString desktopFileFor(const QString &packageName, const QString &launchable);
     static QString desktopDir();
     static QString recordPath();
     QVariantMap loadRecord() const;

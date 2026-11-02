@@ -248,6 +248,12 @@ bool parseApp(const QJsonObject &o, AppSummary *app, QString *error)
         return false;
     }
     app->proprietary = o.value(QStringLiteral("proprietary")).toBool();
+    if (o.contains(QStringLiteral("launchable"))) {
+        if (!readString(o, "launchable", &app->launchable) || !isValidDesktopId(app->launchable)) {
+            setError(error, where + QStringLiteral("launchable is not a desktop file id"));
+            return false;
+        }
+    }
     QString updated;
     if (!readString(o, "updated", &updated)) {
         setError(error, where + QStringLiteral("updated missing"));
@@ -375,6 +381,12 @@ const AppSummary *Catalog::app(const QString &id) const
             return &a;
     }
     return nullptr;
+}
+
+bool isValidDesktopId(const QString &id)
+{
+    static const QRegularExpression re(QStringLiteral("^[A-Za-z0-9][A-Za-z0-9._-]{0,200}\\.desktop$"));
+    return re.match(id).hasMatch() && !id.contains(QStringLiteral(".."));
 }
 
 bool isSafeRelativePath(const QString &path)

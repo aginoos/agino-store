@@ -213,6 +213,12 @@ QString Store::packageName(const QString &appId) const
     return a ? a->package.name : QString();
 }
 
+QString Store::launchable(const QString &appId) const
+{
+    const AppSummary *a = m_loaded.catalog.app(appId);
+    return a ? a->launchable : QString();
+}
+
 QString Store::syncText() const
 {
     if (!m_synced.isValid())
@@ -370,7 +376,7 @@ void Store::clearAssetCache()
 
 void Store::launch(const QString &appId)
 {
-    DesktopIcons::instance()->launch(packageName(appId));
+    DesktopIcons::instance()->launch(packageName(appId), launchable(appId));
 }
 
 void Store::openSystemUpdates()

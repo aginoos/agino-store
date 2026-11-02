@@ -59,6 +59,8 @@ private slots:
     void rejectsUnsafePaths_data();
     void rejectsUnsafePaths();
     void rejectsDebWithoutDeb();
+    void launchable_data();
+    void launchable();
     void rejectsBadSha256_data();
     void rejectsBadSha256();
     void rejectsUnknownSourceAndKind();
@@ -191,6 +193,31 @@ void TestCatalog::rejectsUnsafePaths()
     QString error;
     QVERIFY(!parseCatalog(json, &error).has_value());
     QVERIFY(!error.isEmpty());
+}
+
+void TestCatalog::launchable_data()
+{
+    QTest::addColumn<QJsonValue>("value");
+    QTest::addColumn<bool>("ok");
+    QTest::newRow("reverse-dns") << QJsonValue(QStringLiteral("org.keepassxc.KeePassXC.desktop")) << true;
+    QTest::newRow("plain") << QJsonValue(QStringLiteral("firefox-esr.desktop")) << true;
+    QTest::newRow("path") << QJsonValue(QStringLiteral("../x.desktop")) << false;
+    QTest::newRow("absolute") << QJsonValue(QStringLiteral("/usr/share/applications/x.desktop")) << false;
+    QTest::newRow("no-suffix") << QJsonValue(QStringLiteral("firefox-esr")) << false;
+    QTest::newRow("dotdot-inside") << QJsonValue(QStringLiteral("a..b.desktop")) << false;
+    QTest::newRow("number") << QJsonValue(12) << false;
+}
+
+void TestCatalog::launchable()
+{
+    QFETCH(QJsonValue, value);
+    QFETCH(bool, ok);
+    const QByteArray json = catalogWithApp([&](QJsonObject &app) { app.insert(QStringLiteral("launchable"), value); });
+    QString error;
+    const auto catalog = parseCatalog(json, &error);
+    QCOMPARE(catalog.has_value(), ok);
+    if (ok)
+        QCOMPARE(catalog->apps.first().launchable, value.toString());
 }
 
 void TestCatalog::rejectsDebWithoutDeb()

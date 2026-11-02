@@ -2,8 +2,8 @@
   "schema": 1,
   "serial": 1,
   "revision": "r1",
-  "created": "2026-11-02T00:00:00Z",
-  "expires": "2036-10-30T00:00:00Z",
+  "created": "2026-11-02T02:59:57Z",
+  "expires": "2036-10-30T02:59:57Z",
   "files": [
     {
       "path": "apps/code.json",
@@ -517,8 +517,8 @@
     },
     {
       "path": "catalog.json",
-      "sha256": "7440046acfb8a55b6c0211b963bc992cc563910e06e5058d8f323df5f9466e98",
-      "size": 15293
+      "sha256": "b9537539b1385451710b56f6d48b957c056ec435ef22475f50e4978ec49c0a36",
+      "size": 15793
     },
     {
       "path": "stats.json",

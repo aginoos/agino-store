@@ -137,6 +137,7 @@
       "source": "system",
       "license": "GPL-3.0-or-later",
       "proprietary": false,
+      "launchable": "gimp.desktop",
       "updated": "2026-10-12",
       "package": {
         "kind": "milkyway",
@@ -239,6 +240,7 @@
       "source": "system",
       "license": "GPL-2.0-or-later",
       "proprietary": false,
+      "launchable": "vlc.desktop",
       "updated": "2026-10-20",
       "package": {
         "kind": "milkyway",
@@ -341,6 +343,7 @@
       "source": "system",
       "license": "MPL-2.0",
       "proprietary": false,
+      "launchable": "libreoffice-startcenter.desktop",
       "updated": "2026-10-25",
       "package": {
         "kind": "milkyway",
@@ -443,6 +446,7 @@
       "source": "system",
       "license": "MPL-2.0",
       "proprietary": false,
+      "launchable": "firefox-esr.desktop",
       "updated": "2026-10-28",
       "package": {
         "kind": "milkyway",
@@ -545,6 +549,7 @@
       "source": "system",
       "license": "GPL-3.0-or-later",
       "proprietary": false,
+      "launchable": "org.kde.krita.desktop",
       "updated": "2026-09-30",
       "package": {
         "kind": "milkyway",
@@ -647,6 +652,7 @@
       "source": "system",
       "license": "GPL-3.0-or-later",
       "proprietary": false,
+      "launchable": "org.inkscape.Inkscape.desktop",
       "updated": "2026-09-18",
       "package": {
         "kind": "milkyway",
@@ -749,6 +755,7 @@
       "source": "system",
       "license": "GPL-2.0-or-later",
       "proprietary": false,
+      "launchable": "com.obsproject.Studio.desktop",
       "updated": "2026-10-05",
       "package": {
         "kind": "milkyway",
@@ -851,6 +858,7 @@
       "source": "system",
       "license": "GPL-3.0-or-later",
       "proprietary": false,
+      "launchable": "org.keepassxc.KeePassXC.desktop",
       "updated": "2026-10-14",
       "package": {
         "kind": "milkyway",
@@ -953,6 +961,7 @@
       "source": "system",
       "license": "GPL-3.0-or-later",
       "proprietary": false,
+      "launchable": "supertuxkart.desktop",
       "updated": "2026-08-22",
       "package": {
         "kind": "milkyway",
@@ -1165,6 +1174,7 @@
       "source": "official",
       "license": "LicenseRef-proprietary",
       "proprietary": true,
+      "launchable": "google-chrome.desktop",
       "updated": "2026-10-30",
       "package": {
         "kind": "deb",
@@ -1283,6 +1293,7 @@
       "source": "official",
       "license": "LicenseRef-proprietary",
       "proprietary": true,
+      "launchable": "code.desktop",
       "updated": "2026-10-27",
       "package": {
         "kind": "deb",

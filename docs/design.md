@@ -106,6 +106,7 @@ assets/<sha256>.<ext> 图标和截图，按内容寻址
     "source": "official",
     "license": "LicenseRef-proprietary",
     "proprietary": true,
+    "launchable": "wps-office-prometheus.desktop",
     "updated": "2026-10-28",
     "package": {
       "kind": "deb",
@@ -120,6 +121,7 @@ assets/<sha256>.<ext> 图标和截图，按内容寻址
 
 - `source`：`system`（系统仓库）、`official`（官方提供）、`personal`（个人维护）。
 - `package.kind`：`milkyway`（只有 `name`，从系统软件源装）或 `deb`（必须有 `deb`）。`personal` 的应用必须有 `maintainer`（在详情里）。
+- `launchable`（可选）：AppStream 的 desktop-id。客户端用它找"打开"和桌面图标要用的 desktop 文件（在 XDG 数据目录的 `applications/` 下找）；没有时退回到 `dpkg -L <package.name>` 里第一个 `/usr/share/applications/*.desktop`。元包（如 trixie 的 `keepassxc` 依赖 `keepassxc-full`）必须填。
 - `featured` 里 `banner: true` 的条目进首页横幅，第一个 `banner: false` 的是"装机必备"。
 
 `apps/<id>.json`：
@@ -210,7 +212,7 @@ assets/<sha256>.<ext> 图标和截图，按内容寻址
   - `Store`（单例）：读 `/var/cache/agino-store/catalog/`（自己再验一遍签名和文件哈希），语言回退，D-Bus 调用和信号，任务列表，可更新列表，资源下载（`~/.cache/agino-store/assets/`，按清单校验 sha256）。
   - `AppListModel`：按分类、搜索词、来源和专有过滤（设置里的两个开关），排序 `hot`（stats.json 的下载量）/`new`（`updated` 日期）。
   - `Settings`（单例）：DConfig `org.aginoos.store`。
-  - `DesktopIcons`：安装成功后把应用的 desktop 文件复制到 `xdg-user-dir DESKTOP`（设置开着且是新装时）；卸载时删除商店创建的那个；记录在 `~/.local/share/agino-store/desktop-icons.json`。
+  - `DesktopIcons`：安装成功后把应用的 desktop 文件（按 `launchable` 找，见 4 节）复制到 `xdg-user-dir DESKTOP`（设置开着且是新装时）；卸载时删除商店创建的那个；记录在 `~/.local/share/agino-store/desktop-icons.json`。
 - 页面（与界面稿一致，解释性文字能不放就不放）：首页（横幅、装机必备、全部分类两两并排、每类 5 个、最热/最新切换）、分类、搜索、详情、已安装（可更新/已安装两个标签、全部更新、系统更新按钮）、下载任务、设置。
 - 安装和卸载前先调用 `Simulate`，确认框只列事实：下载大小、安装后占用或释放空间、连带安装或移除的组件、来源。
 - "系统更新"按钮打开控制中心的更新页：`dbus-send --session --dest=org.deepin.dde.ControlCenter1 /org/deepin/dde/ControlCenter1 org.deepin.dde.ControlCenter1.ShowPage string:update`（实现时核对接口名）。

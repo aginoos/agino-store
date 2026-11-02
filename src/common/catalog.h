@@ -66,6 +66,7 @@ struct AppSummary {
     Source source = Source::System;
     QString license;
     bool proprietary = false;
+    QString launchable;      // desktop file id (AppStream launchable), optional
     QDate updated;
     PackageRef package;
     QString detail;          // path relative to the catalog root
@@ -122,6 +123,8 @@ QHash<QString, qint64> parseStats(const QByteArray &json);
 
 // Validation helpers, also used by the helper before acting.
 bool isSafeRelativePath(const QString &path);
+// A desktop file id such as "org.keepassxc.KeePassXC.desktop" (no path, no "..").
+bool isValidDesktopId(const QString &id);
 bool isValidDebconfLine(const QString &line);
 bool isValidDefaultFile(const DefaultFile &file);
 
