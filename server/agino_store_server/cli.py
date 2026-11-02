@@ -6,11 +6,13 @@ content); 2 usage or configuration error; 3 another task holds the state lock.
 """
 
 import argparse
+import configparser
 import datetime
 import functools
 import getpass
 import json
 import os
+import re
 import sys
 import tempfile
 
@@ -20,6 +22,9 @@ from .state import ID_RE, VERSION_RE, State, StateError, StateLocked
 EXIT_OK, EXIT_PROBLEM, EXIT_USAGE, EXIT_LOCKED = 0, 1, 2, 3
 OPEN_STATUSES = ("pending", "awaiting-upload")
 METRICS_FILE = "agino_store_server.prom"
+DEFAULT_REPORT_KEYS = "/etc/agino-store-server/sandbox-keys"
+TESTS_ENV = "AGINO_STORE_SERVER_TESTS"
+CONTROL_RE = re.compile("[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 
 
 class UsageError(Exception):
@@ -41,6 +46,11 @@ def _parser():
     p = sub.add_parser("approve", help="approve APP[@VERSION] or all")
     p.add_argument("target")
     p.add_argument("--no-sandbox", action="store_true", help="approve without a passing sandbox report")
+    p.add_argument("--include-flagged", action="store_true",
+                   help="with 'all': also approve candidates with inspect flags or changed scripts")
+    p.add_argument("--note", default="")
+    p = sub.add_parser("revoke", help="withdraw the approval of APP; the next build drops it")
+    p.add_argument("target")
     p.add_argument("--note", default="")
     p = sub.add_parser("reject", help="reject APP@VERSION")
     p.add_argument("target")
@@ -63,11 +73,16 @@ def _load_content(cfg):
     return content.load(cfg.content, allow_insecure=cfg.allow_insecure)
 
 
+def _clean(value):
+    """Text for the terminal: control characters other than tab and newline are replaced."""
+    return CONTROL_RE.sub("?", str(value))
+
+
 def _describe(item):
     if isinstance(item, dict) and item.get("message"):
         who = item.get("vendor") or item.get("app") or "-"
-        return "%s %s: %s" % (item.get("level", "info"), who, item["message"])
-    return json.dumps(item, sort_keys=True, ensure_ascii=False, default=str)
+        return _clean("%s %s: %s" % (item.get("level", "info"), who, item["message"]))
+    return _clean(json.dumps(item, sort_keys=True, ensure_ascii=False, default=str))
 
 
 def _is_problem(item):
@@ -132,15 +147,15 @@ def _line(record):
     flags = len((checks.get("inspect") or {}).get("flags") or [])
     diff = (checks.get("diff") or {}).get("summary") or ""
     size = "%.1f MiB" % (record.get("size", 0) / (1 << 20)) if record.get("size") else "-"
-    return "%-20s %-28s %-15s %10s  deps:%s sandbox:%s flags:%d  %s" % (
+    return _clean("%-20s %-28s %-15s %10s  deps:%s sandbox:%s flags:%d  %s" % (
         record.get("app"), record.get("version"), record.get("status"), size,
-        {True: "ok", False: "FAIL"}.get(deps, "?"), sandbox, flags, diff)
+        {True: "ok", False: "FAIL"}.get(deps, "?"), sandbox, flags, diff))
 
 
 def cmd_pending(cfg, st, args):
     records = _pending_records(st)
     if args.json:
-        print(json.dumps([_public(r) for r in records], indent=1, sort_keys=True, ensure_ascii=False))
+        print(_clean(json.dumps([_public(r) for r in records], indent=1, sort_keys=True, ensure_ascii=False)))
     else:
         for record in records:
             print(_line(record))
@@ -159,6 +174,26 @@ def _blockers(record, no_sandbox):
     if not no_sandbox and (checks.get("sandbox") or {}).get("status") != "pass":
         out.append("sandbox is %s (use --no-sandbox to override)" % (checks.get("sandbox") or {}).get("status", "missing"))
     return out
+
+
+def _flagged(record):
+    """What needs a human look before approving: inspect flags, changed scripts, newly added flags."""
+    checks = record.get("checks") or {}
+    diff = checks.get("diff") or {}
+    return {"flags": list((checks.get("inspect") or {}).get("flags") or []),
+            "scripts_changed": list(diff.get("scripts_changed") or []),
+            "flags_added": list(diff.get("flags_added") or [])}
+
+
+def _is_flagged(record):
+    return any(_flagged(record).values())
+
+
+def _print_flagged(record):
+    found = _flagged(record)
+    for key, label in (("flags", "inspect flag"), ("flags_added", "new flag"), ("scripts_changed", "changed script")):
+        for item in found[key]:
+            print(_clean("  %s: %s" % (label, item)))
 
 
 def _highest(records):
@@ -208,6 +243,12 @@ def _approve_all(st, args):
             print("skipped %s %s: %s" % (app, record["version"], "; ".join(blockers)))
             skipped += 1
             continue
+        if _is_flagged(record) and not args.include_flagged:
+            print("skipped %s %s: has inspect flags or changed scripts (approve it by name, or use --include-flagged)"
+                  % (app, record["version"]))
+            _print_flagged(record)
+            skipped += 1
+            continue
         try:
             approve_record(st, record, args.no_sandbox, args.note)
         except UsageError as e:
@@ -228,8 +269,28 @@ def cmd_approve(cfg, st, args):
         if blockers:
             print("cannot approve %s %s: %s" % (app, record["version"], "; ".join(blockers)), file=sys.stderr)
             return EXIT_PROBLEM
+        if _is_flagged(record):
+            print("approving %s %s with:" % (app, record["version"]))
+            _print_flagged(record)
         approve_record(st, record, args.no_sandbox, args.note)
         print("approved %s %s" % (app, record["version"]))
+    return EXIT_OK
+
+
+def cmd_revoke(cfg, st, args):
+    app, version = _split_target(args.target)
+    with st.lock():
+        entry = st.approved().get(app)
+        if entry is None or (version and entry.get("version") != version):
+            raise UsageError("%s is not approved" % args.target)
+        who, when = _actor(), _stamp()
+        st.remove_approved(app, {"at": when, "action": "revoke", "app": app, "version": entry.get("version"),
+                                 "sha256": entry.get("sha256"), "by": who, "note": args.note})
+        record = st.find_candidate(app, entry.get("version"), entry.get("sha256"))
+        if record is not None:
+            st.update_candidate(record, {"status": "revoked", "decided": {
+                "action": "revoke", "at": when, "by": who, "note": args.note}})
+    print("revoked %s %s" % (app, entry.get("version")))
     return EXIT_OK
 
 
@@ -252,9 +313,20 @@ def cmd_reject(cfg, st, args):
 
 # reports, build, metrics
 
+def _reports_keys(path):
+    """[reports] keys of server.conf (the directory of sandbox public keys)."""
+    cp = configparser.ConfigParser(inline_comment_prefixes=("#",), interpolation=None)
+    cp.read(path, encoding="utf-8")
+    return cp.get("reports", "keys", fallback=DEFAULT_REPORT_KEYS).strip() or DEFAULT_REPORT_KEYS
+
+
 def cmd_reports_ingest(cfg, st, args):
     with st.lock():
-        results = reports.ingest(cfg, st)
+        try:
+            results = reports.ingest(cfg, st, _reports_keys(args.config))
+        except reports.ReportError as e:
+            print("error: %s" % e, file=sys.stderr)
+            return EXIT_PROBLEM
     for item in results:
         print(_describe(item))
     return EXIT_PROBLEM if any(r["result"] == "rejected" for r in results) else EXIT_OK
@@ -339,7 +411,7 @@ def cmd_metrics(cfg, st, args):
 
 
 COMMANDS = {"track": cmd_track, "check": cmd_check, "intake": cmd_intake, "pending": cmd_pending,
-            "approve": cmd_approve, "reject": cmd_reject, "reports-ingest": cmd_reports_ingest,
+            "approve": cmd_approve, "revoke": cmd_revoke, "reject": cmd_reject, "reports-ingest": cmd_reports_ingest,
             "build": cmd_build, "metrics": cmd_metrics}
 # Commands whose implementation lives in modules written separately: any failure there is reported, not traced.
 GUARDED = ("track", "check", "intake")
@@ -351,6 +423,10 @@ def main(argv=None):
         cfg = config.load(args.config)
     except config.ConfigError as e:
         print("error: %s" % e, file=sys.stderr)
+        return EXIT_USAGE
+    if cfg.allow_insecure and os.environ.get(TESTS_ENV) != "1":
+        print("error: [fetch] allow_insecure = true is for tests only (set %s=1 to override)" % TESTS_ENV,
+              file=sys.stderr)
         return EXIT_USAGE
     st = State(cfg.state)
     try:

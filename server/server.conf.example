@@ -25,5 +25,11 @@ user_agent = agino-store-server/0.1 (+https://aginoos.com)
 min_interval_seconds = 1
 max_deb_bytes = 2147483648
 max_index_bytes = 134217728
-# Test only: allow http:// and file:// (tests and VM experiments).
+# Test only: allow http:// and file:// (tests and VM experiments). The command line refuses to run with this
+# set unless AGINO_STORE_SERVER_TESTS=1 is in the environment.
 allow_insecure = false
+
+[reports]
+# Directory of *.pub files, one per sandbox host: one line, base64 of the raw 32-byte Ed25519 public key.
+# Every report <name>.json needs <name>.json.sig (base64 signature over the raw JSON bytes).
+keys = /etc/agino-store-server/sandbox-keys

@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import contextlib
 import datetime
+import hashlib
 import io
 import json
 import os
@@ -16,6 +17,7 @@ from agino_store_server import cli
 from agino_store_server.state import State
 
 from . import helpers as H
+from . import test_reports as TR
 
 SCRIPT = os.path.join(H.REPO, "server", "agino-store-server")
 
@@ -33,9 +35,13 @@ class CliCase(unittest.TestCase):
         self.cfg = H.make_config(base, self.key)
         self.conf = os.path.join(base, "server.conf")
         H.write_conf_file(self.conf, self.cfg)
+        self.keys = os.path.join(base, "sandbox-keys")
+        with open(self.conf, "a", encoding="utf-8") as f:
+            f.write("[reports]\nkeys = %s\n" % self.keys)
         H.make_content(self.cfg.content)
         self.st = State(self.cfg.state)
-        env = mock.patch.dict(os.environ, {"SUDO_USER": "alice", "SOURCE_DATE_EPOCH": "1793620800"})
+        env = mock.patch.dict(os.environ, {"SUDO_USER": "alice", "SOURCE_DATE_EPOCH": "1793620800",
+                                           cli.TESTS_ENV: "1"})
         env.start()
         self.addCleanup(env.stop)
 
@@ -135,6 +141,96 @@ class TestApprove(CliCase):
         self.assertEqual(sorted(self.st.approved()), ["chrome"])
 
 
+FLAGGED = {"deps": {"ok": True}, "sandbox": {"status": "pass"},
+           "inspect": {"flags": ["writes /etc/apt"]},
+           "diff": {"scripts_changed": ["postinst"], "flags_added": ["writes /etc/apt"]}}
+
+
+class TestFlagged(CliCase):
+    def test_approve_all_skips_flagged(self):
+        self.add(checks=FLAGGED)
+        self.add(app="tg")
+        code, out, _ = self.run_cli("approve", "all")
+        self.assertEqual(code, 1)
+        self.assertIn("skipped chrome", out)
+        self.assertIn("writes /etc/apt", out)
+        self.assertEqual(sorted(self.st.approved()), ["tg"])
+
+    def test_scripts_changed_alone_counts(self):
+        self.add(checks={"deps": {"ok": True}, "sandbox": {"status": "pass"},
+                         "diff": {"scripts_changed": ["prerm"], "flags_added": []}})
+        self.assertEqual(self.run_cli("approve", "all")[0], 1)
+        self.assertEqual(self.st.approved(), {})
+
+    def test_include_flagged(self):
+        self.add(checks=FLAGGED)
+        code, out, _ = self.run_cli("approve", "all", "--include-flagged")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(sorted(self.st.approved()), ["chrome"])
+
+    def test_single_approve_prints_what_it_approves(self):
+        self.add(checks=FLAGGED)
+        code, out, _ = self.run_cli("approve", "chrome")
+        self.assertEqual(code, 0)
+        self.assertIn("inspect flag: writes /etc/apt", out)
+        self.assertIn("changed script: postinst", out)
+        self.assertEqual(self.status("2.0-1"), "approved")
+
+
+class TestRevoke(CliCase):
+    def test_revoke(self):
+        self.add()
+        self.run_cli("approve", "chrome")
+        code, out, _ = self.run_cli("revoke", "chrome", "--note", "regression")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.st.approved(), {})
+        self.assertEqual(self.status("2.0-1"), "revoked")
+        line = self.log_lines()[-1]
+        self.assertEqual((line["action"], line["note"], line["version"], line["by"]),
+                         ("revoke", "regression", "2.0-1", "alice"))
+
+    def test_revoke_requires_approval(self):
+        self.add()
+        self.assertEqual(self.run_cli("revoke", "chrome")[0], 2)
+        self.run_cli("approve", "chrome")
+        self.assertEqual(self.run_cli("revoke", "chrome@9.9")[0], 2)
+        self.assertEqual(self.run_cli("revoke", "Bad Id")[0], 2)
+
+    def test_revoked_app_is_dropped_by_next_build(self):
+        record = self.add()
+        H.write(os.path.join(self.cfg.downloads, record["file"]), b"x" * record["size"])
+        self.run_cli("approve", "chrome")
+        self.st.save_milkyway({"gimp": {"version": "1", "first_seen": "2026-10-01T00:00:00Z"}})
+        self.run_cli("revoke", "chrome")
+        code, out, _ = self.run_cli("build")
+        self.assertEqual(code, 0, out)
+        self.assertIn("not published: chrome", out)
+
+
+class TestInsecureGuard(CliCase):
+    def test_allow_insecure_needs_test_env(self):
+        H.write_conf_file(self.conf, H.make_config(self._tmp.name, self.key, allow_insecure=True))
+        with mock.patch.dict(os.environ, {cli.TESTS_ENV: ""}):
+            code, _, err = self.run_cli("pending")
+        self.assertEqual(code, 2)
+        self.assertIn("tests only", err)
+        self.assertEqual(self.run_cli("pending")[0], 0)
+
+
+class TestTerminalSafety(CliCase):
+    def test_pending_strips_control_characters(self):
+        self.add(checks={"deps": {"ok": True}, "diff": {"summary": "\x1b]0;pwned\x07 hi\tthere\x9b"}})
+        _, out, _ = self.run_cli("pending")
+        self.assertNotIn("\x1b", out)
+        self.assertNotIn("\x07", out)
+        self.assertNotIn("\x9b", out)
+        self.assertIn("hi\tthere", out)
+
+    def test_describe_strips_control_characters(self):
+        text = cli._describe({"level": "alert", "vendor": "v", "message": "bad \x1b[31mred\x00"})
+        self.assertEqual(text, "alert v: bad ?[31mred?")
+
+
 class TestReject(CliCase):
     def test_reject(self):
         self.add()
@@ -202,9 +298,11 @@ class TestLockingAndConfig(CliCase):
 
 class TestBuildCommand(CliCase):
     def prepare(self):
-        record = self.add(status="approved")
-        H.write(os.path.join(self.cfg.downloads, record["file"]), b"x" * record["size"])
-        self.st.set_approved("chrome", {"version": "2.0-1", "sha256": sha("a"), "candidate": "c",
+        deb = b"x" * 11
+        digest = hashlib.sha256(deb).hexdigest()
+        record = self.st.add_candidate(H.candidate(sha=digest, status="approved"))
+        H.write(os.path.join(self.cfg.downloads, record["file"]), deb)
+        self.st.set_approved("chrome", {"version": "2.0-1", "sha256": digest, "candidate": "c",
                                         "approved_at": "2026-11-02T08:00:00Z", "by": "t", "note": ""}, {})
         self.st.save_milkyway({"gimp": {"version": "1", "first_seen": "2026-10-01T00:00:00Z"}})
 
@@ -311,6 +409,24 @@ class TestReportsCommand(CliCase):
         code, out, _ = self.run_cli("reports-ingest")
         self.assertEqual(code, 1)
         self.assertIn("rejected", out)
+
+    def test_signed_report_uses_configured_key_dir(self):
+        self.add(checks={"deps": {"ok": True}, "sandbox": {"status": "missing"}})
+        TR.install_key(self.key, self.keys)
+        data = json.dumps(TR.report(sha256=sha("a"))).encode("utf-8")
+        path = os.path.join(self.cfg.reports, "r.json")
+        H.write(path, data)
+        H.write(path + ".sig", TR.sign_bytes(self.key, data, self._tmp.name), "w")
+        code, out, _ = self.run_cli("reports-ingest")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.st.find_candidate("chrome", "2.0-1")["checks"]["sandbox"]["status"], "pass")
+
+    def test_symlinked_done_is_an_error(self):
+        os.makedirs(self.cfg.reports)
+        os.symlink(self._tmp.name, os.path.join(self.cfg.reports, "done"))
+        code, _, err = self.run_cli("reports-ingest")
+        self.assertEqual(code, 1)
+        self.assertIn("symlink", err)
 
 
 if __name__ == "__main__":

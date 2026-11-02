@@ -8,6 +8,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import struct
 from urllib.parse import quote
 
@@ -85,8 +86,12 @@ def compare_versions(a, b):
 
 def image_size(path):
     """(width, height) of a PNG, JPEG or WebP file, read from the headers."""
+    if os.stat(path).st_size > cw.MAX_ASSET_BYTES:
+        raise CatalogError("image larger than 10 MiB: %s" % os.path.basename(path))
     with open(path, "rb") as f:
-        data = f.read()
+        data = f.read(cw.MAX_ASSET_BYTES + 1)
+    if len(data) > cw.MAX_ASSET_BYTES:
+        raise CatalogError("image larger than 10 MiB: %s" % os.path.basename(path))
     if data[:8] == b"\x89PNG\r\n\x1a\n" and data[12:16] == b"IHDR":
         return struct.unpack(">II", data[16:24])
     if data[:2] == b"\xff\xd8":
@@ -146,9 +151,15 @@ def _deb_info(cfg, st, app, approved):
     name = os.path.basename(str(record.get("filename", "")))
     if not SHA256_RE.match(str(sha)) or not DEB_FILE_RE.match(name) or record.get("file") != "%s/%s" % (sha, name):
         raise Skip("candidate record has a bad file name")
+    if record.get("status") != "approved":
+        raise Skip("candidate is %s, not approved" % record.get("status"))
+    if ((record.get("checks") or {}).get("deps") or {}).get("ok") is not True:
+        raise Skip("dependency check has not passed")
     path = os.path.join(cfg.downloads, sha, name)
     if os.path.islink(path) or not os.path.isfile(path) or os.path.getsize(path) != record.get("size"):
         raise Skip("deb file is missing or has the wrong size")
+    if cw.sha256_file(path) != entry.get("sha256"):
+        raise Skip("deb file does not match the approved sha256")
     return {"version": record["version"], "sha256": sha, "size": record["size"], "filename": name,
             "installed_size": int(record.get("installed_size") or 0), "path": path,
             "vendor_url": record.get("vendor_url") or "", "updated": _day(entry.get("approved_at"), "approved_at")}
@@ -195,6 +206,14 @@ def next_serial(previous, today):
     serial = max(base + 1, int(previous) + 1)
     if serial % 100 == 0:   # the previous serial was ...99: the day's 01-99 are used up
         raise CatalogError("no serial left for today (previous %s)" % previous)
+    return serial
+
+
+def _free_serial(preview, previous, now):
+    """Next serial whose catalog directory does not exist (a crash may have left one behind)."""
+    serial = next_serial(previous, now)
+    while os.path.lexists(os.path.join(preview, "catalog-%d" % serial)):
+        serial = next_serial(serial, now)
     return serial
 
 
@@ -332,6 +351,26 @@ def _featured(content, included):
 
 # Publishing
 
+def _place_deb(src, dest, sha):
+    """Hard link (or copy) src to dest; an existing dest is kept only if it is src or has the same hash."""
+    try:
+        st = os.lstat(dest)
+    except FileNotFoundError:
+        st = None
+    if st is not None:
+        source = os.stat(src)
+        same = (st.st_ino, st.st_dev) == (source.st_ino, source.st_dev)
+        if stat.S_ISREG(st.st_mode) and (same or cw.sha256_file(dest) == sha):
+            return
+        os.unlink(dest)
+    try:
+        os.link(src, dest)
+    except OSError as e:
+        if e.errno not in (errno.EXDEV, errno.EPERM):
+            raise
+        shutil.copyfile(src, dest)
+
+
 def _link_debs(cfg, facts, included):
     for app_id in included:
         info = facts[app_id]
@@ -339,15 +378,7 @@ def _link_debs(cfg, facts, included):
             continue
         directory = os.path.join(cfg.preview, "debs", info["sha256"])
         os.makedirs(directory, exist_ok=True)
-        dest = os.path.join(directory, info["filename"])
-        try:
-            os.link(info["path"], dest)
-        except FileExistsError:
-            pass
-        except OSError as e:
-            if e.errno not in (errno.EXDEV, errno.EPERM):
-                raise
-            shutil.copyfile(info["path"], dest)
+        _place_deb(info["path"], os.path.join(directory, info["filename"]), info["sha256"])
 
 
 def verify_tree(path):
@@ -383,6 +414,43 @@ def prune(preview, keep):
             shutil.rmtree(path)
 
 
+def _referenced_shas(preview):
+    """sha256 values of the debs listed in any catalog-<serial> directory that still exists."""
+    shas = set()
+    for name in os.listdir(preview):
+        path = os.path.join(preview, name)
+        if not CATALOG_DIR_RE.match(name) or os.path.islink(path):
+            continue
+        try:
+            with open(os.path.join(path, "catalog.json"), encoding="utf-8") as f:
+                apps = json.load(f)["apps"]
+        except (OSError, ValueError, KeyError):
+            continue
+        shas.update(str(((a.get("package") or {}).get("deb") or {}).get("sha256")) for a in apps)
+    return shas
+
+
+def prune_debs(preview, valid_days, now):
+    """Delete preview/debs/<sha>/ not used by a kept catalog and older than valid_days + 7 days."""
+    debs = os.path.join(preview, "debs")
+    if not os.path.isdir(debs):
+        return
+    keep = _referenced_shas(preview)
+    cutoff = now.timestamp() - (valid_days + 7) * 86400
+    for sha in os.listdir(debs):
+        path = os.path.join(debs, sha)
+        if sha in keep or not SHA256_RE.match(sha) or os.path.islink(path) or not os.path.isdir(path):
+            continue
+        if os.lstat(path).st_mtime >= cutoff:
+            continue
+        try:
+            for entry in os.listdir(path):
+                os.unlink(os.path.join(path, entry))
+            os.rmdir(path)
+        except OSError:
+            continue    # something unexpected in there: leave it for a human
+
+
 def build(cfg, st, content, if_changed=False):
     """Build and publish the catalog; returns a summary dict (docs/server.md section 8)."""
     facts, skipped = resolve(cfg, st, content)
@@ -394,15 +462,16 @@ def build(cfg, st, content, if_changed=False):
         return {"serial": prev["serial"], "revision": prev.get("revision"), "apps": prev.get("apps", 0),
                 "skipped": skipped, "changed": False}
     renewed = prev.get("inputs_sha256") == inputs
-    serial = next_serial(prev.get("serial", 0), now)
+    os.makedirs(cfg.preview, exist_ok=True)
+    serial = _free_serial(cfg.preview, prev.get("serial", 0), now)
     revision = "r%d-%s" % (serial, inputs[:12])
     files, included, dropped = build_files(cfg, st, content, facts)
     name = "catalog-%d" % serial
-    os.makedirs(cfg.preview, exist_ok=True)
     _publish(cfg, files, serial, revision, name, now, facts, included)
     st.save_catalog_state({"serial": serial, "inputs_sha256": inputs, "revision": revision, "apps": len(included),
                            "built_at": now.strftime(cw.TIME_FORMAT)})
     prune(cfg.preview, cfg.keep_catalogs)
+    prune_debs(cfg.preview, cfg.valid_days, now)
     return {"serial": serial, "revision": revision, "apps": len(included), "skipped": skipped + dropped,
             "changed": True, "renewed": renewed}
 
@@ -415,7 +484,9 @@ def _publish(cfg, files, serial, revision, name, now, facts, included):
         cw.write_tree(out, files, serial, revision, cfg.valid_days, cfg.key, when=now)
         verify_tree(out)
         _link_debs(cfg, facts, included)
-    except BaseException:
+    except BaseException as e:
         shutil.rmtree(out, ignore_errors=True)
+        if isinstance(e, cw.CatalogWriterError):
+            raise CatalogError(str(e)) from None
         raise
     _swap_current(cfg.preview, name)

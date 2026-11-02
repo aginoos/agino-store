@@ -10,7 +10,7 @@ import re
 import tempfile
 
 ID_RE = re.compile(r"\A[a-z0-9][a-z0-9.+-]*\Z")
-VERSION_RE = re.compile(r"\A[A-Za-z0-9.+~:-]+\Z")
+VERSION_RE = re.compile(r"\A(?:[0-9]+:)?[0-9][A-Za-z0-9.+~-]*\Z")
 SHA256_RE = re.compile(r"\A[0-9a-f]{64}\Z")
 
 
@@ -165,6 +165,13 @@ class State:
         _check_id(app, "app id")
         data = dict(self.approved())
         data[app] = entry
+        write_json_atomic(self._path("approved.json"), data)
+        self.append_log(log)
+
+    def remove_approved(self, app, log):
+        """Drop app from approved.json (no-op if absent) and log it."""
+        _check_id(app, "app id")
+        data = {k: v for k, v in self.approved().items() if k != app}
         write_json_atomic(self._path("approved.json"), data)
         self.append_log(log)
 
