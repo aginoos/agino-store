@@ -14,6 +14,7 @@ import re
 import stat
 import subprocess
 import sys
+import syslog
 import tempfile
 
 KEY_DIR = "/etc/agino-store-sign/keys"
@@ -83,8 +84,11 @@ def main(argv):
     if len(sig) != 64:
         print("agino-store-sign: signing failed", file=sys.stderr)
         return 1
-    print("agino-store-sign: key=%s serial=%s sha256=%s" % (name, obj["serial"], hashlib.sha256(data).hexdigest()),
-          file=sys.stderr)
+    # The caller captures stderr, so the audit line also goes to syslog (the journal).
+    line = "key=%s serial=%s sha256=%s" % (name, obj["serial"], hashlib.sha256(data).hexdigest())
+    syslog.openlog("agino-store-sign", 0, syslog.LOG_AUTH)
+    syslog.syslog(syslog.LOG_NOTICE, "signed " + line)
+    print("agino-store-sign: " + line, file=sys.stderr)
     sys.stdout.write(base64.b64encode(sig).decode("ascii") + "\n")
     return 0
 

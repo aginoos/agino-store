@@ -143,7 +143,9 @@ def _sign_with_command(manifest_path, argv):
     try:
         done = subprocess.run(list(argv), input=data, capture_output=True, timeout=60)
         if done.returncode != 0:
-            raise CatalogWriterError("signing failed")
+            # The helper's messages carry no secrets; keep only the first line, bounded.
+            first = done.stderr.decode("utf-8", "replace").strip().splitlines()[:1]
+            raise CatalogWriterError("signing failed" + (": " + first[0][:200] if first else ""))
         sig = base64.b64decode(done.stdout.strip(), validate=True)
     except (subprocess.SubprocessError, OSError, ValueError):
         raise CatalogWriterError("signing failed") from None

@@ -123,7 +123,7 @@ class TestCatalogViaHelper(CatalogCase):
         out = os.path.join(self.base, "out")
         with self.assertRaises(cw.CatalogWriterError) as ctx:
             cw.write_tree(out, {}, 1, "r1", 14, "", sign_command=(sys.executable, HELPER, "missing"))
-        self.assertEqual(str(ctx.exception), "signing failed")
+        self.assertEqual(str(ctx.exception), "signing failed: agino-store-sign: key file is not readable")
 
     def test_garbage_output_is_signing_failed(self):
         out = os.path.join(self.base, "out")
