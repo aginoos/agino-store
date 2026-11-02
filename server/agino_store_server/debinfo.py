@@ -2,13 +2,30 @@
 """Read .deb metadata without ever running maintainer scripts (docs/server.md section 7)."""
 
 import datetime
+import io
 import os
+import posixpath
 import re
+import resource
 import subprocess
+import tarfile
+import threading
 
 TOOL_TIMEOUT = 300
+STDOUT_CAP = 4 << 20
+STDERR_CAP = 1 << 20
+LISTING_CAP = 64 << 20
+LISTING_LINES = 2_000_000
+CTRL_TAR_CAP = 16 << 20
+CONTROL_FILE_MAX = 1 << 20
+LIMIT_AS = 2 << 30
+LIMIT_FSIZE = 256 << 20
+LIMIT_CPU = 300
+CONTROL_NAMES = frozenset(("control", "md5sums", "conffiles", "preinst", "postinst", "prerm", "postrm",
+                           "config", "templates", "triggers", "shlibs", "symbols"))
+_CONTROL_CHARS = re.compile(r"[\x00-\x08\x0a-\x1f\x7f-\x9f]")
 SCRIPT_NAMES = ("preinst", "postinst", "prerm", "postrm", "config")
-VERSION_RE = re.compile(r"\A[A-Za-z0-9.+~:-]+\Z")
+VERSION_RE = re.compile(r"\A(?:[0-9]+:)?[0-9][A-Za-z0-9.+~:-]*\Z")
 _LIST_RE = re.compile(
     r"^(?P<mode>[-dlhcbps][-rwxsStT]{9})\s+(?P<owner>\S+)\s+(?P<size>\d+)\s+"
     r"\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s(?P<name>.*)$"
@@ -23,14 +40,88 @@ def utc_now():
     return datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def run_tool(args, timeout=TOOL_TIMEOUT, stdin=None):
-    """Run a tool (argument list, no shell, with timeout). Returns CompletedProcess; never raises on rc."""
+def clean_text(value):
+    """Vendor-supplied text for messages: control characters (except tab) removed."""
+    return _CONTROL_CHARS.sub("", str(value))
+
+
+def _limit_resources():
+    resource.setrlimit(resource.RLIMIT_AS, (LIMIT_AS, LIMIT_AS))
+    resource.setrlimit(resource.RLIMIT_FSIZE, (LIMIT_FSIZE, LIMIT_FSIZE))
+    resource.setrlimit(resource.RLIMIT_CPU, (LIMIT_CPU, LIMIT_CPU))
+
+
+class _Capture(threading.Thread):
+    """Drain a pipe, keeping at most `cap` bytes; on overflow stop and kill the process."""
+
+    def __init__(self, pipe, cap, proc, fatal):
+        super().__init__(daemon=True)
+        self.pipe, self.cap, self.proc, self.fatal = pipe, cap, proc, fatal
+        self.chunks, self.size, self.overflow = [], 0, False
+
+    def run(self):
+        while True:
+            chunk = self.pipe.read(65536)
+            if not chunk:
+                return
+            room = self.cap - self.size
+            self.chunks.append(chunk[:max(room, 0)])
+            self.size += len(chunk)
+            if self.size > self.cap:
+                self.overflow = True
+                if self.fatal:
+                    self.proc.kill()
+                    return
+
+    def data(self):
+        return b"".join(self.chunks)
+
+
+def _feed(proc, data):
     try:
-        return subprocess.run(args, capture_output=True, timeout=timeout, input=stdin, check=False)
-    except subprocess.TimeoutExpired as e:
-        raise DebError("%s timed out" % args[0]) from e
+        if data is not None:
+            proc.stdin.write(data)
+    except OSError:
+        pass
+    finally:
+        try:
+            proc.stdin.close()
+        except OSError:
+            pass
+
+
+def run_tool(args, timeout=TOOL_TIMEOUT, stdin=None, max_stdout=STDOUT_CAP):
+    """Run a tool (argument list, no shell, with timeout and resource limits).
+
+    Returns CompletedProcess; never raises on rc. stdout beyond max_stdout is an error.
+    """
+    try:
+        proc = subprocess.Popen(args, stdin=subprocess.PIPE if stdin is not None else subprocess.DEVNULL,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                preexec_fn=_limit_resources)   # noqa: PLW1509 - limits must be set pre-exec
     except OSError as e:
         raise DebError("cannot run %s: %s" % (args[0], e.strerror or e)) from e
+    out, err = _Capture(proc.stdout, max_stdout, proc, True), _Capture(proc.stderr, STDERR_CAP, proc, False)
+    timed_out = []
+    timer = threading.Timer(timeout, lambda: (timed_out.append(True), proc.kill()))
+    timer.start()
+    threads = [out, err] + ([threading.Thread(target=_feed, args=(proc, stdin), daemon=True)]
+                            if stdin is not None else [])
+    for t in threads:
+        t.start()
+    try:
+        for t in threads:
+            t.join()
+        proc.wait()
+    finally:
+        timer.cancel()
+        proc.stdout.close()
+        proc.stderr.close()
+    if timed_out:
+        raise DebError("%s timed out" % args[0])
+    if out.overflow:
+        raise DebError("output of %s exceeds %d bytes" % (args[0], max_stdout))
+    return subprocess.CompletedProcess(args, proc.returncode, out.data(), err.data())
 
 
 def parse_stanzas(text):
@@ -64,24 +155,58 @@ def control_fields(deb_path):
     return stanzas[0]
 
 
+def _control_member_name(member):
+    name = posixpath.normpath(member.name).lstrip("/")
+    return name if member.isreg() and name in CONTROL_NAMES else None
+
+
+def _write_control_file(dest_dir, name, data):
+    fd = os.open(os.path.join(dest_dir, name),
+                 os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
+    with os.fdopen(fd, "wb") as f:
+        f.write(data)
+
+
 def extract_control(deb_path, dest_dir):
-    """Extract the control tarball into dest_dir (must not exist). Never runs anything."""
-    proc = run_tool(["dpkg-deb", "-e", os.path.abspath(deb_path), os.path.abspath(dest_dir)])
+    """Write the known top-level control files into the new directory dest_dir. Never runs anything."""
+    proc = run_tool(["dpkg-deb", "--ctrl-tarfile", os.path.abspath(deb_path)], max_stdout=CTRL_TAR_CAP)
     if proc.returncode != 0:
         raise DebError("cannot extract control from %s" % os.path.basename(deb_path))
+    os.mkdir(dest_dir, 0o755)
+    try:
+        with tarfile.open(fileobj=io.BytesIO(proc.stdout), mode="r:") as tar:
+            for member in tar:
+                _extract_member(tar, member, dest_dir)
+    except tarfile.TarError as e:
+        raise DebError("bad control archive in %s: %s" % (os.path.basename(deb_path), e)) from e
+
+
+def _extract_member(tar, member, dest_dir):
+    name = _control_member_name(member)
+    if name is None or member.size > CONTROL_FILE_MAX:
+        return
+    try:
+        safe = tarfile.data_filter(member, dest_dir)
+    except tarfile.FilterError:
+        return
+    src = tar.extractfile(safe)
+    if src is None:
+        return
+    try:
+        _write_control_file(dest_dir, name, src.read(CONTROL_FILE_MAX + 1)[:CONTROL_FILE_MAX])
+    except FileExistsError:
+        return
 
 
 def file_list(deb_path):
     """Entries of the data archive: dicts with mode, type, owner, size, path and target."""
-    proc = run_tool(["dpkg-deb", "-c", os.path.abspath(deb_path)])
+    proc = run_tool(["dpkg-deb", "-c", os.path.abspath(deb_path)], max_stdout=LISTING_CAP)
     if proc.returncode != 0:
         raise DebError("cannot list %s" % os.path.basename(deb_path))
-    out = []
-    for line in proc.stdout.decode("utf-8", "replace").split("\n"):
-        entry = parse_list_line(line)
-        if entry:
-            out.append(entry)
-    return out
+    lines = proc.stdout.decode("utf-8", "replace").split("\n")
+    if len(lines) > LISTING_LINES:
+        raise DebError("%s lists more than %d entries" % (os.path.basename(deb_path), LISTING_LINES))
+    return [e for e in map(parse_list_line, lines) if e]
 
 
 def parse_list_line(line):
