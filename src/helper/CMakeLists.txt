@@ -33,6 +33,7 @@ add_executable(agino-store-helper
 )
 target_include_directories(agino-store-helper PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_BINARY_DIR}
     ${CMAKE_SOURCE_DIR}/src/common)
 target_link_libraries(agino-store-helper PRIVATE
     agino-store-common

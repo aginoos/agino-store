@@ -32,7 +32,8 @@ public:
 
 public Q_SLOTS:
     // D-Bus methods. Methods that reply later call setDelayedReply(true) and return a dummy value.
-    void Refresh(qlonglong &serial, QString &revision);
+    // qdbusxml2cpp maps the first out argument (serial) to the return value.
+    qlonglong Refresh(QString &revision);
     QString GetState();
     QString Simulate(const QString &appId, const QString &action);
     uint Install(const QString &appId, const QVariantMap &options);

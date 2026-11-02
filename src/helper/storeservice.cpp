@@ -93,15 +93,15 @@ void StoreService::authorize(const QDBusMessage &msg, std::function<void()> auth
 
 // --- Refresh -------------------------------------------------------------------------------
 
-void StoreService::Refresh(qlonglong &serial, QString &revision)
+qlonglong StoreService::Refresh(QString &revision)
 {
-    Q_UNUSED(serial)
     Q_UNUSED(revision)
     touch();
     const QDBusMessage msg = message();
     setDelayedReply(true);
     m_refreshWaiters.append(msg);
     m_refresher.start();
+    return 0;
 }
 
 void StoreService::onRefreshFinished(bool ok, const QString &errorCode, const QString &text, bool changed)

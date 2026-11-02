@@ -237,7 +237,7 @@ void JobRunner::downloadDeb()
         }
     });
     connect(reply, &QNetworkReply::downloadProgress, this, [this, size = deb.size](qint64 received, qint64) {
-        const uint percent = static_cast<uint>(qBound<qint64>(0, received * 100 / size, 100));
+        const uint percent = static_cast<uint>(qBound(qint64(0), received * 100 / size, qint64(100)));
         if (!m_finished && m_stage == QLatin1String("downloading"))
             Q_EMIT progress(m_stage, percent, static_cast<quint64>(qMax<qint64>(received, 0)), static_cast<quint64>(size));
     });

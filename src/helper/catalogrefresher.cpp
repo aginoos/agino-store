@@ -87,7 +87,7 @@ void CatalogRefresher::fetch(const QString &relativePath, qint64 maxBytes, Fetch
             reply->abort();
         }
     });
-    connect(reply, &QNetworkReply::finished, this, [reply, buffer, tooBig, done]() {
+    connect(reply, &QNetworkReply::finished, this, [reply, buffer, tooBig, done, maxBytes]() {
         reply->deleteLater();
         if (*tooBig) {
             done(false, QByteArray(), QStringLiteral("response larger than allowed"));
