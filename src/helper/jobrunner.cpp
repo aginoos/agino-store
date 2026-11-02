@@ -166,7 +166,7 @@ void JobRunner::runDeb()
         return;
     }
     const DebInfo &deb = *m_ctx.app.package.deb;
-    static const QRegularExpression sha(QStringLiteral("^[0-9a-f]{64}$"));
+    static const QRegularExpression sha(QStringLiteral("\\A[0-9a-f]{64}\\z"));
     const QUrl url(deb.url);
     const bool schemeOk = url.isValid()
         && (url.scheme() == QLatin1String("https") || url.scheme() == QLatin1String("http")

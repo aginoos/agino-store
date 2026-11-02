@@ -10,20 +10,20 @@ namespace AginoStore {
 
 bool isValidAppId(const QString &id)
 {
-    static const QRegularExpression re(QStringLiteral("^[a-z0-9][a-z0-9._+-]{0,127}$"));
+    static const QRegularExpression re(QStringLiteral("\\A[a-z0-9][a-z0-9._+-]{0,127}\\z"));
     return re.match(id).hasMatch();
 }
 
 bool isValidPackageName(const QString &name)
 {
-    static const QRegularExpression re(QStringLiteral("^[a-z0-9][a-z0-9+.-]{0,127}$"));
+    static const QRegularExpression re(QStringLiteral("\\A[a-z0-9][a-z0-9+.-]{0,127}\\z"));
     return re.match(name).hasMatch();
 }
 
 bool isValidVersion(const QString &version)
 {
     // Debian version characters; must not start with '-' so it can never look like an option.
-    static const QRegularExpression re(QStringLiteral("^[A-Za-z0-9][A-Za-z0-9.+~:-]{0,127}$"));
+    static const QRegularExpression re(QStringLiteral("\\A[A-Za-z0-9][A-Za-z0-9.+~:-]{0,127}\\z"));
     return re.match(version).hasMatch();
 }
 

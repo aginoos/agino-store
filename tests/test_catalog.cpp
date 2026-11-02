@@ -205,6 +205,7 @@ void TestCatalog::launchable_data()
     QTest::newRow("absolute") << QJsonValue(QStringLiteral("/usr/share/applications/x.desktop")) << false;
     QTest::newRow("no-suffix") << QJsonValue(QStringLiteral("firefox-esr")) << false;
     QTest::newRow("dotdot-inside") << QJsonValue(QStringLiteral("a..b.desktop")) << false;
+    QTest::newRow("trailing-newline") << QJsonValue(QStringLiteral("firefox-esr.desktop\n")) << false;
     QTest::newRow("number") << QJsonValue(12) << false;
 }
 
@@ -438,6 +439,7 @@ void TestCatalog::defaultFiles_data()
     QTest::newRow("uppercase") << "/etc/default/Foo" << 1 << false;
     QTest::newRow("leading-dot") << "/etc/default/.hidden" << 1 << false;
     QTest::newRow("relative") << "etc/default/x" << 1 << false;
+    QTest::newRow("trailing-newline") << "/etc/default/x\n" << 1 << false;
 }
 
 void TestCatalog::defaultFiles()

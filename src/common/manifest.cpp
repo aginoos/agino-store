@@ -33,7 +33,7 @@ void setError(QString *error, const QString &text)
 
 bool isHex64(const QString &s)
 {
-    static const QRegularExpression re(QStringLiteral("^[0-9a-f]{64}$"));
+    static const QRegularExpression re(QStringLiteral("\\A[0-9a-f]{64}\\z"));
     return re.match(s).hasMatch();
 }
 
