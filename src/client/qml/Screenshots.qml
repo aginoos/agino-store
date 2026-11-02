@@ -19,8 +19,9 @@ ListView {
                                       ? modelData.width / modelData.height : 1.6
         readonly property string path: modelData.thumb ? modelData.thumb : modelData.image
         readonly property string url: {
-            Store.assetTick
-            return Store.assetUrl(path)
+            // Reading the counter inside the expression keeps the dependency (a bare
+            // statement can be dropped by the QML compiler).
+            return Store.assetTick >= 0 ? Store.assetUrl(path) : ""
         }
 
         height: strip.height

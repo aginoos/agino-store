@@ -13,6 +13,8 @@ D.ApplicationWindow {
     minimumHeight: 520
     visible: true
     title: qsTr("App Store")
+    // DTK draws the title bar (D.TitleBar below) instead of the window manager.
+    D.DWindow.enabled: true
 
     readonly property Component pageComponent: {
         if (Store.catalogState === "unavailable" && Router.page !== "settings")
@@ -44,7 +46,6 @@ D.ApplicationWindow {
                 id: search
                 anchors.centerIn: parent
                 width: Math.min(360, parent.width - 24)
-                placeholderText: qsTr("Search apps")
                 onTextChanged: debounce.restart()
             }
             Timer {

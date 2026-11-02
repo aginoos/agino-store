@@ -42,8 +42,7 @@ Control {
             Heading {
                 Layout.fillWidth: true
                 text: panel.title
-                font: D.DTK.fontManager.t6
-                font.weight: Font.DemiBold
+                font: Qt.font({ family: D.DTK.fontManager.t6.family, pixelSize: D.DTK.fontManager.t6.pixelSize, weight: Font.DemiBold })
             }
             SegmentedSwitch {
                 mode: panel.mode

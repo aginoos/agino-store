@@ -9,13 +9,12 @@ PageBase {
 
     readonly property string appId: Router.appId
     readonly property var info: {
-        Store.stateTick
-        return Store.app(appId)
+        // Reading the counter inside the expression keeps the dependency (a bare
+        // statement can be dropped by the QML compiler).
+        return Store.stateTick >= 0 ? Store.app(appId) : ({})
     }
-    readonly property var detail: {
-        Store.revision
-        return Store.appDetail(appId)
-    }
+    // Store.revision is read inside the expression so a new catalog re-evaluates it.
+    readonly property var detail: Store.revision !== undefined ? Store.appDetail(appId) : ({})
     readonly property var screenshots: detail.screenshots ? detail.screenshots : []
     readonly property var paragraphs: detail.description ? detail.description : []
     readonly property var notes: detail.releaseNotes ? detail.releaseNotes : []

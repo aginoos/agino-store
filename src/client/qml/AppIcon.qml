@@ -12,8 +12,9 @@ Control {
 
     // Re-evaluated when an asset arrives.
     readonly property string source: {
-        Store.assetTick
-        return Store.iconUrl(appId)
+        // Reading the counter inside the expression keeps the dependency (a bare
+        // statement can be dropped by the QML compiler).
+        return Store.assetTick >= 0 ? Store.iconUrl(appId) : ""
     }
     readonly property string initial: {
         const name = Store.app(appId).name

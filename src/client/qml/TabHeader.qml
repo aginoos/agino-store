@@ -40,8 +40,7 @@ Control {
 
                 contentItem: D.Label {
                     text: tab.modelData
-                    font: D.DTK.fontManager.t6
-                    font.weight: tab.selected ? Font.Medium : Font.Normal
+                    font: Qt.font({ family: D.DTK.fontManager.t6.family, pixelSize: D.DTK.fontManager.t6.pixelSize, weight: tab.selected ? Font.Medium : Font.Normal })
                     color: tab.selected ? tab.palette.windowText : Qt.alpha(tab.palette.windowText, 0.62)
                 }
                 background: Item {

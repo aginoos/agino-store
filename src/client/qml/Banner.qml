@@ -46,8 +46,7 @@ Control {
                     Layout.fillWidth: true
                     text: banner.current ? banner.current.subtitle : ""
                     color: banner.palette.highlightedText
-                    font: D.DTK.fontManager.t2
-                    font.weight: Font.DemiBold
+                    font: Qt.font({ family: D.DTK.fontManager.t2.family, pixelSize: D.DTK.fontManager.t2.pixelSize, weight: Font.DemiBold })
                     wrapMode: Text.Wrap
                 }
                 D.Button {

@@ -10,7 +10,7 @@ GridLayout {
     readonly property int count: listModel ? listModel.count : 0
 
     columns: Math.max(1, Math.floor(width / 260))
-    uniformCellSizes: true
+    uniformCellWidths: true
     columnSpacing: 12
     rowSpacing: 12
 

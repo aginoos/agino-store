@@ -102,8 +102,7 @@ Control {
         }
         D.Label {
             text: row.stageText
-            font: D.DTK.fontManager.t8
-            font.weight: Font.Medium
+            font: Qt.font({ family: D.DTK.fontManager.t8.family, pixelSize: D.DTK.fontManager.t8.pixelSize, weight: Font.Medium })
             color: row.finished && !row.ok ? row.palette.windowText
                                            : (row.finished ? row.palette.highlight : Qt.alpha(row.palette.windowText, 0.7))
         }

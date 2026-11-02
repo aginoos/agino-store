@@ -54,7 +54,7 @@ PageBase {
     GridLayout {
         Layout.fillWidth: true
         columns: width > 720 ? 2 : 1
-        uniformCellSizes: true
+        uniformCellWidths: true
         columnSpacing: 16
         rowSpacing: 16
 

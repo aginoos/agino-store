@@ -3,8 +3,58 @@
 
 find_package(Dtk6 REQUIRED COMPONENTS Core)
 
+# Put the module under qrc:/qt/qml so engine.loadFromModule() finds it in the default import path.
+qt_policy(SET QTP0001 NEW)
+
 # Singletons must be flagged before the module is created.
 set_source_files_properties(qml/Router.qml qml/Icons.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+
+set(AGINO_STORE_QML_FILES
+    qml/Main.qml
+    qml/Router.qml
+    qml/Icons.qml
+    qml/PageBase.qml
+    qml/Muted.qml
+    qml/Heading.qml
+    qml/Chip.qml
+    qml/Pill.qml
+    qml/SourceChips.qml
+    qml/AppIcon.qml
+    qml/ActionButtons.qml
+    qml/SegmentedSwitch.qml
+    qml/AppCard.qml
+    qml/AppRow.qml
+    qml/AppGrid.qml
+    qml/NavIcon.qml
+    qml/NavButton.qml
+    qml/Nav.qml
+    qml/Banner.qml
+    qml/CategoryPanel.qml
+    qml/HomePage.qml
+    qml/CategoryPage.qml
+    qml/SearchPage.qml
+    qml/Screenshots.qml
+    qml/InfoPanel.qml
+    qml/DetailPage.qml
+    qml/TabHeader.qml
+    qml/ListColumn.qml
+    qml/ListItem.qml
+    qml/InstalledPage.qml
+    qml/TaskRow.qml
+    qml/TasksPage.qml
+    qml/SettingsGroup.qml
+    qml/SettingsRow.qml
+    qml/SettingsPage.qml
+    qml/ConfirmDialog.qml
+    qml/Toast.qml
+    qml/UnavailablePage.qml
+)
+# The files live in qml/ but are served from the module root next to its qmldir: the implicit
+# directory import of each file then includes the module and its C++ types.
+foreach(qml_file IN LISTS AGINO_STORE_QML_FILES)
+    get_filename_component(qml_name ${qml_file} NAME)
+    set_source_files_properties(${qml_file} PROPERTIES QT_RESOURCE_ALIAS ${qml_name})
+endforeach()
 
 qt_add_executable(agino-store main.cpp)
 
@@ -26,45 +76,7 @@ qt_add_qml_module(agino-store
         applistmodel.h applistmodel.cpp
         store.h store.cpp storeactions.cpp
         ${AGINO_STORE_DBUS_SRCS}
-    QML_FILES
-        qml/Main.qml
-        qml/Router.qml
-        qml/Icons.qml
-        qml/PageBase.qml
-        qml/Muted.qml
-        qml/Heading.qml
-        qml/Chip.qml
-        qml/Pill.qml
-        qml/SourceChips.qml
-        qml/AppIcon.qml
-        qml/ActionButtons.qml
-        qml/SegmentedSwitch.qml
-        qml/AppCard.qml
-        qml/AppRow.qml
-        qml/AppGrid.qml
-        qml/NavIcon.qml
-        qml/NavButton.qml
-        qml/Nav.qml
-        qml/Banner.qml
-        qml/CategoryPanel.qml
-        qml/HomePage.qml
-        qml/CategoryPage.qml
-        qml/SearchPage.qml
-        qml/Screenshots.qml
-        qml/InfoPanel.qml
-        qml/DetailPage.qml
-        qml/TabHeader.qml
-        qml/ListColumn.qml
-        qml/ListItem.qml
-        qml/InstalledPage.qml
-        qml/TaskRow.qml
-        qml/TasksPage.qml
-        qml/SettingsGroup.qml
-        qml/SettingsRow.qml
-        qml/SettingsPage.qml
-        qml/ConfirmDialog.qml
-        qml/Toast.qml
-        qml/UnavailablePage.qml
+    QML_FILES ${AGINO_STORE_QML_FILES}
 )
 
 target_include_directories(agino-store PRIVATE

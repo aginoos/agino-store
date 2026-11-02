@@ -22,8 +22,9 @@ PageBase {
     }
 
     readonly property real updateBytes: {
-        Store.stateTick
-        return Store.updatesDownloadBytes()
+        // Reading the counter inside the expression keeps the dependency (a bare
+        // statement can be dropped by the QML compiler).
+        return Store.stateTick >= 0 ? Store.updatesDownloadBytes() : 0
     }
 
     RowLayout {

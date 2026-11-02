@@ -53,8 +53,7 @@ Control {
                         horizontalAlignment: Text.AlignRight
                         wrapMode: Text.WrapAnywhere
                         text: entry.modelData.value
-                        font: D.DTK.fontManager.t8
-                        font.family: entry.modelData.mono ? "monospace" : D.DTK.fontManager.t8.family
+                        font: Qt.font({ family: entry.modelData.mono ? "monospace" : D.DTK.fontManager.t8.family, pixelSize: D.DTK.fontManager.t8.pixelSize, weight: D.DTK.fontManager.t8.weight })
                     }
                 }
             }
