@@ -1,0 +1,36 @@
+[Unit]
+Description=agino store helper (catalog, downloads, package installation)
+Documentation=https://aginoos.com
+
+[Service]
+Type=dbus
+BusName=org.aginoos.Store1
+ExecStart=/usr/libexec/agino-store-helper
+
+# The helper itself exits after 5 idle minutes; D-Bus activation starts it again.
+Restart=no
+
+# Hardening. The helper runs dpkg-query and debconf-set-selections itself, writes
+# /etc/default/<file> and /etc/apt/* cleanup targets, and hands installs to PackageKit (a separate
+# daemon, not restricted by this unit). So the file system must stay writable:
+# no ProtectSystem=strict, no ProtectSystem=full (/etc must be writable).
+# NoNewPrivileges is safe: nothing the helper starts needs setuid.
+NoNewPrivileges=yes
+# Temporary files live in /var/cache/agino-store, not /tmp.
+PrivateTmp=yes
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+# State directories (created by systemd; also created by the helper itself when started by hand).
+CacheDirectory=agino-store
+CacheDirectoryMode=0755
+StateDirectory=agino-store
+StateDirectoryMode=0755

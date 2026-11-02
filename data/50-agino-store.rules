@@ -1,0 +1,10 @@
+// agino-store: members of the sudo group in a local, active session install, update and remove
+// applications through the store without a password (same rule shape as agino's D-57 rules).
+// Everyone else falls through to the defaults in org.aginoos.store.policy.
+polkit.addRule(function (action, subject) {
+    if (action.id == "org.aginoos.store.manage" &&
+        subject.local && subject.active && subject.isInGroup("sudo")) {
+        return polkit.Result.YES;
+    }
+    return polkit.Result.NOT_HANDLED;
+});
