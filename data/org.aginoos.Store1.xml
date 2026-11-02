@@ -1,0 +1,60 @@
+<!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN"
+  "http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
+<!-- Contract between agino-store and agino-store-helper; see docs/design.md section 5. -->
+<node name="/org/aginoos/Store1">
+  <interface name="org.aginoos.Store1">
+    <method name="Refresh">
+      <arg name="serial" type="x" direction="out"/>
+      <arg name="revision" type="s" direction="out"/>
+    </method>
+    <method name="GetState">
+      <arg name="state" type="s" direction="out"/>
+    </method>
+    <method name="Simulate">
+      <arg name="appId" type="s" direction="in"/>
+      <arg name="action" type="s" direction="in"/>
+      <arg name="result" type="s" direction="out"/>
+    </method>
+    <method name="Install">
+      <arg name="appId" type="s" direction="in"/>
+      <arg name="options" type="a{sv}" direction="in"/>
+      <annotation name="org.qtproject.QtDBus.QtTypeName.In1" value="QVariantMap"/>
+      <arg name="jobId" type="u" direction="out"/>
+    </method>
+    <method name="Update">
+      <arg name="appId" type="s" direction="in"/>
+      <arg name="options" type="a{sv}" direction="in"/>
+      <annotation name="org.qtproject.QtDBus.QtTypeName.In1" value="QVariantMap"/>
+      <arg name="jobId" type="u" direction="out"/>
+    </method>
+    <method name="Remove">
+      <arg name="appId" type="s" direction="in"/>
+      <arg name="options" type="a{sv}" direction="in"/>
+      <annotation name="org.qtproject.QtDBus.QtTypeName.In1" value="QVariantMap"/>
+      <arg name="jobId" type="u" direction="out"/>
+    </method>
+    <method name="Cancel">
+      <arg name="jobId" type="u" direction="in"/>
+    </method>
+    <signal name="JobProgress">
+      <arg name="jobId" type="u"/>
+      <arg name="appId" type="s"/>
+      <arg name="stage" type="s"/>
+      <arg name="percent" type="u"/>
+      <arg name="done" type="t"/>
+      <arg name="total" type="t"/>
+    </signal>
+    <signal name="JobFinished">
+      <arg name="jobId" type="u"/>
+      <arg name="appId" type="s"/>
+      <arg name="ok" type="b"/>
+      <arg name="errorCode" type="s"/>
+      <arg name="message" type="s"/>
+    </signal>
+    <signal name="CatalogChanged">
+      <arg name="serial" type="x"/>
+      <arg name="revision" type="s"/>
+    </signal>
+    <signal name="StateChanged"/>
+  </interface>
+</node>

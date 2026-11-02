@@ -1,0 +1,5 @@
+/build*/
+.gstack/
+.claude/
+__pycache__/
+*.user
