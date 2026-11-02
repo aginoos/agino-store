@@ -154,7 +154,7 @@ void simulateAction(PkClient *pk, const HelperConfig &config, const AppSummary &
     if (!remove && app.package.kind == PackageRef::Kind::Deb && app.package.deb) {
         const DebInfo &deb = *app.package.deb;
         const QString cached = debsDir() + QLatin1Char('/') + deb.sha256 + QStringLiteral(".deb");
-        const bool haveFile = QRegularExpression(QStringLiteral("^[0-9a-f]{64}$")).match(deb.sha256).hasMatch()
+        const bool haveFile = QRegularExpression(QStringLiteral("\\A[0-9a-f]{64}\\z")).match(deb.sha256).hasMatch()
             && QFileInfo(cached).isFile() && QFileInfo(cached).size() == deb.size;
         auto basic = [pk, app, done]() {
             Plan plan;

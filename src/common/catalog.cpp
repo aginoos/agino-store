@@ -54,13 +54,13 @@ const T *pickValue(const QHash<QString, T> &values, const QString &locale)
 
 bool isHex64(const QString &s)
 {
-    static const QRegularExpression re(QStringLiteral("^[0-9a-f]{64}$"));
+    static const QRegularExpression re(QStringLiteral("\\A[0-9a-f]{64}\\z"));
     return re.match(s).hasMatch();
 }
 
 bool isValidId(const QString &id)
 {
-    static const QRegularExpression re(QStringLiteral("^[a-z0-9][a-z0-9._+-]*$"));
+    static const QRegularExpression re(QStringLiteral("\\A[a-z0-9][a-z0-9._+-]*\\z"));
     return re.match(id).hasMatch();
 }
 
@@ -385,7 +385,7 @@ const AppSummary *Catalog::app(const QString &id) const
 
 bool isValidDesktopId(const QString &id)
 {
-    static const QRegularExpression re(QStringLiteral("^[A-Za-z0-9][A-Za-z0-9._-]{0,200}\\.desktop$"));
+    static const QRegularExpression re(QStringLiteral("\\A[A-Za-z0-9][A-Za-z0-9._-]{0,200}\\.desktop\\z"));
     return re.match(id).hasMatch() && !id.contains(QStringLiteral(".."));
 }
 
@@ -419,7 +419,7 @@ bool isValidDebconfLine(const QString &line)
 
 bool isValidDefaultFile(const DefaultFile &file)
 {
-    static const QRegularExpression re(QStringLiteral("^/etc/default/[a-z0-9][a-z0-9.+-]*$"));
+    static const QRegularExpression re(QStringLiteral("\\A/etc/default/[a-z0-9][a-z0-9.+-]*\\z"));
     return re.match(file.path).hasMatch() && file.content.size() <= kMaxDefaultFileSize
         && !file.content.contains('\0');
 }

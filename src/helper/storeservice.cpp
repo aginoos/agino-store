@@ -21,6 +21,9 @@ namespace {
 
 constexpr qint64 kIdleMs = 5 * 60 * 1000;
 constexpr int kIdleCheckMs = 15 * 1000;
+constexpr int kMaxRefreshWaiters = 32;
+constexpr int kMaxSimulations = 4;
+constexpr qint64 kStateCacheMs = 60 * 1000;
 
 // "not-authorized" -> "org.aginoos.Store1.Error.NotAuthorized"
 QString errorName(const QString &code)
@@ -98,6 +101,10 @@ qlonglong StoreService::Refresh(QString &revision)
     Q_UNUSED(revision)
     touch();
     const QDBusMessage msg = message();
+    if (m_refreshWaiters.size() >= kMaxRefreshWaiters) {
+        sendErrorReply(errorName(QStringLiteral("busy")), QStringLiteral("too many pending refreshes"));
+        return 0;
+    }
     setDelayedReply(true);
     m_refreshWaiters.append(msg);
     m_refresher.start();
@@ -117,15 +124,24 @@ void StoreService::onRefreshFinished(bool ok, const QString &errorCode, const QS
             replyError(msg, errorCode, text);
         }
     }
-    if (ok && changed)
+    if (ok && changed) {
+        invalidateState();
         Q_EMIT CatalogChanged(snap.manifest.serial, snap.manifest.revision);
+    }
 }
 
 // --- GetState ------------------------------------------------------------------------------
 
-QString StoreService::GetState()
+void StoreService::invalidateState()
 {
-    touch();
+    m_stateValid = false;
+}
+
+void StoreService::refreshStateCache()
+{
+    // dpkg may also change behind our back (apt), so the cache expires on its own as well.
+    if (m_stateValid && m_stateAge.elapsed() < kStateCacheMs)
+        return;
     const CatalogSnapshot &snap = m_cache.snapshot();
 
     QStringList names;
@@ -161,6 +177,19 @@ QString StoreService::GetState()
                                                    {QStringLiteral("version"), version}});
         }
     }
+    m_cachedInstalled = installed;
+    m_cachedUpdates = updates;
+    m_stateValid = true;
+    m_stateAge.restart();
+}
+
+QString StoreService::GetState()
+{
+    touch();
+    const CatalogSnapshot &snap = m_cache.snapshot();
+    refreshStateCache();
+    const QJsonObject installed = m_cachedInstalled;
+    const QJsonArray updates = m_cachedUpdates;
 
     QJsonArray jobs;
     for (const std::shared_ptr<Job> &job : m_jobs) {
@@ -198,10 +227,17 @@ QString StoreService::Simulate(const QString &appId, const QString &action)
                    QStringLiteral("unknown app"));
         return QString();
     }
+    const QString sender = msg.service();
+    if (m_simulatingSenders.contains(sender) || m_simulatingSenders.size() >= kMaxSimulations) {
+        replyError(msg, QStringLiteral("busy"), QStringLiteral("too many simulations in flight"));
+        return QString();
+    }
+    m_simulatingSenders.insert(sender);
     ++m_pending;
     simulateAction(&m_pk, m_config, *app, action,
-                   [this, msg](bool ok, const QString &errorCode, const QString &text) {
+                   [this, msg, sender](bool ok, const QString &errorCode, const QString &text) {
                        --m_pending;
+                       m_simulatingSenders.remove(sender);
                        touch();
                        if (ok)
                            QDBusConnection::systemBus().send(msg.createReply(QVariant(text)));
@@ -242,7 +278,8 @@ void StoreService::enqueue(const QDBusMessage &msg, JobAction action, const QStr
 {
     const CatalogSnapshot &snap = m_cache.snapshot();
     if (!snap.valid) {
-        replyError(msg, QStringLiteral("catalog-unverified"), snap.error);
+        qWarning().noquote() << "catalog unverified:" << snap.error;
+        replyError(msg, QStringLiteral("catalog-unverified"), QStringLiteral("the catalog could not be verified"));
         return;
     }
     if (snap.expired && action != JobAction::Remove) {
@@ -338,7 +375,9 @@ void StoreService::startNext()
         QString error;
         context.detail = m_cache.loadDetail(*app, &error);
         if (!context.detail) {
-            finishJob(job->id, false, QStringLiteral("catalog-unverified"), error);
+            qWarning().noquote() << "catalog detail unavailable:" << job->appId << error;
+            finishJob(job->id, false, QStringLiteral("catalog-unverified"),
+                      QStringLiteral("the app details could not be verified"));
             return;
         }
     }
@@ -396,6 +435,7 @@ void StoreService::finishJob(uint jobId, bool ok, const QString &errorCode, cons
         }
     }
     m_jobRunning = false;
+    invalidateState();
     Q_EMIT JobFinished(jobId, appId, ok, ok ? QString() : errorCode, ok ? QString() : text);
     if (ok)
         Q_EMIT StateChanged();

@@ -33,7 +33,7 @@ void setError(QString *error, const QString &text)
 
 bool isHex64(const QString &s)
 {
-    static const QRegularExpression re(QStringLiteral("^[0-9a-f]{64}$"));
+    static const QRegularExpression re(QStringLiteral("\\A[0-9a-f]{64}\\z"));
     return re.match(s).hasMatch();
 }
 
@@ -237,6 +237,10 @@ VerifyResult verifyManifest(const QByteArray &manifestJson, const QByteArray &si
     }
     result.manifest = *m;
 
+    if (m->created > now.addDays(1)) {
+        result.error = QStringLiteral("manifest created is in the future");
+        return result;
+    }
     if (m->serial < minSerial) {
         result.error = QStringLiteral("manifest serial %1 is older than cached %2")
                            .arg(m->serial)

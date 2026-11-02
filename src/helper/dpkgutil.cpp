@@ -10,20 +10,20 @@ namespace AginoStore {
 
 bool isValidAppId(const QString &id)
 {
-    static const QRegularExpression re(QStringLiteral("^[a-z0-9][a-z0-9._+-]{0,127}$"));
+    static const QRegularExpression re(QStringLiteral("\\A[a-z0-9][a-z0-9._+-]{0,127}\\z"));
     return re.match(id).hasMatch();
 }
 
 bool isValidPackageName(const QString &name)
 {
-    static const QRegularExpression re(QStringLiteral("^[a-z0-9][a-z0-9+.-]{0,127}$"));
+    static const QRegularExpression re(QStringLiteral("\\A[a-z0-9][a-z0-9+.-]{0,127}\\z"));
     return re.match(name).hasMatch();
 }
 
 bool isValidVersion(const QString &version)
 {
     // Debian version characters; must not start with '-' so it can never look like an option.
-    static const QRegularExpression re(QStringLiteral("^[A-Za-z0-9][A-Za-z0-9.+~:-]{0,127}$"));
+    static const QRegularExpression re(QStringLiteral("\\A[A-Za-z0-9][A-Za-z0-9.+~:-]{0,127}\\z"));
     return re.match(version).hasMatch();
 }
 
@@ -42,7 +42,7 @@ QHash<QString, QString> installedVersions(const QStringList &packageNames)
                      QStringLiteral("--showformat=${Package}\\t${db:Status-Status}\\t${Version}\\n")};
     args += valid;
     // Exit status 1 just means that some of the names are unknown; parse stdout regardless.
-    const ProcessResult result = runProcess(dpkgQueryPath(), args, QByteArray(), 30000);
+    const ProcessResult result = runProcess(dpkgQueryPath(), args, QByteArray(), 10000);
     if (!result.started || result.timedOut)
         return out;
     const QList<QByteArray> lines = result.out.split('\n');

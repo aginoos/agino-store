@@ -5,6 +5,7 @@
 #include "catalog.h"
 #include "config.h"
 
+#include <QDateTime>
 #include <QFile>
 #include <QObject>
 #include <QPointer>
@@ -77,6 +78,7 @@ private:
     QString m_downloadError;
     QString m_downloadErrorCode;
 
+    QDateTime m_installStart;     // when PackageKit was asked to install
     QStringList m_dirsBefore;     // files in the apt source related directories before installing
 };
 

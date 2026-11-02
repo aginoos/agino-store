@@ -48,17 +48,20 @@ translations/ Qt 翻译（源字符串英文，第一版带 zh_CN）
 
 ```ini
 [Catalog]
-# Base URL of the signed catalog; file:// works for testing.
+# Base URL of the signed catalog.
 Url=https://store.aginoos.com/v1/
 # Directories with trusted public keys (*.pub).
 KeyDirs=/usr/share/agino-store/keys
+# Test-only switch. false: catalog Url, deb URLs and asset URLs must be https://.
+# true: http:// and file:// are accepted too (VM tests use file://).
+AllowInsecureUrls=false
 
 [Packages]
 # Never removed through the store.
 Protected=agino-desktop-dde;agino-desktop-base;dde-session-shell;dde-shell;dde-control-center;agino-store;agino-store-helper
 ```
 
-客户端和 helper 都读这个文件（客户端只读 `Url` 用来拼图标和截图的地址）。
+客户端和 helper 都读这个文件（客户端只读 `Url` 和 `AllowInsecureUrls`，用来拼图标和截图的地址并按同一规则限制协议）。
 
 ## 4. 目录格式（schema 1）
 
@@ -86,7 +89,8 @@ assets/<sha256>.<ext> 图标和截图，按内容寻址
 }
 ```
 
-- `serial` 是单调递增的整数。客户端和 helper 拒绝比已缓存的更小的 `serial`（防回滚），拒绝过期的清单（`expires` 早于当前时间；离线时已缓存的过期目录仍可只读显示）。
+- `serial` 是单调递增的整数。客户端和 helper 拒绝比已缓存的更小的 `serial`（防回滚），拒绝过期的清单（`expires` 早于当前时间；离线时已缓存的过期目录仍可只读显示），拒绝 `created` 比当前时间晚一天以上的清单。
+- helper 把接受过的最高 `serial` 原子写入 `/var/lib/agino-store/serial`；防回滚下限取该值与缓存 `serial` 的较大者。`serial` 相同但清单内容不同同样拒绝（内容完全相同则视为没变化）。
 - `files` 列出除清单和签名以外的全部文件，包括 assets。路径只能是相对路径，不能含 `..`、以 `/` 开头或包含反斜杠。
 
 `catalog.json`：
@@ -167,7 +171,7 @@ assets/<sha256>.<ext> 图标和截图，按内容寻址
 | 成员 | 签名 | 授权 | 说明 |
 |---|---|---|---|
 | `Refresh()` | `→ (x serial, s revision)` | 无 | 从 `Url` 取清单和签名，验签、校验、原子替换缓存；目录没变就直接返回 |
-| `GetState()` | `→ s json` | 无 | `{"serial":…,"revision":…,"verified":true,"installed":{"wps":{"package":"wps-office","version":"…"}},"updates":[{"id":"wps","installed":"…","available":"…"}],"jobs":[…]}` |
+| `GetState()` | `→ s json` | 无 | 已装版本的结果缓存，任务结束、目录变化或 60 秒后重新查询；`{"serial":…,"revision":…,"verified":true,"installed":{"wps":{"package":"wps-office","version":"…"}},"updates":[{"id":"wps","installed":"…","available":"…"}],"jobs":[…]}` |
 | `Simulate(s appId, s action)` | `→ s json` | 无 | action 为 `install`/`update`/`remove`；`{"install":[{"name":…,"version":…}],"remove":[…],"download_bytes":…,"installed_delta":…}` |
 | `Install(s appId, a{sv} options)` | `→ u jobId` | manage | options：`keep_package`(b，默认 false) |
 | `Update(s appId, a{sv} options)` | `→ u jobId` | manage | 同上 |
@@ -178,7 +182,7 @@ assets/<sha256>.<ext> 图标和截图，按内容寻址
 | `CatalogChanged` 信号 | `(x serial, s revision)` | | |
 | `StateChanged` 信号 | `()` | | 安装、卸载、更新完成后 |
 
-- 错误码：`not-authorized`、`catalog-unavailable`、`catalog-unverified`、`unknown-app`、`protected-package`、`busy`、`download-failed`、`hash-mismatch`、`install-profile-invalid`、`dependency-unresolvable`、`packagekit-error`、`cancelled`。方法调用失败时以 D-Bus 错误 `org.aginoos.Store1.Error.<驼峰码>` 返回；任务失败时由 `JobFinished` 带回错误码。
+- 错误码：`not-authorized`、`catalog-unavailable`、`catalog-unverified`、`unknown-app`、`protected-package`、`busy`、`download-failed`、`hash-mismatch`、`install-profile-invalid`、`dependency-unresolvable`、`packagekit-error`、`cancelled`。无需授权的 `Refresh`（最多 32 个等待者）和 `Simulate`（每个调用者同时一个，全局最多 4 个）超限时返回 `busy`（`org.aginoos.Store1.Error.Busy`）。错误文本不含本机文件路径，细节只写日志（PackageKit 的消息除外）。方法调用失败时以 D-Bus 错误 `org.aginoos.Store1.Error.<驼峰码>` 返回；任务失败时由 `JobFinished` 带回错误码。
 - 任务串行执行（PackageKit 本身也串行）；同一个应用已有任务时返回 `busy`。
 - helper 没有任务且 5 分钟内没有调用时退出。
 
@@ -194,12 +198,12 @@ assets/<sha256>.<ext> 图标和截图，按内容寻址
 1. 在已验证的缓存目录里按 ID 找应用；找不到返回 `unknown-app`。
 2. `milkyway`：PackageKit `Resolve` 包名（过滤 `NotInstalled` 或 `Installed`），`InstallPackages`（`OnlyTrusted`）/`UpdatePackages`。
 3. `deb`：
-   1. 下载 `deb.url` 到 `/var/cache/agino-store/debs/<sha256>.deb`（先写 `.part`），大小超过 `deb.size` 立即中止；
+   1. `deb.url` 只接受 https（`AllowInsecureUrls=true` 时另允许 http、file）；下载到 `/var/cache/agino-store/debs/<sha256>.deb`（先写 `.part`），大小超过 `deb.size` 立即中止；
    2. 校验大小和 sha256，不符返回 `hash-mismatch` 并删除文件；
    3. 校验并执行 `install_profile`：`debconf-set-selections`（stdin 传入）和写 `/etc/default/` 文件（0644）；
-   4. 记下 `/etc/apt/sources.list.d/`、`/etc/apt/trusted.gpg.d/`、`/usr/share/keyrings/` 的文件列表；
+   4. 记下 `/etc/apt/sources.list.d/`、`/etc/apt/trusted.gpg.d/`、`/etc/apt/keyrings/`、`/usr/share/keyrings/` 的文件列表和开始时间；
    5. PackageKit `InstallFiles`（不设 `OnlyTrusted`）；
-   6. 再看这三个目录：新出现且 `dpkg -S` 查不到属主的文件删除，写日志；
+   6. 再看这四个目录（PackageKit 失败后也看，postinst 可能已经跑过）：新出现、修改时间不早于开始时间且 `dpkg -S` 查不到属主的文件删除，写日志；
    7. 不保留安装包时删除下载的 deb。
 4. 卸载：包名在 `Protected` 里返回 `protected-package`；PackageKit `RemovePackages(allow_deps=false, autoremove=true)`。
 5. 成功后更新 `/var/lib/agino-store/installed.json`（原子写），发 `StateChanged`。

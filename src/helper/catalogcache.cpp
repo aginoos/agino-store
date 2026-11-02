@@ -18,6 +18,28 @@ CatalogCache::CatalogCache(const HelperConfig &config)
     reload();
 }
 
+qint64 CatalogCache::serialFloor() const
+{
+    QByteArray data;
+    QString error;
+    qint64 persisted = 0;
+    if (readFileLimited(serialFilePath(), 64, &data, &error)) {
+        bool ok = false;
+        const qint64 value = data.trimmed().toLongLong(&ok);
+        if (ok && value > 0)
+            persisted = value;
+    }
+    return qMax(persisted, serial());
+}
+
+bool CatalogCache::recordSerial(qint64 serial, QString *error)
+{
+    if (serial <= serialFloor())
+        return true;
+    return ensureDirectory(stateDir(), perm755(), error)
+        && writeFileAtomic(serialFilePath(), QByteArray::number(serial) + '\n', perm644(), error);
+}
+
 void CatalogCache::reload()
 {
     CatalogSnapshot snap;
@@ -31,9 +53,16 @@ void CatalogCache::reload()
         return;
     }
     const QList<QByteArray> keys = loadTrustedKeys(m_config.keyDirs);
-    // minSerial 0: the rollback floor is the serial of this very cache.
+    // The floor is the persisted highest serial; a cache below it was rolled back.
+    qint64 persisted = 0;
+    {
+        QByteArray data;
+        QString ignored;
+        if (readFileLimited(serialFilePath(), 64, &data, &ignored))
+            persisted = qMax<qint64>(0, data.trimmed().toLongLong());
+    }
     const VerifyResult verified =
-        verifyManifest(snap.manifestBytes, sig, keys, 0, QDateTime::currentDateTimeUtc());
+        verifyManifest(snap.manifestBytes, sig, keys, persisted, QDateTime::currentDateTimeUtc());
     if (!verified.ok && !verified.expired) {
         snap.error = verified.error;
         m_snapshot = snap;

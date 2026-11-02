@@ -11,9 +11,10 @@ ExecStart=/usr/libexec/agino-store-helper
 Restart=no
 
 # Hardening. The helper runs dpkg-query and debconf-set-selections itself, writes
-# /etc/default/<file> and /etc/apt/* cleanup targets, and hands installs to PackageKit (a separate
-# daemon, not restricted by this unit). So the file system must stay writable:
-# no ProtectSystem=strict, no ProtectSystem=full (/etc must be writable).
+# /etc/default/<file> and cleans up apt source files, and hands installs to PackageKit (a separate
+# daemon, not restricted by this unit). The file system is read-only except for the paths below.
+ProtectSystem=strict
+ReadWritePaths=/etc/default /etc/apt /usr/share/keyrings /var/cache/agino-store /var/lib/agino-store /var/cache/debconf
 # NoNewPrivileges is safe: nothing the helper starts needs setuid.
 NoNewPrivileges=yes
 # Temporary files live in /var/cache/agino-store, not /tmp.
@@ -24,11 +25,20 @@ ProtectKernelModules=yes
 ProtectKernelLogs=yes
 ProtectControlGroups=yes
 ProtectClock=yes
+PrivateDevices=yes
+ProtectHostname=yes
+# The helper never reads /proc of other processes (polkit subject is the bus name).
+ProtectProc=invisible
+RestrictNamespaces=yes
 RestrictRealtime=yes
 RestrictSUIDSGID=yes
 LockPersonality=yes
 SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_FSETID
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+# MemoryDenyWriteExecute is left out on purpose: Qt may use JIT mappings.
 # State directories (created by systemd; also created by the helper itself when started by hand).
 CacheDirectory=agino-store
 CacheDirectoryMode=0755

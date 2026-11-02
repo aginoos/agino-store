@@ -13,9 +13,12 @@
 #include <QDBusContext>
 #include <QDBusMessage>
 #include <QElapsedTimer>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QList>
 #include <QNetworkAccessManager>
 #include <QObject>
+#include <QSet>
 #include <QTimer>
 #include <QVariantMap>
 
@@ -73,6 +76,8 @@ private:
     void replyError(const QDBusMessage &msg, const QString &code, const QString &text);
     void onRefreshFinished(bool ok, const QString &errorCode, const QString &message, bool changed);
     bool isIdle() const;
+    void invalidateState();
+    void refreshStateCache();
     void touch() { m_activity.restart(); }
 
     HelperConfig m_config;
@@ -86,6 +91,11 @@ private:
     uint m_nextJobId = 1;
     bool m_jobRunning = false;
     QList<QDBusMessage> m_refreshWaiters;
+    QSet<QString> m_simulatingSenders;
+    QJsonObject m_cachedInstalled;
+    QJsonArray m_cachedUpdates;
+    QElapsedTimer m_stateAge;
+    bool m_stateValid = false;
     int m_pending = 0;         // authorization checks and simulations in flight
 
     QElapsedTimer m_activity;

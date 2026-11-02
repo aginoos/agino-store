@@ -24,7 +24,7 @@ constexpr int kProcessTimeoutMs = 5000;
 // Package names are used as process arguments: accept the Debian grammar only.
 bool isSafePackageName(const QString &name)
 {
-    static const QRegularExpression re(QStringLiteral("^[a-z0-9][a-z0-9.+-]+$"));
+    static const QRegularExpression re(QStringLiteral("\\A[a-z0-9][a-z0-9.+-]+\\z"));
     return re.match(name).hasMatch();
 }
 
