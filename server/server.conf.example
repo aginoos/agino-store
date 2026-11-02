@@ -6,6 +6,7 @@ downloads = /srv/store/downloads      # debs: <sha256>/<original file name>
 preview = /srv/store/preview          # generated catalogs: catalog-<serial>/ and current -> catalog-<serial>
 reports = /srv/store/reports          # reports pulled back from the sandbox host
 sandbox_queue = /srv/store/sandbox/queue   # optional; debs + JSON for the sandbox host (group agino-sandbox, setgid)
+shots_out = /srv/store/sandbox/shots-out   # optional; where the sandbox host writes screenshots (read-only for the server)
 metrics = /var/lib/prometheus/node-exporter
 
 [milkyway]
