@@ -114,7 +114,10 @@ class Phase:
                 problem("window not found")
                 return
             self._arrange(target, sc["window"])
+            main = target
             target = self._steps(sc["steps"], lang, target, baseline, problem)
+            if target not in self.g.windows():  # e.g. a dialog matched by wait_window and closed again
+                target = main
             time.sleep(SETTLE)
             self._capture(lang, result, target, baseline, problem)
         finally:
@@ -147,6 +150,7 @@ class Phase:
         time.sleep(1)
 
     def _steps(self, steps, lang, target, baseline, problem):
+        main = target
         for kind, value in steps:
             if kind in ("type", "wait_window"):
                 value = value[lang]
@@ -160,6 +164,8 @@ class Phase:
                     problem("typing failed")
             elif kind == "click":
                 x, y, button = value
+                if target != main and target not in self.g.windows():
+                    target = main
                 if not self.g.xdotool(["mousemove", "--window", target, str(x), str(y), "click", BUTTONS[button]]).ok:
                     problem("click failed")
             elif kind == "wait_window":

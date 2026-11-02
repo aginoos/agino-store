@@ -6,6 +6,7 @@
 
 ```
 agino-store-sandbox [--config /etc/agino-store-sandbox/sandbox.conf] run [--only NAME] [--slots N]
+agino-store-sandbox [--config …] shots-reset NAME
 agino-store-sandbox [--config …] check-base
 ```
 
@@ -89,3 +90,4 @@ milkyway 里的应用不进沙箱队列，已通过的候选也不会再排队�
 - **状态**：成功记 `done`（带 `mode: "shots"`、`shots` = 截图阶段的 `{images, problems, sha256[, error]}`，没有 `result`/`report`）。安装失败（apt 非零退出、包没装上、没有桌面文件）记 `error`，附 `apt_exit` 和限长（900 字符）的 `apt_tail`；基础设施错误，或截图阶段中途中止且一张图都没有，也记 `error`。重试规则和检查任务一样：`error` 且尝试 < 3 会被再选中，第 3 次之后停在 `error`（不写失败报告，因为没有报告）。
 - **日志**：每行带任务名：`waiting for the session`、`installing (deb|milkyway)`，随后是截图阶段的 `scene …` 行；最后一行为 `<名>: done|error`。
 - 代码：`jobs.py`（解析）、`shots_job.py`（运行路径）、`runner.py`（`_run_shots`，状态）。
+- **重拍**：仅截图任务的名字只取决于 deb 或包版本，改了 `shots.yaml` 名字不变。`shots-reset NAME` 把 `<shots_out>/NAME` 改名为 `NAME.prev`（覆盖更旧的一份，便于对比），删掉状态 `<state>/NAME.shots.json`；之后在服务端重新 `shots-request APP`，下一次队列导出和运行就会重拍。

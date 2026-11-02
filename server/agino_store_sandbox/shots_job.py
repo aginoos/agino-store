@@ -1,6 +1,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Shots-only jobs: install the app in a fresh guest and take the store screenshots; no checks, no report."""
 
+import os
+import shutil
+
+from . import jobs
 from .guest import Guest
 from .shots import Phase
 from .shots_guest import ShotsGuest
@@ -61,3 +65,23 @@ def execute_shots(cfg, job, slot, sandbox):
         return Phase(cfg, vm, guest, job, desktop, note).run(base_pids)
     finally:
         vm.stop()
+
+
+def reset(cfg, name):
+    """Move shots_out/<name> to <name>.prev (replacing an older one) and drop the shots state of the job."""
+    stem = jobs.stem_of(name)
+    if not jobs.JOB_RE.match(stem + ".json"):
+        raise SandboxError("not a job name: %s" % clean(name, 60))
+    out = os.path.join(cfg.shots_out, stem)
+    prev = out + ".prev"
+    done = []
+    if os.path.isdir(out) and not os.path.islink(out):
+        if os.path.lexists(prev):
+            shutil.rmtree(prev)
+        os.rename(out, prev)
+        done.append("output kept as %s" % os.path.basename(prev))
+    state = os.path.join(cfg.state, jobs.state_key(stem, "shots") + ".json")
+    if os.path.lexists(state):
+        os.unlink(state)
+        done.append("state removed")
+    return "%s: %s" % (stem, ", ".join(done) if done else "nothing to reset")

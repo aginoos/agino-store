@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "server")
 sys.path.insert(0, os.path.dirname(__file__))
 
 from agino_store_sandbox import config, jobs, runner, shots_job  # noqa: E402
+from agino_store_sandbox.util import SandboxError  # noqa: E402
 from test_shots import GOOD  # noqa: E402
 
 
@@ -192,6 +193,36 @@ class InstallTests(unittest.TestCase):
             shots_job.install(g, job)
         self.assertEqual(cm.exception.exitcode, 100)
         self.assertLessEqual(len(cm.exception.tail), 900)
+
+
+class ResetTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.cfg = config.from_dict({"queue": self.tmp.name + "/q", "state": self.tmp.name + "/s",
+                                     "shots_out": self.tmp.name + "/o"})
+        self.out = os.path.join(self.cfg.shots_out, "gimp_3c256705b88b")
+        os.makedirs(os.path.join(self.out, "zh_CN"))
+        with open(os.path.join(self.out, "shots.json"), "w") as f:
+            f.write("{}")
+
+    def test_keeps_previous_output_and_drops_state(self):
+        jobs.write_state(self.cfg.state, "gimp_3c256705b88b.shots", {"status": "done"})
+        jobs.write_state(self.cfg.state, "gimp_3c256705b88b", {"status": "done"})  # a check job's state stays
+        os.makedirs(self.out + ".prev")
+        msg = shots_job.reset(self.cfg, "gimp_3c256705b88b.json")
+        self.assertIn("state removed", msg)
+        self.assertFalse(os.path.exists(self.out))
+        self.assertTrue(os.path.exists(os.path.join(self.out + ".prev", "shots.json")))
+        self.assertIsNone(jobs.read_state(self.cfg.state, "gimp_3c256705b88b.shots"))
+        self.assertIsNotNone(jobs.read_state(self.cfg.state, "gimp_3c256705b88b"))
+        self.assertIn("nothing to reset", shots_job.reset(self.cfg, "gimp_3c256705b88b"))
+
+    def test_rejects_bad_names(self):
+        for name in ("../x_3c256705b88b", "gimp", "gimp_3c256705b88b/..", ""):
+            with self.assertRaises(SandboxError):
+                shots_job.reset(self.cfg, name)
+        self.assertTrue(os.path.exists(self.out))
 
 
 if __name__ == "__main__":

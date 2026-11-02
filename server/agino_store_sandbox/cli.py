@@ -5,7 +5,7 @@ import argparse
 import dataclasses
 import sys
 
-from . import config, runner
+from . import config, runner, shots_job
 from .util import SandboxError
 
 
@@ -17,6 +17,9 @@ def main(argv=None):
     run.add_argument("--only", metavar="NAME", help="run (or rerun) just this job")
     run.add_argument("--slots", type=int, help="parallel VMs (1..%d)" % config.MAX_SLOTS)
     sub.add_parser("check-base", help="boot the base image and check the session")
+    reset = sub.add_parser("shots-reset", help="keep a shots job's output as NAME.prev and forget its state, "
+                                               "so a new shots-request takes the screenshots again")
+    reset.add_argument("name", metavar="NAME", help="job name, e.g. gimp_3c256705b88b")
     args = parser.parse_args(argv)
     try:
         cfg = config.load(args.config)
@@ -29,6 +32,9 @@ def main(argv=None):
             if not results:
                 print("nothing to do")
             return 1 if any(s.get("status") == "error" for s in results.values()) else 0
+        if args.command == "shots-reset":
+            print(shots_job.reset(cfg, args.name))
+            return 0
         ok, message = runner.check_base(cfg)
         print(("OK: " if ok else "FAIL: ") + message)
         return 0 if ok else 1
