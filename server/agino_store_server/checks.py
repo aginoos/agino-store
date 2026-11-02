@@ -26,7 +26,9 @@ WRITES_DIRS = ("etc/sudoers.d/", "etc/profile.d/", "etc/xdg/autostart/", "etc/pa
                "etc/ld.so.conf.d/", "etc/polkit-1/", "usr/share/polkit-1/rules.d/")
 DOSE_OUTPUT_CAP = 4 << 20
 KEYWORDS = ("sources.list", "apt-key", "trusted.gpg", "chmod 777", "useradd", "adduser",
-            "groupadd", "systemctl enable")
+            "groupadd", "systemctl enable", "setcap")
+# chmod that sets the setuid/setgid bit: an octal mode with 2, 4 or 6 in the special digit, or a symbolic +s/=s
+_SETID_CHMOD_RE = re.compile(r"\bchmod\s+(?:-\S+\s+)*(?:[0-7]?[2467][0-7]{3}\b|[ugoa]*[+=][rwxXt]*s)")
 _CACHE_NAME_RE = re.compile(r"\A[0-9a-f]{64}\.(Packages|json)\Z")
 
 
@@ -86,6 +88,8 @@ def script_flags(scripts):
     for name, data in sorted(scripts.items()):
         text = data.decode("utf-8", "replace")
         flags.extend("%s mentions %s" % (name, kw) for kw in KEYWORDS if kw in text)
+        if _SETID_CHMOD_RE.search(text):
+            flags.append("%s sets a setuid/setgid bit" % name)
     return flags
 
 

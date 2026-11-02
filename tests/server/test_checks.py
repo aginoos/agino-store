@@ -60,6 +60,14 @@ class FlagTests(unittest.TestCase):
         flags = checks.script_flags({"postinst": b"apt-key add k; chmod 777 /x", "prerm": b"true"})
         self.assertEqual(flags, ["postinst mentions apt-key", "postinst mentions chmod 777"])
 
+    def test_script_flags_setid_chmod_and_setcap(self):
+        for text in (b"chmod 4755 '/opt/QQ/chrome-sandbox' || true", b"chmod -f 02775 /x", b"chmod u+s /x",
+                     b"chmod g=rxs /x"):
+            self.assertEqual(checks.script_flags({"postinst": text}), ["postinst sets a setuid/setgid bit"], text)
+        for text in (b"chmod 0755 /x", b"chmod 755 /x", b"chmod +x /x", b"chmod -R go-w /x"):
+            self.assertEqual(checks.script_flags({"postinst": text}), [], text)
+        self.assertEqual(checks.script_flags({"postinst": b"setcap cap_net_raw+ep /x"}), ["postinst mentions setcap"])
+
     def test_fg_stanza_collapses_whitespace_and_needs_basics(self):
         text = checks.fg_stanza({"Package": "p", "Version": "1", "Architecture": "amd64",
                                  "Depends": "a,\nb\n\nPackage: evil", "Description": "dropped"})
