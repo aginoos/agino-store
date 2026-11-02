@@ -10,7 +10,7 @@ from .qga import Qga
 from .qmp import Qmp
 from .util import InfraError, log
 
-RUN_FILE_NAMES = ("overlay.qcow2", "vars.fd", "qmp.sock", "qga.sock", "shot.png", "qemu.log")
+RUN_FILE_NAMES = ("overlay.qcow2", "vars.fd", "qmp.sock", "qga.sock", "shot.png", "shot.ppm", "qemu.log")
 
 
 class RunFiles:
@@ -55,10 +55,10 @@ def mac_address(slot):
     return "52:54:00:5b:00:%02x" % slot
 
 
-def build_argv(cfg, slot, files, deb_path, sandbox):
+def build_argv(cfg, slot, files, deb_path, sandbox, demo_path=None):
     argv = [cfg.qemu, "-name", "agsbx-%d" % slot, "-enable-kvm", "-machine", "q35,accel=kvm", "-cpu", "host",
             "-m", str(cfg.memory_mb), "-smp", str(cfg.cpus), "-display", "none", "-no-user-config", "-nodefaults",
-            "-device", "virtio-vga", "-rtc", "base=utc", "-no-reboot",
+            "-device", "virtio-vga,xres=%d,yres=%d" % tuple(cfg.screen), "-rtc", "base=utc", "-no-reboot",
             "-drive", "if=pflash,format=raw,readonly=on,file=%s" % cfg.ovmf_code,
             "-drive", "if=pflash,format=raw,file=%s" % files.path("vars.fd"),
             "-drive", "file=%s,format=qcow2,if=none,id=sys,discard=unmap" % files.path("overlay.qcow2"),
@@ -66,6 +66,9 @@ def build_argv(cfg, slot, files, deb_path, sandbox):
     if deb_path is not None:
         argv += ["-drive", "file=%s,format=raw,if=none,readonly=on,id=deb" % deb_path,
                  "-device", "virtio-blk-pci,drive=deb,serial=sbxdeb"]
+    if demo_path is not None:
+        argv += ["-drive", "file=%s,format=raw,if=none,readonly=on,id=demo" % demo_path,
+                 "-device", "virtio-blk-pci,drive=demo,serial=sbxdemo"]
     argv += ["-netdev", "tap,id=n0,ifname=%s,script=no,downscript=no" % tap_name(slot),
              "-device", "virtio-net-pci,netdev=n0,mac=%s" % mac_address(slot),
              "-device", "virtio-serial-pci",
@@ -89,8 +92,9 @@ def probe_sandbox(cfg):
 
 
 class Vm:
-    def __init__(self, cfg, slot, deb_path=None, use_sandbox=False):
+    def __init__(self, cfg, slot, deb_path=None, use_sandbox=False, demo_path=None):
         self.cfg, self.slot, self.deb_path, self.use_sandbox = cfg, slot, deb_path, use_sandbox
+        self.demo_path = demo_path
         self.files = RunFiles(os.path.join(cfg.run, str(slot)))
         self.proc = None
         self.qmp = None
@@ -105,7 +109,7 @@ class Vm:
             shutil.copyfile(cfg.base_vars, files.path("vars.fd"))
         except OSError as e:
             raise InfraError("cannot copy OVMF vars: %s" % e.strerror) from None
-        argv = build_argv(cfg, self.slot, files, self.deb_path, self.use_sandbox)
+        argv = build_argv(cfg, self.slot, files, self.deb_path, self.use_sandbox, self.demo_path)
         logf = open(files.path("qemu.log"), "wb")
         try:
             self.proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=logf, stderr=logf)

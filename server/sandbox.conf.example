@@ -3,7 +3,11 @@
 queue = /srv/store/sandbox/queue          # <app>_<sha12>.json + .deb pairs written by the server
 state = /srv/store/sandbox/state          # <name>.json per finished or failed attempt
 run = /srv/store/sandbox/run              # slot locks and per-slot run directories
-shots = /srv/store/sandbox/shots          # <name>.png, host-side only
+shot_dir = /srv/store/sandbox/shots       # <name>.png of the launch check, host-side only
+shots = on                                # on | off: store screenshots (docs/sandbox.md section 7)
+shots_out = /srv/store/sandbox/shots-out  # <app>_<sha12>/<lang>/<n>-<scene>.png + shots.json
+corner_radius = 8                         # px, transparent rounded corners of the cropped window
+screen = 1920x1080                        # virtio-vga xres x yres
 reports = /srv/store/reports              # signed <name>.json + <name>.json.sig
 base = /srv/store/sandbox/base/current.qcow2
 ovmf_code = /usr/share/OVMF/OVMF_CODE_4M.fd

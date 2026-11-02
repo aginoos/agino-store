@@ -165,7 +165,12 @@ class Guest:
         return self.qga.exec(["/usr/bin/env", "DEBIAN_FRONTEND=noninteractive", "/usr/bin/apt-get", *args], timeout)
 
 
-def run_job(guest, job, screenshot, log=lambda msg: None):
+def failed_before_purge(checks):
+    """True if a check that is known before the purge already failed (no screenshots then)."""
+    return not checks["installed"] or bool(checks["third_party_sources"]) or not checks["desktop_file"]
+
+
+def run_job(guest, job, screenshot, log=lambda msg: None, shots_phase=None):
     """All guest checks for one job. Returns (checks, details, problems); InfraError if the guest is unusable."""
     log("waiting for the session")
     guest.wait_session()
@@ -199,6 +204,10 @@ def run_job(guest, job, screenshot, log=lambda msg: None):
         checks["desktop_file"] = desktop.rsplit("/", 1)[-1]
         details["desktop_path"] = clean(desktop, 300)
         windows_before = guest.windows()
+        base_pids = None
+        if shots_phase is not None:
+            from .shots_guest import ShotsGuest
+            base_pids = ShotsGuest(guest).tester_pids()
         launch = guest.qga.start(["/usr/bin/timeout", "-k", "5", "60", "/usr/sbin/runuser", "-u", USER, "--",
                                   "/usr/bin/env", *["%s=%s" % kv for kv in sorted(guest.env.items())],
                                   "/usr/bin/gio", "launch", desktop])
@@ -218,6 +227,8 @@ def run_job(guest, job, screenshot, log=lambda msg: None):
     count, lines = guest.journal_errors(cursor)
     checks["new_errors"] = count
     details["error_lines"] = lines
+    if shots_phase is not None and desktop and checks["window_seen"] and not failed_before_purge(checks):
+        details["shots"] = shots_phase(desktop, base_pids if base_pids is not None else set())
 
     log("purging")
     purge = guest.apt(["purge", "-y", "--autoremove", job.package], 600)

@@ -9,12 +9,13 @@ import os
 import re
 import stat
 
-from . import profile
+from . import profile, shots_scene
 from .util import DESKTOP_RE, ID_RE, SHA256_RE, VERSION_RE, SandboxError, now
 
 JOB_RE = re.compile(r"\A[a-z0-9][a-z0-9-]*_[0-9a-f]{12}\.json\Z")
 MAX_JSON = 1 << 20
 MAX_DEB = 4 << 30
+MAX_DEMO = 256 << 20
 MAX_ATTEMPTS = 3
 
 
@@ -34,6 +35,11 @@ class Job:
     debconf: list
     default_files: list
     deb_path: str
+    shots: object = None  # normalised scenes (shots_scene.validate) or None
+    shots_error: object = None
+    demo_path: object = None
+    demo_size: int = 0
+    demo_sha256: object = None
 
 
 def _regular(path, limit):
@@ -92,7 +98,26 @@ def read_job(queue, name):
         raise JobError("deb size differs from the job")
     if file_sha256(deb) != sha:
         raise JobError("deb sha256 differs from the job")
-    return Job(stem, app, version, sha, size, package, launchable, debconf, files, deb)
+    job = Job(stem, app, version, sha, size, package, launchable, debconf, files, deb)
+    return _with_shots(job, doc, queue)
+
+
+def _with_shots(job, doc, queue):
+    """Attach the screenshot scenes; problems here only switch screenshots off, never the sandbox run."""
+    if doc.get("shots") is None:
+        return job
+    try:
+        shots = shots_scene.validate(doc["shots"])
+        demo_path, demo_size, demo_sha = None, 0, None
+        if any(sc["demo"] for sc in shots["scenes"]):
+            if doc.get("demo") != job.stem + ".demo.tar":
+                raise shots_scene.ShotsError("demo tar name does not match the job")
+            demo_path = os.path.join(queue, job.stem + ".demo.tar")
+            demo_size = _regular(demo_path, MAX_DEMO)
+            demo_sha = file_sha256(demo_path)
+    except (shots_scene.ShotsError, JobError) as e:
+        return dataclasses.replace(job, shots_error=str(e)[:200])
+    return dataclasses.replace(job, shots=shots, demo_path=demo_path, demo_size=demo_size, demo_sha256=demo_sha)
 
 
 def stem_of(name):

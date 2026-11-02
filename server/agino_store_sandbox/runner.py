@@ -9,6 +9,7 @@ import shutil
 
 from . import jobs, report
 from .guest import Guest, run_job
+from .shots import Phase
 from .util import InfraError, SandboxError, log, now
 from .vm import Vm, probe_sandbox
 
@@ -44,20 +45,30 @@ def _screenshot(cfg, vm, stem):
     def take():
         src = vm.files.path("shot.png")
         vm.qmp.screendump(src)
-        os.makedirs(cfg.shots, mode=0o755, exist_ok=True)
-        tmp = os.path.join(cfg.shots, ".%s.png.tmp" % stem)
+        os.makedirs(cfg.shot_dir, mode=0o755, exist_ok=True)
+        tmp = os.path.join(cfg.shot_dir, ".%s.png.tmp" % stem)
         shutil.copyfile(src, tmp)
-        os.replace(tmp, os.path.join(cfg.shots, stem + ".png"))
+        os.replace(tmp, os.path.join(cfg.shot_dir, stem + ".png"))
     return take
 
 
 def execute(cfg, job, slot, sandbox):
     """Boot a guest for job and run all checks; returns (checks, details, problems). Raises InfraError."""
-    vm = Vm(cfg, slot, job.deb_path, sandbox)
+    shots_on = cfg.shots and job.shots is not None
+    vm = Vm(cfg, slot, job.deb_path, sandbox, job.demo_path if shots_on else None)
+    note = lambda m: log("%s: %s" % (job.stem, m))  # noqa: E731
     try:
         vm.start()
         vm.qga.wait_ready(BOOT_TIMEOUT)
-        return run_job(Guest(vm.qga), job, _screenshot(cfg, vm, job.stem), lambda m: log("%s: %s" % (job.stem, m)))
+        guest = Guest(vm.qga)
+        phase = None
+        if shots_on:
+            def phase(desktop, base_pids):
+                return Phase(cfg, vm, guest, job, desktop, note).run(base_pids)
+        checks, details, problems = run_job(guest, job, _screenshot(cfg, vm, job.stem), note, phase)
+        if cfg.shots and job.shots_error:
+            details["shots"] = {"error": job.shots_error, "images": 0, "problems": 0}
+        return checks, details, problems
     finally:
         vm.stop()
 
