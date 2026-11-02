@@ -111,3 +111,20 @@ class Qga:
     def sh(self, script, args=(), timeout=60, input_data=None):
         """Run a fixed shell script; variable parts travel as positional arguments, never in the text."""
         return self.exec(["/bin/sh", "-c", script, "sh", *args], timeout, input_data)
+
+    def write_file(self, path, data, mode="755"):
+        """Create path in the guest with data (guest-file-*; falls back to cat on stdin), then chmod it."""
+        try:
+            handle = self._call("guest-file-open", {"path": path, "mode": "w"})
+            try:
+                for i in range(0, len(data), 1 << 16):
+                    chunk = base64.b64encode(data[i:i + (1 << 16)]).decode()
+                    self._call("guest-file-write", {"handle": handle, "buf-b64": chunk})
+            finally:
+                self._call("guest-file-close", {"handle": handle})
+        except InfraError:
+            res = self.sh('cat > "$1"', [path], timeout=30, input_data=data)
+            if not res.ok:
+                raise InfraError("cannot write %s in the guest" % path) from None
+        if not self.exec(["/bin/chmod", mode, path], 10).ok:
+            raise InfraError("cannot chmod %s in the guest" % path)

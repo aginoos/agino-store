@@ -3,6 +3,7 @@
 
 import configparser
 import dataclasses
+import re
 
 from .util import SandboxError
 
@@ -13,7 +14,11 @@ DEFAULTS = {
     "queue": "/srv/store/sandbox/queue",
     "state": "/srv/store/sandbox/state",
     "run": "/srv/store/sandbox/run",
-    "shots": "/srv/store/sandbox/shots",
+    "shot_dir": "/srv/store/sandbox/shots",
+    "shots": "on",
+    "shots_out": "/srv/store/sandbox/shots-out",
+    "corner_radius": "8",
+    "screen": "1920x1080",
     "reports": "/srv/store/reports",
     "base": "/srv/store/sandbox/base/current.qcow2",
     "ovmf_code": "/usr/share/OVMF/OVMF_CODE_4M.fd",
@@ -33,7 +38,11 @@ class Config:
     queue: str
     state: str
     run: str
-    shots: str
+    shot_dir: str
+    shots: bool
+    shots_out: str
+    corner_radius: int
+    screen: tuple
     reports: str
     base: str
     ovmf_code: str
@@ -57,12 +66,26 @@ def _int(values, key, low, high):
     return n
 
 
+def _screen(text):
+    m = re.match(r"\A([0-9]{3,4})x([0-9]{3,4})\Z", text)
+    if not m or not (800 <= int(m.group(1)) <= 3840 and 600 <= int(m.group(2)) <= 2160):
+        raise SandboxError("config screen must look like 1920x1080 (800..3840 x 600..2160)")
+    return int(m.group(1)), int(m.group(2))
+
+
 def from_dict(values):
     merged = dict(DEFAULTS, **values)
+    if merged["shots"].startswith("/"):  # older configs used `shots` for the check screenshot directory
+        merged["shot_dir"] = merged["shots"]
+        merged["shots"] = "on"
+    if merged["shots"] not in ("on", "off"):
+        raise SandboxError("config shots must be on or off")
     if merged["qemu_sandbox"] not in ("auto", "on", "off"):
         raise SandboxError("config qemu_sandbox must be auto, on or off")
     ints = {"slots": _int(merged, "slots", 1, MAX_SLOTS), "memory_mb": _int(merged, "memory_mb", 512, 65536),
-            "cpus": _int(merged, "cpus", 1, 64)}
+            "cpus": _int(merged, "cpus", 1, 64),
+            "corner_radius": _int(merged, "corner_radius", 0, 64), "screen": _screen(merged["screen"]),
+            "shots": merged["shots"] == "on"}
     strs = {k: v for k, v in merged.items() if k not in ints}
     unknown = set(strs) - {f.name for f in dataclasses.fields(Config)}
     if unknown:

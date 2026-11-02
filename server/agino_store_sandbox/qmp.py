@@ -34,8 +34,8 @@ class Qmp:
                 err = obj["error"] if isinstance(obj["error"], dict) else {}
                 raise InfraError("QMP %s failed: %s" % (command, str(err.get("desc", "error"))[:200]))
 
-    def screendump(self, filename):
-        self.execute("screendump", {"filename": filename, "format": "png"})
+    def screendump(self, filename, fmt="png"):
+        self.execute("screendump", {"filename": filename, "format": fmt})
 
     def quit(self):
         try:
