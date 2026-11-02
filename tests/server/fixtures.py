@@ -4,6 +4,8 @@
 Nothing here touches the network; the HTTP server listens on 127.0.0.1 only.
 """
 
+import datetime
+import email.utils
 import gzip
 import hashlib
 import http.server
@@ -19,7 +21,16 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 from agino_store_server.config import Config  # noqa: E402
 
-RELEASE_DATE = "Mon, 02 Nov 2026 08:00:00 UTC"
+
+
+def release_date(delta=datetime.timedelta(0)):
+    """Release `Date` text for now - delta (whole seconds, UTC)."""
+    when = (datetime.datetime.now(datetime.UTC) - delta).replace(microsecond=0)
+    return email.utils.format_datetime(when, usegmt=True)
+
+
+RELEASE_DATE = release_date(datetime.timedelta(hours=1))
+RELEASE_ISO = email.utils.parsedate_to_datetime(RELEASE_DATE).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def have(*tools):
@@ -124,7 +135,8 @@ def packages_stanza(deb, filename):
                                                          hashlib.sha256(data).hexdigest())
 
 
-def write_apt_repo(root, key, debs, suite="stable", component="main", arch="amd64", date=RELEASE_DATE):
+def write_apt_repo(root, key, debs, suite="stable", component="main", arch="amd64", date=RELEASE_DATE,
+                   release_extra=(), codename=None):
     """Write root/dists/<suite>/... with a signed InRelease and root/pool/*.deb. Returns Packages text."""
     pool = os.path.join(root, "pool")
     os.makedirs(pool, exist_ok=True)
@@ -142,14 +154,16 @@ def write_apt_repo(root, key, debs, suite="stable", component="main", arch="amd6
     for path, data in entries.items():
         with open(os.path.join(root, "dists", suite, path), "wb") as f:
             f.write(data)
-    lines = ["Origin: Test", "Suite: %s" % suite, "Date: %s" % date, "SHA256:"]
+    lines = ["Origin: Test", "Suite: %s" % suite, "Date: %s" % date]
+    lines += ["Codename: %s" % codename] if codename else []
+    lines += list(release_extra) + ["SHA256:"]
     lines += [" %s %d %s" % (hashlib.sha256(d).hexdigest(), len(d), p) for p, d in entries.items()]
     clearsign(key, "\n".join(lines) + "\n", os.path.join(root, "dists", suite, "InRelease"))
     return packages.decode()
 
 
-def write_milkyway_repo(root, stanzas, suite="milkyway", component="main", arch="amd64"):
-    """Unsigned milkyway repo: Release plus Packages.gz. stanzas: list of dicts (field -> value)."""
+def write_milkyway_repo(root, stanzas, suite="milkyway", component="main", arch="amd64", key=None):
+    """Milkyway repo: Release plus Packages.gz (and a signed InRelease when key is given)."""
     text = "\n".join("\n".join("%s: %s" % kv for kv in s.items()) + "\n" for s in stanzas)
     rel = "%s/binary-%s/Packages.gz" % (component, arch)
     gz = gzip.compress(text.encode())
@@ -161,6 +175,8 @@ def write_milkyway_repo(root, stanzas, suite="milkyway", component="main", arch=
         suite, RELEASE_DATE, hashlib.sha256(gz).hexdigest(), len(gz), rel)
     with open(os.path.join(root, "dists", suite, "Release"), "w") as f:
         f.write(release)
+    if key is not None:
+        clearsign(key, release, os.path.join(root, "dists", suite, "InRelease"))
 
 
 # HTTP server
