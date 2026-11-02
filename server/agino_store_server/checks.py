@@ -4,11 +4,13 @@
 import difflib
 import hashlib
 import os
+import posixpath
 import re
 import shutil
 import tempfile
+import time
 import urllib.parse
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from . import aptrepo, debinfo, fetch, state
 
@@ -17,8 +19,12 @@ SCRIPT_MAX_BYTES = 2 * 1024 * 1024
 FLAG_LIMIT = 100
 DEP_FIELDS = ("Depends", "Pre-Depends", "Conflicts", "Breaks", "Provides", "Replaces")
 FG_FIELDS = ("Package", "Version", "Architecture", "Multi-Arch") + DEP_FIELDS
-SYSTEMD_DIRS = ("lib/systemd/system/", "usr/lib/systemd/system/", "etc/systemd/system/")
+SYSTEMD_DIRS = ("lib/systemd/system/", "usr/lib/systemd/system/", "etc/systemd/system/",
+                "usr/lib/systemd/user/", "etc/systemd/user/")
 UDEV_DIRS = ("lib/udev/rules.d/", "usr/lib/udev/rules.d/", "etc/udev/rules.d/")
+WRITES_DIRS = ("etc/sudoers.d/", "etc/profile.d/", "etc/xdg/autostart/", "etc/pam.d/",
+               "etc/ld.so.conf.d/", "etc/polkit-1/", "usr/share/polkit-1/rules.d/")
+DOSE_OUTPUT_CAP = 4 << 20
 KEYWORDS = ("sources.list", "apt-key", "trusted.gpg", "chmod 777", "useradd", "adduser",
             "groupadd", "systemctl enable")
 _CACHE_NAME_RE = re.compile(r"\A[0-9a-f]{64}\.(Packages|json)\Z")
@@ -33,29 +39,46 @@ class MilkywayIndex:
     release_sha256: str
     packages_path: str
     packages: dict           # name -> {version, size, installed_size}
+    signed: bool = False     # the Release it came from was signature-checked
+    stale_seconds: int | None = None   # set when this cached copy replaced a failed fetch
 
 
 # inspect
 
+def _path_flags(path, kind):
+    if kind == "d":
+        return []
+    flags = []
+    if path.startswith("etc/apt/"):
+        flags.append("writes /etc/apt: %s" % path)
+    if path.startswith(SYSTEMD_DIRS):
+        flags.append("systemd unit %s" % path)
+    if path.startswith("etc/cron."):
+        flags.append("cron %s" % path)
+    if path.startswith(WRITES_DIRS):
+        flags.append("writes /%s" % path)
+    if path.startswith(UDEV_DIRS):
+        flags.append("udev rule %s" % path)
+    return flags
+
+
 def file_flags(files):
     flags = []
     for e in files:
-        path, mode = e["path"], e["mode"]
+        path, mode = posixpath.normpath(e["path"]).lstrip("/"), e["mode"]
         if e["type"] == "-" and (mode[3] in "sS"):
             flags.append("setuid %s" % path)
         if e["type"] == "-" and (mode[6] in "sS"):
             flags.append("setgid %s" % path)
-        if path.startswith("etc/apt/") and e["type"] != "d":
-            flags.append("writes /etc/apt: %s" % path)
-        if path.startswith(SYSTEMD_DIRS) and e["type"] != "d":
-            flags.append("systemd unit %s" % path)
-        if path.startswith("etc/cron.") and e["type"] != "d":
-            flags.append("cron %s" % path)
-        if path.startswith(("etc/sudoers.d/", "etc/profile.d/")) and e["type"] != "d":
-            flags.append("writes /%s" % path)
-        if path.startswith(UDEV_DIRS) and e["type"] != "d":
-            flags.append("udev rule %s" % path)
+        flags.extend(_path_flags(path, e["type"]))
     return flags
+
+
+def trigger_flags(control_dir):
+    path = os.path.join(control_dir, "triggers")
+    if os.path.islink(path) or not os.path.isfile(path):
+        return []
+    return ["dpkg triggers file"]
 
 
 def script_flags(scripts):
@@ -101,7 +124,7 @@ def inspect_package(deb_path, inspect_dir):
     files = debinfo.file_list(deb_path)
     _write_files_list(os.path.join(inspect_dir, "files.txt"), files)
     scripts = read_scripts(control_dir)
-    flags = file_flags(files) + script_flags(scripts)
+    flags = file_flags(files) + script_flags(scripts) + trigger_flags(control_dir)
     inspected = {"scripts": {n: hashlib.sha256(d).hexdigest() for n, d in scripts.items()},
                  "flags": _dedupe(flags)[:FLAG_LIMIT]}
     return inspected, debinfo.installed_size_bytes(_control_fields(inspect_dir), files)
@@ -251,31 +274,51 @@ def _write_cache(cache, key, text, packages):
             os.unlink(os.path.join(cache, name))      # old index files, exact names we created
 
 
-def milkyway_index(cfg, st):
-    """Packages of the milkyway repo, cached by the SHA256 of its Release file.
+def _signed_release(cfg, data):
+    """Verify a milkyway InRelease; returns the signed Release bytes."""
+    with tempfile.TemporaryDirectory(prefix="mw-verify-") as work:
+        content, _ = aptrepo.verify_inrelease(data, cfg.milkyway_keyring, cfg.milkyway_fingerprints, work)
+    return content
 
-    The Release file is fetched over https and not signature-checked (see report).
+
+def _stale_index(cache, error):
+    fallback = _latest_cached(cache)
+    if fallback is None:
+        raise CheckError("cannot fetch milkyway Release: %s" % error) from error
+    index = _load_cached(cache, os.path.basename(fallback))
+    age = max(0, int(time.time() - os.path.getmtime(fallback + ".json")))
+    return replace(index, stale_seconds=age)
+
+
+def milkyway_index(cfg, st):
+    """Packages of the milkyway repo, cached by the SHA256 of its (In)Release file.
+
+    With [milkyway] keyring the InRelease is verified; otherwise the plain Release is used
+    (https only) and the index is marked unsigned.
     """
     cache = st.cache_dir("milkyway-cache")
     fetcher = fetch.Fetcher(cfg, [urllib.parse.urlsplit(cfg.milkyway_url).hostname or ""])
-    url = "%s/dists/%s/Release" % (cfg.milkyway_url, cfg.milkyway_suite)
+    signed = bool(cfg.milkyway_keyring)
+    url = "%s/dists/%s/%s" % (cfg.milkyway_url, cfg.milkyway_suite, "InRelease" if signed else "Release")
     try:
         data = fetcher.get(url, max_bytes=cfg.max_index_bytes).data
     except fetch.FetchError as e:
-        fallback = _latest_cached(cache)
-        if fallback is None:
-            raise CheckError("cannot fetch milkyway Release: %s" % e) from e
-        return _load_cached(cache, os.path.basename(fallback))
+        return _stale_index(cache, e)
+    try:
+        release_bytes = _signed_release(cfg, data) if signed else data
+        release = aptrepo.parse_release(release_bytes)
+    except (aptrepo.AptError, debinfo.DebError) as e:
+        raise CheckError("milkyway Release rejected: %s" % e) from e
     key = hashlib.sha256(data).hexdigest()
     cached = _load_cached(cache, key)
     if cached:
-        return cached
+        return replace(cached, signed=signed)
     try:
-        text, packages = _fetch_milkyway(cfg, fetcher, aptrepo.parse_release(data))
+        text, packages = _fetch_milkyway(cfg, fetcher, release)
     except (aptrepo.AptError, fetch.FetchError, debinfo.DebError) as e:
         raise CheckError("cannot build milkyway index: %s" % e) from e
     _write_cache(cache, key, text, packages)
-    return _load_cached(cache, key)
+    return replace(_load_cached(cache, key), signed=signed)
 
 
 # dependencies
@@ -306,7 +349,8 @@ def _run_dose(cfg, fields, index):
         fg = os.path.join(work, "fg.Packages")
         _write_text(fg, fg_stanza(fields))
         proc = debinfo.run_tool(["dose-debcheck", "--deb-native-arch=" + cfg.arch, "--explain",
-                                 "--failures", "--bg", index.packages_path, "--fg", fg], timeout=900)
+                                 "--failures", "--bg", index.packages_path, "--fg", fg], timeout=900,
+                                max_stdout=DOSE_OUTPUT_CAP)
     out = proc.stdout.decode("utf-8", "replace")
     if proc.returncode not in (0, 1):
         err = proc.stderr.decode("utf-8", "replace")
@@ -373,6 +417,16 @@ def recheck_candidates(cfg, st, index, app):
     return problems
 
 
+def _index_alerts(app, index):
+    if index.stale_seconds is not None:
+        hours = index.stale_seconds / 3600
+        return [_problem(app, "milkyway Release could not be fetched; cached index used (age %.1f h)" % hours,
+                         level="alert")]
+    if not index.signed:
+        return [_problem(app, "milkyway Release not signature-checked", level="alert")]
+    return []
+
+
 def run_check(cfg, st, content, app=None):
     """`check` command: refresh milkyway versions, recheck dependencies. Returns problems."""
     apps = dict(content.apps)
@@ -383,6 +437,6 @@ def run_check(cfg, st, content, app=None):
     try:
         index = milkyway_index(cfg, st)
     except CheckError as e:
-        return [_problem(app, str(e))]
+        return [_problem(app, debinfo.clean_text(e))]
     problems = update_milkyway(st, apps, index, debinfo.utc_now())
-    return problems + recheck_candidates(cfg, st, index, app)
+    return _index_alerts(app, index) + problems + recheck_candidates(cfg, st, index, app)
