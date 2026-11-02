@@ -272,13 +272,13 @@ class TestLazyModules(CliCase):
     def test_track(self):
         calls = []
         self.fake("trackers", run_track=lambda cfg, st, content, vendor=None: calls.append(vendor) or [
-            {"vendor": "chrome", "message": "new 2.0-1"}])
+            {"level": "info", "vendor": "chrome", "message": "new 2.0-1"}])
         code, out, _ = self.run_cli("track", "--vendor", "chrome")
         self.assertEqual((code, calls), (0, ["chrome"]))
         self.assertIn("chrome: new 2.0-1", out)
 
     def test_track_problem(self):
-        self.fake("trackers", run_track=lambda cfg, st, content, vendor=None: [{"vendor": "x", "error": "down"}])
+        self.fake("trackers", run_track=lambda cfg, st, content, vendor=None: [{"level": "error", "vendor": "x", "message": "down"}])
         self.assertEqual(self.run_cli("track")[0], 1)
 
     def test_track_crash_is_reported(self):
@@ -290,7 +290,7 @@ class TestLazyModules(CliCase):
         self.assertIn("kaput", err)
 
     def test_check(self):
-        self.fake("checks", run_check=lambda cfg, st, content, app=None: [{"app": "gimp", "problem": "gone"}])
+        self.fake("checks", run_check=lambda cfg, st, content, app=None: [{"level": "alert", "app": "gimp", "message": "gone"}])
         code, out, _ = self.run_cli("check", "--app", "gimp")
         self.assertEqual(code, 1)
         self.assertIn("gone", out)

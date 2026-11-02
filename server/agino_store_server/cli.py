@@ -64,13 +64,15 @@ def _load_content(cfg):
 
 
 def _describe(item):
-    if isinstance(item, dict) and item.get("vendor") and item.get("message"):
-        return "%s: %s" % (item["vendor"], item["message"])
+    if isinstance(item, dict) and item.get("message"):
+        who = item.get("vendor") or item.get("app") or "-"
+        return "%s %s: %s" % (item.get("level", "info"), who, item["message"])
     return json.dumps(item, sort_keys=True, ensure_ascii=False, default=str)
 
 
 def _is_problem(item):
-    return isinstance(item, dict) and (bool(item.get("error")) or item.get("ok") is False)
+    # trackers/checks results: {level: info|alert|error, vendor?, app, message}
+    return isinstance(item, dict) and item.get("level") in ("alert", "error")
 
 
 def _split_target(text, version_required=False):
@@ -89,7 +91,7 @@ def _split_target(text, version_required=False):
 def cmd_track(cfg, st, args):
     from . import trackers
     with st.lock():
-        results = trackers.run_track(cfg, st, _load_content(cfg), vendor=args.vendor)
+        results = trackers.run_track(cfg, st, content.tracking_view(_load_content(cfg)), vendor=args.vendor)
     for item in results:
         print(_describe(item))
     return EXIT_PROBLEM if any(_is_problem(i) for i in results) else EXIT_OK
@@ -98,16 +100,16 @@ def cmd_track(cfg, st, args):
 def cmd_check(cfg, st, args):
     from . import checks
     with st.lock():
-        problems = checks.run_check(cfg, st, _load_content(cfg), app=args.app)
+        problems = checks.run_check(cfg, st, content.tracking_view(_load_content(cfg)), app=args.app)
     for item in problems:
         print(_describe(item))
-    return EXIT_PROBLEM if problems else EXIT_OK
+    return EXIT_PROBLEM if any(_is_problem(i) for i in problems) else EXIT_OK
 
 
 def cmd_intake(cfg, st, args):
     from . import trackers
     with st.lock():
-        record = trackers.intake(cfg, st, _load_content(cfg), args.vendor, args.file, args.url)
+        record = trackers.intake(cfg, st, content.tracking_view(_load_content(cfg)), args.vendor, args.file, args.url)
     print("taken in %s %s (%s)" % (record.get("app"), record.get("version"), record.get("status")))
     return EXIT_OK
 

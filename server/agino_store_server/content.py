@@ -121,6 +121,29 @@ class Content:
         return next((v for v in self.vendors if v.id == vendor_id), None)
 
 
+@dataclass(frozen=True)
+class TrackingView:
+    """Plain-dict view of the parts trackers.py and checks.py read (docs/server.md section 5)."""
+    root: str
+    vendors: dict           # vendor id -> {package, arch, fetch, allowed_hosts, track}
+    apps: dict              # app id -> {"package": {kind, name, vendor}}
+
+
+def tracking_view(content):
+    vendors = {}
+    for v in content.vendors:
+        track = dict(v.track)
+        if "keys" in track:
+            track["keys"] = ["keys/" + name for name in track["keys"]]
+        if "fingerprints" in track:
+            track["fingerprints"] = list(track["fingerprints"])
+        vendors[v.id] = {"package": v.package, "arch": v.arch, "fetch": v.fetch,
+                         "allowed_hosts": list(v.allowed_hosts), "track": track}
+    apps = {a.id: {"package": {"kind": a.kind, "name": a.package, "vendor": a.vendor}}
+            for a in content.apps}
+    return TrackingView(root=content.root, vendors=vendors, apps=apps)
+
+
 class _Check:
     """Error collector with the small validators every section shares."""
 
