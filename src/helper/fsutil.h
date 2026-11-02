@@ -19,6 +19,10 @@ inline QFileDevice::Permissions perm644()
 {
     return QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ReadGroup | QFileDevice::ReadOther;
 }
+inline QFileDevice::Permissions perm600()
+{
+    return QFileDevice::ReadOwner | QFileDevice::WriteOwner;
+}
 inline QFileDevice::Permissions perm700()
 {
     return QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner;
