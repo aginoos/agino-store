@@ -49,14 +49,8 @@ PageBase {
                     onToggled: Settings.notifyUpdates = checked
                 }
             }
-            SettingsRow {
-                text: qsTr("Install store app updates automatically")
-                badge: qsTr("Phase 2")
-                D.Switch {
-                    enabled: false
-                    checked: Settings.autoInstallUpdates
-                }
-            }
+            // "Install store app updates automatically" (Settings.autoInstallUpdates) comes back
+            // with phase 2 of the store.
         }
 
         SettingsGroup {
@@ -115,8 +109,8 @@ PageBase {
                 text: qsTr("Software catalog")
                 Muted {
                     text: Store.catalogState === "unavailable" ? qsTr("Catalog unavailable")
-                          : Store.revision + " · " + (Store.catalogState === "expired" ? qsTr("expired")
-                                                                                          : qsTr("signature verified"))
+                          : Store.catalogState === "expired" ? qsTr("Catalog expired")
+                          : Store.syncText
                 }
                 D.Button {
                     text: qsTr("Refresh now")

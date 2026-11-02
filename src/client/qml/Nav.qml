@@ -4,7 +4,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import org.deepin.dtk 1.0 as D
 
-// Left rail: home, categories, updates and downloads; catalog status at the bottom.
+// Left rail: home, categories, updates and downloads.
 Control {
     id: nav
 
@@ -86,31 +86,13 @@ Control {
             }
         }
 
-        ColumnLayout {
+        // Only an expired catalog is worth a line here; an unavailable one has its own page.
+        Muted {
             Layout.fillWidth: true
             Layout.leftMargin: 10
             Layout.topMargin: 8
-            spacing: 2
-
-            Muted {
-                Layout.fillWidth: true
-                text: Store.catalogState === "unavailable" ? qsTr("Catalog unavailable")
-                      : qsTr("Catalog %1").arg(Store.revision)
-                font.family: "monospace"
-            }
-            Muted {
-                Layout.fillWidth: true
-                visible: Store.catalogState !== "unavailable" && Store.catalogState !== "loading"
-                text: (Store.catalogState === "expired" ? "● " + qsTr("signature verified, catalog expired")
-                                                        : "● " + qsTr("signature verified"))
-                color: Store.catalogState === "expired" ? Qt.alpha(nav.palette.windowText, 0.62)
-                                                        : nav.palette.highlight
-            }
-            Muted {
-                Layout.fillWidth: true
-                visible: text !== ""
-                text: Store.syncText
-            }
+            visible: Store.catalogState === "expired"
+            text: qsTr("Catalog expired")
         }
     }
 }

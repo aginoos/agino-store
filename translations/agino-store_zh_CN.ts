@@ -275,8 +275,8 @@
         <translation>目录 %1</translation>
     </message>
     <message>
-        <source>signature verified, catalog expired</source>
-        <translation>签名已验证，目录已过期</translation>
+        <source>Catalog expired</source>
+        <translation>目录已过期</translation>
     </message>
     <message>
         <source>signature verified</source>
@@ -394,6 +394,10 @@
     <message>
         <source>About</source>
         <translation>关于</translation>
+    </message>
+    <message>
+        <source>Catalog expired</source>
+        <translation>目录已过期</translation>
     </message>
 </context>
 <context>
