@@ -19,9 +19,10 @@ namespace {
 constexpr int kMaxParallel = 4;
 }
 
-AssetCache::AssetCache(const QUrl &baseUrl, QObject *parent)
+AssetCache::AssetCache(const QUrl &baseUrl, bool allowInsecure, QObject *parent)
     : QObject(parent)
     , m_base(baseUrl)
+    , m_allowInsecure(allowInsecure)
     , m_dir(QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation)
             + QStringLiteral("/agino-store/assets"))
     , m_net(new QNetworkAccessManager(this))
@@ -78,6 +79,13 @@ void AssetCache::startNext()
         const std::optional<ManifestEntry> entry = m_manifest.entry(relPath);
         if (!entry) {
             m_inFlight.remove(relPath);
+            continue;
+        }
+        const bool schemeOk = m_base.scheme() == QLatin1String("https")
+            || (m_allowInsecure && (m_base.scheme() == QLatin1String("http") || m_base.scheme() == QLatin1String("file")));
+        if (!schemeOk) {
+            m_inFlight.remove(relPath);
+            m_failed.insert(relPath);
             continue;
         }
         QNetworkRequest request(m_base.resolved(QUrl(relPath)));

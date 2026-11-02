@@ -11,6 +11,8 @@ inline QString cacheRoot() { return QStringLiteral("/var/cache/agino-store"); }
 inline QString catalogDir() { return cacheRoot() + QStringLiteral("/catalog"); }
 inline QString debsDir() { return cacheRoot() + QStringLiteral("/debs"); }
 inline QString stateDir() { return QStringLiteral("/var/lib/agino-store"); }
+// Highest manifest serial ever accepted: the rollback floor, kept outside the cache.
+inline QString serialFilePath() { return stateDir() + QStringLiteral("/serial"); }
 inline QString installedFilePath() { return stateDir() + QStringLiteral("/installed.json"); }
 
 // Absolute program paths: QProcess would resolve bare names with the PATH of this process.

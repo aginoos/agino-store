@@ -58,6 +58,10 @@ void CatalogRefresher::fetch(const QString &relativePath, qint64 maxBytes, Fetch
         QTimer::singleShot(0, this, [done]() { done(false, QByteArray(), QStringLiteral("invalid URL")); });
         return;
     }
+    if (!m_config.isAllowedScheme(url.scheme())) {
+        QTimer::singleShot(0, this, [done]() { done(false, QByteArray(), QStringLiteral("unsupported URL scheme")); });
+        return;
+    }
     if (url.isLocalFile()) {
         QByteArray data;
         QString error;
@@ -68,11 +72,6 @@ void CatalogRefresher::fetch(const QString &relativePath, qint64 maxBytes, Fetch
         QTimer::singleShot(0, this, [done, ok, data, error]() { done(ok, data, error); });
         return;
     }
-    if (url.scheme() != QLatin1String("https") && url.scheme() != QLatin1String("http")) {
-        QTimer::singleShot(0, this, [done]() { done(false, QByteArray(), QStringLiteral("unsupported URL scheme")); });
-        return;
-    }
-
     QNetworkRequest request(url);
     request.setTransferTimeout(kTransferTimeoutMs);
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
@@ -139,7 +138,7 @@ void CatalogRefresher::onManifestAndSignature()
         return;
     }
     const CatalogSnapshot &cached = m_cache->snapshot();
-    const VerifyResult verified = verifyManifest(m_manifestBytes, m_signature, keys, m_cache->serial(),
+    const VerifyResult verified = verifyManifest(m_manifestBytes, m_signature, keys, m_cache->serialFloor(),
                                                  QDateTime::currentDateTimeUtc());
     if (!verified.ok) {
         fail(QStringLiteral("catalog-unverified"),
@@ -147,6 +146,11 @@ void CatalogRefresher::onManifestAndSignature()
         return;
     }
     m_manifest = verified.manifest;
+    // Same serial is only fine for the very same manifest; otherwise it is a replay with other content.
+    if (cached.valid && m_manifest.serial == cached.manifest.serial && cached.manifestBytes != m_manifestBytes) {
+        fail(QStringLiteral("catalog-unverified"), QStringLiteral("a different manifest with the same serial"));
+        return;
+    }
 
     // Nothing new: same bytes as the verified cache.
     if (cached.valid && cached.manifestBytes == m_manifestBytes) {
@@ -237,6 +241,8 @@ void CatalogRefresher::commit()
     }
     // After the swap the staging path holds the old catalog (or nothing); QTemporaryDir removes it.
     m_staging.reset();
+    if (!m_cache->recordSerial(m_manifest.serial, &error))
+        qWarning().noquote() << "cannot persist the catalog serial:" << error;
     m_cache->reload();
     cleanupStaging();
     m_running = false;

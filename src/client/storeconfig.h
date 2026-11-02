@@ -11,6 +11,7 @@ struct StoreConfig {
     QString catalogUrl;          // always ends with '/'
     QStringList keyDirs;
     QStringList protectedPackages;
+    bool allowInsecureUrls = false;   // test-only: http:// and file:// asset URLs
 
     // Missing file or keys fall back to the documented defaults.
     static StoreConfig load();

@@ -19,7 +19,7 @@ class AssetCache : public QObject
 {
     Q_OBJECT
 public:
-    AssetCache(const QUrl &baseUrl, QObject *parent = nullptr);
+    AssetCache(const QUrl &baseUrl, bool allowInsecure, QObject *parent = nullptr);
 
     void setManifest(const AginoStore::Manifest &manifest);
     // Local file for a catalog-relative path, or an empty string while it is still missing
@@ -37,6 +37,7 @@ private:
     QString fileFor(const QString &relPath) const;
 
     QUrl m_base;
+    bool m_allowInsecure;
     QString m_dir;
     QNetworkAccessManager *m_net = nullptr;
     AginoStore::Manifest m_manifest;

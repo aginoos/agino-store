@@ -42,7 +42,7 @@ QHash<QString, QString> installedVersions(const QStringList &packageNames)
                      QStringLiteral("--showformat=${Package}\\t${db:Status-Status}\\t${Version}\\n")};
     args += valid;
     // Exit status 1 just means that some of the names are unknown; parse stdout regardless.
-    const ProcessResult result = runProcess(dpkgQueryPath(), args, QByteArray(), 30000);
+    const ProcessResult result = runProcess(dpkgQueryPath(), args, QByteArray(), 10000);
     if (!result.started || result.timedOut)
         return out;
     const QList<QByteArray> lines = result.out.split('\n');

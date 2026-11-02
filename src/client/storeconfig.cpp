@@ -52,6 +52,9 @@ StoreConfig StoreConfig::load()
             const QString value = line.mid(eq + 1).trimmed();
             if (section == QLatin1String("Catalog") && key == QLatin1String("Url") && !value.isEmpty())
                 config.catalogUrl = value;
+            else if (section == QLatin1String("Catalog") && key == QLatin1String("AllowInsecureUrls"))
+                config.allowInsecureUrls = value.compare(QLatin1String("true"), Qt::CaseInsensitive) == 0
+                    || value == QLatin1String("1");
             else if (section == QLatin1String("Catalog") && key == QLatin1String("KeyDirs"))
                 config.keyDirs = splitList(value);
             else if (section == QLatin1String("Packages") && key == QLatin1String("Protected"))

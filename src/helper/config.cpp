@@ -43,6 +43,7 @@ HelperConfig HelperConfig::load(const QString &path)
     const QStringList dirs = splitList(settings.value(QStringLiteral("KeyDirs")));
     if (!dirs.isEmpty())
         config.keyDirs = dirs;
+    config.allowInsecureUrls = settings.value(QStringLiteral("AllowInsecureUrls"), false).toBool();
     settings.endGroup();
 
     settings.beginGroup(QStringLiteral("Packages"));

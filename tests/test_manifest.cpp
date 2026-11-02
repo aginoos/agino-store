@@ -79,6 +79,7 @@ private slots:
     void verifyManifestNoKeys();
     void verifyManifestRollback();
     void verifyManifestExpired();
+    void verifyManifestCreatedInFuture();
     void verifyManifestSignatureWithNewline();
     void matchesEntryCases();
     void fullCatalogVerification();
@@ -315,6 +316,15 @@ void TestManifest::verifyManifestExpired()
     // The signature was fine, so the manifest content is available for read-only use.
     QCOMPARE(r.manifest.serial, qint64(1));
     QVERIFY(!r.manifest.files.isEmpty());
+}
+
+void TestManifest::verifyManifestCreatedInFuture()
+{
+    // created is 2026-11-02T00:00:00Z: more than a day after "now" is refused, within a day is fine.
+    const QDateTime early = QDateTime::fromString(QStringLiteral("2026-10-30T00:00:00Z"), Qt::ISODate);
+    QVERIFY(!verifyManifest(manifestBytes(), signatureBytes(), {testKey()}, 0, early).ok);
+    const QDateTime close = QDateTime::fromString(QStringLiteral("2026-11-01T12:00:00Z"), Qt::ISODate);
+    QVERIFY(verifyManifest(manifestBytes(), signatureBytes(), {testKey()}, 0, close).ok);
 }
 
 void TestManifest::verifyManifestSignatureWithNewline()

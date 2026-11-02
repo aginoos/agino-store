@@ -237,6 +237,10 @@ VerifyResult verifyManifest(const QByteArray &manifestJson, const QByteArray &si
     }
     result.manifest = *m;
 
+    if (m->created > now.addDays(1)) {
+        result.error = QStringLiteral("manifest created is in the future");
+        return result;
+    }
     if (m->serial < minSerial) {
         result.error = QStringLiteral("manifest serial %1 is older than cached %2")
                            .arg(m->serial)

@@ -7,6 +7,7 @@
 #include "paths.h"
 #include "pkclient.h"
 
+#include <QDateTime>
 #include <QDebug>
 #include <QFile>
 #include <QFileInfo>
@@ -27,7 +28,7 @@ constexpr int kDownloadTimeoutMs = 60000;
 QStringList sourceDirectories()
 {
     return {QStringLiteral("/etc/apt/sources.list.d"), QStringLiteral("/etc/apt/trusted.gpg.d"),
-            QStringLiteral("/usr/share/keyrings")};
+            QStringLiteral("/usr/share/keyrings"), QStringLiteral("/etc/apt/keyrings")};
 }
 
 QStringList listSourceFiles()
@@ -168,9 +169,7 @@ void JobRunner::runDeb()
     const DebInfo &deb = *m_ctx.app.package.deb;
     static const QRegularExpression sha(QStringLiteral("\\A[0-9a-f]{64}\\z"));
     const QUrl url(deb.url);
-    const bool schemeOk = url.isValid()
-        && (url.scheme() == QLatin1String("https") || url.scheme() == QLatin1String("http")
-            || url.scheme() == QLatin1String("file"));
+    const bool schemeOk = url.isValid() && m_ctx.config.isAllowedScheme(url.scheme());
     if (!sha.match(deb.sha256).hasMatch() || deb.size <= 0 || deb.size > kMaxDebBytes || !schemeOk) {
         finish(false, QStringLiteral("download-failed"), QStringLiteral("the catalog entry has an invalid deb description"));
         return;
@@ -347,6 +346,7 @@ void JobRunner::applyProfile()
 void JobRunner::installDeb()
 {
     m_dirsBefore = listSourceFiles();
+    m_installStart = QDateTime::currentDateTime();
     // Not OnlyTrusted: a vendor deb is not signed by an apt key. Its hash comes from the signed catalog.
     m_pk->installFiles({debPath()}, PackageKit::Transaction::TransactionFlagNone,
                        [this](uint percent) { setStage(QStringLiteral("installing"), percent, percent, 100); },
@@ -358,7 +358,10 @@ void JobRunner::afterInstall(bool ok, const QString &errorCode, const QString &m
     // The vendor package must not leave an apt source behind: delete new files without an owner.
     const QStringList after = listSourceFiles();
     for (const QString &path : after) {
-        if (m_dirsBefore.contains(path) || dpkgOwnsPath(path))
+        if (m_dirsBefore.contains(path))
+            continue;
+        // Only files created or changed since the transaction started can be ours.
+        if (QFileInfo(path).lastModified() < m_installStart || dpkgOwnsPath(path))
             continue;
         if (QFile::remove(path))
             qWarning().noquote() << "removed unowned apt source file left by" << m_ctx.app.id << ":" << path;

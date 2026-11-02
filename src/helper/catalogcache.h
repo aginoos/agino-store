@@ -32,6 +32,10 @@ public:
 
     // Serial of the cached manifest (0 when there is none); used as the rollback floor.
     qint64 serial() const { return m_snapshot.manifest.serial; }
+    // max(persisted highest accepted serial, cached serial): no manifest below it is accepted.
+    qint64 serialFloor() const;
+    // Persists serial as the new floor when it is higher than the stored one.
+    bool recordSerial(qint64 serial, QString *error);
 
     // Detail file of an app, verified against the manifest.
     std::optional<AppDetail> loadDetail(const AppSummary &app, QString *error) const;
