@@ -158,6 +158,8 @@ def _milkyway_info(app, milkyway):
     entry = milkyway.get(app.package)
     if not entry:
         raise Skip("package not in milkyway")
+    if not isinstance(entry.get("version"), str):
+        raise Skip("milkyway entry has no version")
     return {"version": entry.get("version"), "updated": _day(entry.get("first_seen"), "first_seen")}
 
 
