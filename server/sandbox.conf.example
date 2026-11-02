@@ -1,0 +1,17 @@
+# agino-store-sandbox configuration (docs/sandbox.md). No secrets: the signing key is only a path.
+[sandbox]
+queue = /srv/store/sandbox/queue          # <app>_<sha12>.json + .deb pairs written by the server
+state = /srv/store/sandbox/state          # <name>.json per finished or failed attempt
+run = /srv/store/sandbox/run              # slot locks and per-slot run directories
+shots = /srv/store/sandbox/shots          # <name>.png, host-side only
+reports = /srv/store/reports              # signed <name>.json + <name>.json.sig
+base = /srv/store/sandbox/base/current.qcow2
+ovmf_code = /usr/share/OVMF/OVMF_CODE_4M.fd
+ovmf_vars = /usr/share/OVMF/OVMF_VARS_4M.fd
+key = /etc/agino-store-sandbox/report.pem  # Ed25519 private key (PEM), owned by agino-sandbox, mode 0600
+qemu = qemu-system-x86_64
+qemu_img = qemu-img
+qemu_sandbox = auto                       # auto | on | off (qemu -sandbox)
+slots = 4                                 # 1..4, tap devices agsbx-t0..t3
+memory_mb = 4096
+cpus = 4
