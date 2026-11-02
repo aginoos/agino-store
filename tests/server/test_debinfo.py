@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import io
 import os
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -159,6 +160,14 @@ class DebTests(unittest.TestCase):
         self.assertFalse(debinfo.version_gt("2", "2"))
         with self.assertRaises(debinfo.DebError):
             debinfo.version_gt("--help", "1")
+
+    def test_version_gt_matches_dpkg(self):
+        versions = ["1.0", "1.0-1", "1.0-1~bpo13+1", "1:0.9", "1.0~rc1", "1.0+dfsg-2", "1.0.1",
+                    "2:1.0", "1.0-1aginoos1", "1.0a", "1.0~~", "1.0~", "0.9.99", "10.0", "1.0-1.1"]
+        for a in versions:
+            for b in versions:
+                rc = subprocess.run(["dpkg", "--compare-versions", a, "gt", b]).returncode
+                self.assertEqual(debinfo.version_gt(a, b), rc == 0, (a, b))
 
 
 if __name__ == "__main__":

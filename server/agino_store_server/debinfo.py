@@ -2,6 +2,7 @@
 """Read .deb metadata without ever running maintainer scripts (docs/server.md section 7)."""
 
 import datetime
+import functools
 import io
 import os
 import posixpath
@@ -10,6 +11,8 @@ import resource
 import subprocess
 import tarfile
 import threading
+
+import apt_pkg
 
 TOOL_TIMEOUT = 300
 STDOUT_CAP = 4 << 20
@@ -232,12 +235,18 @@ def installed_size_bytes(fields, files):
     return sum(e["size"] for e in files if e["type"] == "-")
 
 
+@functools.cache
+def _apt_pkg():
+    apt_pkg.init_system()
+    return apt_pkg
+
+
 def version_gt(a, b):
-    """True if Debian version a is strictly greater than b (uses dpkg)."""
+    """True if Debian version a is strictly greater than b (apt_pkg: dpkg's rules, in process).
+
+    Called tens of thousands of times when summarizing milkyway, so no dpkg subprocess per call.
+    """
     for v in (a, b):
         if not VERSION_RE.match(v or ""):
             raise DebError("bad version string: %r" % (v,))
-    rc = run_tool(["dpkg", "--compare-versions", a, "gt", b]).returncode
-    if rc not in (0, 1):
-        raise DebError("dpkg --compare-versions failed for %s and %s" % (a, b))
-    return rc == 0
+    return _apt_pkg().version_compare(a, b) > 0

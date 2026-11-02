@@ -22,7 +22,7 @@ server/agino_store_server/
 tests/server/    unittest；fixture 在测试里现场生成（gpg 临时密钥、dpkg-deb 打的小包、本地 http 服务）
 ```
 
-依赖（Debian 包）：`python3`（3.13）、`python3-yaml`、`gpgv`、`gpg`（只在测试里生成密钥）、`dpkg`、`dose-distcheck`、`openssl`（签名，与 make-catalog 相同）。
+依赖（Debian 包）：`python3`（3.13）、`python3-yaml`、`python3-apt`（版本比较，用 `apt_pkg`）、`gpgv`、`gpg`（只在测试里生成密钥）、`dpkg`、`dose-distcheck`、`openssl`（签名，与 make-catalog 相同）。
 
 ## 2. 配置 `/etc/agino-store-server/server.conf`
 
