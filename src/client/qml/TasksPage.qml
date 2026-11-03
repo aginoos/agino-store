@@ -48,6 +48,8 @@ PageBase {
     Muted {
         Layout.alignment: Qt.AlignHCenter
         Layout.topMargin: 40
+        horizontalAlignment: Text.AlignHCenter
+        font.pixelSize: 14
         visible: rows.count === 0
         text: qsTr("Nothing is downloading")
     }

@@ -42,12 +42,14 @@ Control {
         D.Label {
             Layout.fillWidth: true
             text: card.info.name
+            font.pixelSize: 14
             font.weight: Font.Medium
             elide: Text.ElideRight
         }
         Muted {
             Layout.fillWidth: true
-            Layout.minimumHeight: font.pixelSize > 0 ? Math.ceil(font.pixelSize * 2.6) : 32
+            Layout.minimumHeight: 32
+            font.pixelSize: 12
             text: card.info.summary
             wrapMode: Text.Wrap
             maximumLineCount: 2

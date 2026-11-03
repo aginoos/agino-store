@@ -18,12 +18,12 @@ Control {
 
     contentItem: D.Label {
         text: pill.text
-        font: D.DTK.fontManager.t8
+        font.pixelSize: 12
         color: pill.checked ? pill.palette.highlight : pill.palette.windowText
     }
     background: Rectangle {
         radius: height / 2
-        color: pill.palette.base
+        color: pill.checked ? Qt.alpha(pill.palette.highlight, 0.14) : Surface.card(pill.palette)
         border.width: 1
         border.color: pill.checked ? pill.palette.highlight : Qt.alpha(pill.palette.windowText, 0.14)
         MouseArea {

@@ -25,7 +25,7 @@ Item {
                 x: root.pad
                 y: root.pad
                 width: root.contentWidth
-                spacing: 22
+                spacing: 26
             }
         }
     ]

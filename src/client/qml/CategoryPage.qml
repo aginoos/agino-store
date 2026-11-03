@@ -19,7 +19,6 @@ PageBase {
 
     Heading {
         text: page.currentCategory ? page.currentCategory.name : ""
-        font.pixelSize: 22
     }
 
     Flow {
@@ -44,6 +43,8 @@ PageBase {
     Muted {
         Layout.alignment: Qt.AlignHCenter
         Layout.topMargin: 30
+        horizontalAlignment: Text.AlignHCenter
+        font.pixelSize: 14
         visible: list.count === 0
         text: qsTr("No matching apps")
     }

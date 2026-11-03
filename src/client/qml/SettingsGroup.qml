@@ -16,6 +16,8 @@ ColumnLayout {
     data: [
         Muted {
             text: group.title
+            font.pixelSize: 13
+            font.weight: Font.Medium
             Layout.leftMargin: 4
         },
         Control {

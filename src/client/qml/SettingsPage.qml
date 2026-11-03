@@ -17,7 +17,6 @@ PageBase {
 
     Heading {
         text: qsTr("Settings")
-        font.pixelSize: 22
     }
 
     ColumnLayout {

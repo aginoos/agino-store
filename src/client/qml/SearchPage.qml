@@ -23,6 +23,8 @@ PageBase {
     Muted {
         Layout.alignment: Qt.AlignHCenter
         Layout.topMargin: 30
+        horizontalAlignment: Text.AlignHCenter
+        font.pixelSize: 14
         visible: list.count === 0
         text: qsTr("No matching apps")
     }
