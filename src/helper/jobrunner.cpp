@@ -131,7 +131,7 @@ void JobRunner::runRemove()
         return;
     }
     setStage(QStringLiteral("removing"));
-    m_pk->resolve(name, [this](const PkResolved &resolved) {
+    m_pk->resolve(name, [this, name](const PkResolved &resolved) {
         if (!resolved.ok) {
             finish(false, resolved.errorCode, resolved.message);
             return;
