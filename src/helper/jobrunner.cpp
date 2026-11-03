@@ -17,12 +17,38 @@
 #include <QRegularExpression>
 #include <QUrl>
 
+#include <functional>
+#include <memory>
+
 namespace AginoStore {
 
 namespace {
 
 constexpr qint64 kMaxDebBytes = 8LL * 1024 * 1024 * 1024;
 constexpr int kDownloadTimeoutMs = 60000;
+
+// Resolves every name one after the other; a package that cannot be resolved is logged and left
+// out (language packages never fail a job).
+void resolveAll(PkClient *pk, const QStringList &names, std::function<void(const QList<ResolvedL10n> &)> done)
+{
+    auto result = std::make_shared<QList<ResolvedL10n>>();
+    auto step = std::make_shared<std::function<void(int)>>();
+    *step = [pk, names, done, result, step](int index) {
+        if (index >= names.size()) {
+            done(*result);
+            return;
+        }
+        const QString name = names.at(index);
+        pk->resolve(name, [name, result, step, index](const PkResolved &resolved) {
+            if (resolved.ok)
+                result->append({name, resolved});
+            else
+                qInfo().noquote() << "l10n package" << name << "skipped: cannot resolve:" << resolved.message;
+            (*step)(index + 1);
+        });
+    };
+    (*step)(0);
+}
 
 // Directories that a vendor package may use to add itself as an apt source (design 7.3.4).
 QStringList sourceDirectories()
@@ -110,15 +136,32 @@ void JobRunner::runRemove()
             finish(false, resolved.errorCode, resolved.message);
             return;
         }
-        if (resolved.installedId.isEmpty()) {
-            finish(true);    // already gone
-            return;
+        const QString mainInstalled = resolved.installedId;
+        // The language packages depend on the app, so they have to go in the same transaction
+        // (allow_deps is false): every installed package of every language in the catalog entry.
+        QStringList l10n;
+        for (const QString &package : allL10nPackages(m_ctx.app.l10n)) {
+            if (isValidPackageName(package) && package != name)
+                l10n.append(package);
         }
-        m_pk->removePackages({resolved.installedId}, PackageKit::Transaction::TransactionFlagNone,
-                             [this](uint percent) { setStage(QStringLiteral("removing"), percent, percent, 100); },
-                             [this](const PkResult &result) {
-                                 finish(result.ok, result.errorCode, result.message);
-                             });
+        resolveAll(m_pk, l10n, [this, mainInstalled](const QList<ResolvedL10n> &items) {
+            QStringList ids;
+            if (!mainInstalled.isEmpty())
+                ids.append(mainInstalled);
+            for (const ResolvedL10n &item : items) {
+                if (!item.resolved.installedId.isEmpty())
+                    ids.append(item.resolved.installedId);
+            }
+            if (ids.isEmpty()) {
+                finish(true);    // already gone
+                return;
+            }
+            m_pk->removePackages(ids, PackageKit::Transaction::TransactionFlagNone,
+                                 [this](uint percent) { setStage(QStringLiteral("removing"), percent, percent, 100); },
+                                 [this](const PkResult &result) {
+                                     finish(result.ok, result.errorCode, result.message);
+                                 });
+        });
     });
 }
 
@@ -139,23 +182,52 @@ void JobRunner::runMilkywayInstall()
             finish(false, resolved.errorCode, resolved.message);
             return;
         }
-        if (resolved.availableId.isEmpty()) {
-            if (resolved.installedId.isEmpty())
-                finish(false, QStringLiteral("packagekit-error"), QStringLiteral("package not found"));
-            else
-                finish(true);    // already installed / up to date
+        if (resolved.availableId.isEmpty() && resolved.installedId.isEmpty()) {
+            finish(false, QStringLiteral("packagekit-error"), QStringLiteral("package not found"));
             return;
         }
-        auto progress = [this](uint percent) { setStage(QStringLiteral("installing"), percent, percent, 100); };
-        auto done = [this](const PkResult &result) { finish(result.ok, result.errorCode, result.message); };
-        if (update && !resolved.installedId.isEmpty()) {
-            m_pk->updatePackages({resolved.availableId}, PackageKit::Transaction::TransactionFlagOnlyTrusted,
-                                 progress, done);
-        } else {
-            m_pk->installPackages({resolved.availableId}, PackageKit::Transaction::TransactionFlagOnlyTrusted,
-                                  progress, done);
-        }
+        resolveAll(m_pk, l10nPackages(), [this, update, resolved](const QList<ResolvedL10n> &items) {
+            installResolved(update, resolved, items);
+        });
     });
+}
+
+// The language packages for the system language, chosen from the verified catalog entry. The
+// client only sends the language string; its own package list is never used.
+QStringList JobRunner::l10nPackages() const
+{
+    QStringList out;
+    for (const QString &package : l10nPackagesFor(m_ctx.app.l10n, m_ctx.lang)) {
+        if (isValidPackageName(package) && package != m_ctx.app.package.name)
+            out.append(package);
+    }
+    return out;
+}
+
+void JobRunner::installResolved(bool update, const PkResolved &app, const QList<ResolvedL10n> &l10n)
+{
+    QStringList missing;    // language packages that are not installed yet
+    QStringList upgrades;   // installed ones with a newer candidate
+    for (const ResolvedL10n &item : l10n) {
+        if (item.resolved.availableId.isEmpty())
+            continue;    // installed and current, or not available: nothing to do
+        (item.resolved.installedId.isEmpty() ? missing : upgrades).append(item.resolved.availableId);
+    }
+    QStringList ids = missing;
+    ids.append(upgrades);
+    if (!app.availableId.isEmpty())
+        ids.prepend(app.availableId);
+    if (ids.isEmpty()) {
+        finish(true);    // already installed / up to date
+        return;
+    }
+    auto progress = [this](uint percent) { setStage(QStringLiteral("installing"), percent, percent, 100); };
+    auto done = [this](const PkResult &result) { finish(result.ok, result.errorCode, result.message); };
+    // A plain update is only possible when everything in it is installed already.
+    if (update && !app.installedId.isEmpty() && missing.isEmpty())
+        m_pk->updatePackages(ids, PackageKit::Transaction::TransactionFlagOnlyTrusted, progress, done);
+    else
+        m_pk->installPackages(ids, PackageKit::Transaction::TransactionFlagOnlyTrusted, progress, done);
 }
 
 // --- vendor deb --------------------------------------------------------------------------

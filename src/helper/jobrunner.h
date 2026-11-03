@@ -4,6 +4,7 @@
 
 #include "catalog.h"
 #include "config.h"
+#include "pkclient.h"
 
 #include <QDateTime>
 #include <QFile>
@@ -22,12 +23,19 @@ class PkClient;
 
 enum class JobAction { Install, Update, Remove };
 
+// A language package of the app and what PackageKit knows about it.
+struct ResolvedL10n {
+    QString name;
+    PkResolved resolved;
+};
+
 struct JobContext {
     HelperConfig config;
     AppSummary app;
     std::optional<AppDetail> detail;     // required for deb installs / updates
     JobAction action = JobAction::Install;
     bool keepPackage = false;
+    QString lang;                        // system locale name from the client (validated), e.g. zh_CN
 };
 
 class JobRunner : public QObject
@@ -53,6 +61,8 @@ private:
 
     void runRemove();
     void runMilkywayInstall();
+    QStringList l10nPackages() const;
+    void installResolved(bool update, const PkResolved &app, const QList<ResolvedL10n> &l10n);
     void runDeb();
     void downloadDeb();
     void verifyDeb();

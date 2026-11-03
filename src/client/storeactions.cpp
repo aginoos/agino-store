@@ -6,6 +6,7 @@
 #include "desktopicons.h"
 
 #include <QJsonArray>
+#include <QLocale>
 #include <QJsonDocument>
 #include <QJsonObject>
 
@@ -128,8 +129,11 @@ void Store::confirmAction(const QVariantMap &request)
     const QStringList ids = request.value(QStringLiteral("appIds")).toStringList();
     const QString action = request.value(QStringLiteral("action")).toString();
     QVariantMap options;
-    if (action != QLatin1String("remove"))
+    if (action != QLatin1String("remove")) {
         options.insert(QStringLiteral("keep_package"), !AppSettings::instance()->deletePackagesAfterInstall());
+        // The helper chooses the language packages itself from the verified catalog entry.
+        options.insert(QStringLiteral("lang"), QLocale::system().name());
+    }
     for (const QString &id : ids) {
         if (m_loaded.catalog.app(id))
             m_helper.run(action, id, options);

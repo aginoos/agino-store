@@ -270,11 +270,16 @@ uint StoreService::submit(JobAction action, const QString &appId, const QVariant
     const QDBusMessage msg = message();
     setDelayedReply(true);
     const bool keep = options.value(QStringLiteral("keep_package")).toBool();
-    authorize(msg, [this, msg, action, appId, keep]() { enqueue(msg, action, appId, keep); });
+    // Only the language string is used; the helper picks the packages from its verified catalog.
+    QString lang = options.value(QStringLiteral("lang")).toString();
+    if (!isValidL10nKey(lang))
+        lang.clear();
+    authorize(msg, [this, msg, action, appId, keep, lang]() { enqueue(msg, action, appId, keep, lang); });
     return 0;
 }
 
-void StoreService::enqueue(const QDBusMessage &msg, JobAction action, const QString &appId, bool keepPackage)
+void StoreService::enqueue(const QDBusMessage &msg, JobAction action, const QString &appId, bool keepPackage,
+                           const QString &lang)
 {
     const CatalogSnapshot &snap = m_cache.snapshot();
     if (!snap.valid) {
@@ -314,6 +319,7 @@ void StoreService::enqueue(const QDBusMessage &msg, JobAction action, const QStr
     job->appId = appId;
     job->action = action;
     job->keepPackage = keepPackage;
+    job->lang = lang;
     m_jobs.append(job);
     QDBusConnection::systemBus().send(msg.createReply(QVariant::fromValue<uint>(job->id)));
     Q_EMIT JobProgress(job->id, appId, job->stage, 0, 0, 0);
@@ -371,6 +377,7 @@ void StoreService::startNext()
     context.app = *app;
     context.action = job->action;
     context.keepPackage = job->keepPackage;
+    context.lang = job->lang;
     if (job->action != JobAction::Remove && app->package.kind == PackageRef::Kind::Deb) {
         QString error;
         context.detail = m_cache.loadDetail(*app, &error);
