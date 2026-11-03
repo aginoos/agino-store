@@ -35,30 +35,94 @@ D.ApplicationWindow {
         }
     }
 
+    // Title bar after the deepin store: the left part is the rail's width (app icon and name), a
+    // separator continues the rail's edge, then back button, search and the downloads button.
     header: D.TitleBar {
-        icon.name: "agino-store"
+        id: titleBar
 
-        // TODO(verify): DTK icon name of the "back" arrow.
         leftContent: RowLayout {
-            spacing: 4
+            spacing: 0
+            Rectangle {
+                Layout.preferredWidth: 200 - 10
+                Layout.fillHeight: true
+                color: Qt.darker(window.palette.window, 1.04)
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: 10
+                    spacing: 8
+                    D.DciIcon {
+                        name: "agino-store"
+                        sourceSize: Qt.size(24, 24)
+                        Layout.preferredWidth: 24
+                        Layout.preferredHeight: 24
+                    }
+                    D.Label {
+                        text: window.title
+                        font: D.DTK.fontManager.t6
+                    }
+                }
+            }
+            Rectangle {
+                Layout.fillHeight: true
+                Layout.preferredWidth: 1
+                color: Qt.alpha(window.palette.windowText, 0.1)
+            }
             D.IconButton {
+                Layout.leftMargin: 14
                 icon.name: "arrow_ordinary_left"
                 enabled: Router.history.length > 0
                 onClicked: Router.back()
             }
-            D.Label {
-                text: window.title
-                font: D.DTK.fontManager.t6
-            }
         }
 
         content: Item {
-            D.SearchEdit {
-                id: search
-                anchors.centerIn: parent
-                width: Math.min(360, parent.width - 24)
-                placeholder: qsTr("Search apps")
-                onTextChanged: debounce.restart()
+            RowLayout {
+                anchors.left: parent.left
+                anchors.leftMargin: 4
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 14
+                D.SearchEdit {
+                    id: search
+                    Layout.preferredWidth: Math.max(160, Math.min(340, titleBar.width - 560))
+                    placeholder: qsTr("Search apps")
+                    onTextChanged: debounce.restart()
+                }
+                // Downloads: accent circle with a badge while tasks are running.
+                Item {
+                    Layout.preferredWidth: 32
+                    Layout.preferredHeight: 32
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: width / 2
+                        color: window.palette.highlight
+                        NavIcon {
+                            anchors.centerIn: parent
+                            key: "tasks"
+                            color: window.palette.highlightedText
+                        }
+                    }
+                    Rectangle {
+                        visible: Store.activeTasks > 0
+                        x: parent.width - 10
+                        y: -4
+                        width: Math.max(16, badgeText.implicitWidth + 8)
+                        height: 16
+                        radius: 8
+                        color: "#e5484d"
+                        Text {
+                            id: badgeText
+                            anchors.centerIn: parent
+                            text: Store.activeTasks
+                            color: "#ffffff"
+                            font.pixelSize: 11
+                        }
+                    }
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: Router.go("tasks")
+                    }
+                }
             }
             Timer {
                 id: debounce
