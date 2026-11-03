@@ -251,6 +251,8 @@ def _summary(cfg, app, info, icon):
            "proprietary": app.proprietary}
     if app.launchable:
         out["launchable"] = app.launchable
+    if app.l10n:
+        out["l10n"] = {lang: list(names) for lang, names in sorted(app.l10n.items())}
     out.update({"updated": info["updated"], "package": _package(cfg, app, info),
                 "detail": "apps/%s.json" % app.id})
     return out

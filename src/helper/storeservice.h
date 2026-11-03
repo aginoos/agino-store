@@ -57,6 +57,7 @@ private:
         QString appId;
         JobAction action = JobAction::Install;
         bool keepPackage = false;
+        QString lang;
         bool started = false;
         QString stage = QStringLiteral("waiting");
         uint percent = 0;
@@ -66,7 +67,8 @@ private:
     };
 
     uint submit(JobAction action, const QString &appId, const QVariantMap &options);
-    void enqueue(const QDBusMessage &msg, JobAction action, const QString &appId, bool keepPackage);
+    void enqueue(const QDBusMessage &msg, JobAction action, const QString &appId, bool keepPackage,
+                 const QString &lang);
     void startNext();
     void finishJob(uint jobId, bool ok, const QString &errorCode, const QString &message);
     Job *findJob(uint jobId);

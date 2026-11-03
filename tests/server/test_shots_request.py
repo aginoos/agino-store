@@ -114,6 +114,20 @@ class TestShotsJobs(unittest.TestCase):
         self.assertEqual(doc["demo"], name + ".demo.tar")
         self.assertEqual(self.run_queue(), [])
 
+    def test_milkyway_job_carries_l10n(self):
+        self.st.save_milkyway({"gimp": {"version": "3.0.4-1", "first_seen": "x", "size": 1, "installed_size": 1}})
+        H.edit_yaml(os.path.join(self.cfg.content, "apps", "gimp", "app.yaml"),
+                    lambda d: dict(d, l10n={"zh_CN": ["gimp-l10n-zh-cn"], "fr": ["gimp-l10n-fr", "gimp-l10n-zh-cn"]}))
+        self.request("gimp")
+        self.run_queue()
+        self.assertEqual(self.doc(milkyway_name("3.0.4-1"))["l10n"], ["gimp-l10n-fr", "gimp-l10n-zh-cn"])
+
+    def test_deb_job_has_no_l10n(self):
+        self.candidate()
+        self.request("chrome")
+        self.run_queue()
+        self.assertNotIn("l10n", self.doc("chrome_aaaaaaaaaaaa"))
+
     def test_milkyway_package_missing_is_skipped(self):
         self.request("gimp")
         messages = self.run_queue()

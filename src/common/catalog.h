@@ -70,6 +70,8 @@ struct AppSummary {
     QDate updated;
     PackageRef package;
     QString detail;          // path relative to the catalog root
+    // Language packages of a milkyway app: locale key ("zh_CN", "fr") -> Debian package names.
+    QHash<QString, QStringList> l10n;
 };
 
 struct Catalog {
@@ -132,6 +134,17 @@ bool isValidDefaultFile(const DefaultFile &file);
 QString screenshotLocale(const QString &uiLocale);
 // Screenshots for the UI locale, falling back to the other set when empty.
 QList<Screenshot> screenshotsFor(const AppDetail &detail, const QString &uiLocale);
+
+// l10n validation: key like "zh_CN" / "fr"; package names like Debian binary packages.
+bool isValidL10nKey(const QString &key);
+bool isValidL10nPackage(const QString &name);
+// The l10n key serving the system locale name (e.g. "zh_CN"): exact key, else the bare language
+// key ("zh"), else the first (sorted) key with the same language prefix ("zh_" ...); empty if none.
+QString pickL10nKey(const QHash<QString, QStringList> &l10n, const QString &locale);
+// Packages of pickL10nKey(), empty when no key serves the locale.
+QStringList l10nPackagesFor(const QHash<QString, QStringList> &l10n, const QString &locale);
+// Every package of every language (sorted, unique): removal has to take all of them.
+QStringList allL10nPackages(const QHash<QString, QStringList> &l10n);
 
 QString sourceToString(Source source);
 

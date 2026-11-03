@@ -182,6 +182,30 @@ bool parseDeb(const QJsonObject &o, DebInfo *deb, QString *error)
     return true;
 }
 
+constexpr int kMaxL10nKeys = 8;
+constexpr int kMaxL10nPackages = 4;
+
+bool parseL10n(const QJsonValue &v, QHash<QString, QStringList> *out)
+{
+    if (!v.isObject())
+        return false;
+    const QJsonObject o = v.toObject();
+    if (o.isEmpty() || o.size() > kMaxL10nKeys)
+        return false;
+    for (auto it = o.begin(); it != o.end(); ++it) {
+        QStringList names;
+        if (!isValidL10nKey(it.key()) || !readStringList(it.value(), &names) || names.isEmpty()
+            || names.size() > kMaxL10nPackages)
+            return false;
+        for (const QString &name : names) {
+            if (!isValidL10nPackage(name))
+                return false;
+        }
+        out->insert(it.key(), names);
+    }
+    return true;
+}
+
 bool parsePackage(const QJsonValue &v, PackageRef *pkg, QString *error)
 {
     if (!v.isObject()) {
@@ -267,6 +291,12 @@ bool parseApp(const QJsonObject &o, AppSummary *app, QString *error)
     QString pkgError;
     if (!parsePackage(o.value(QStringLiteral("package")), &app->package, &pkgError)) {
         setError(error, where + pkgError);
+        return false;
+    }
+    if (o.contains(QStringLiteral("l10n"))
+        && (!parseL10n(o.value(QStringLiteral("l10n")), &app->l10n)
+            || app->package.kind != PackageRef::Kind::Milkyway)) {
+        setError(error, where + QStringLiteral("l10n is invalid"));
         return false;
     }
     if (!readString(o, "detail", &app->detail) || !isSafeRelativePath(app->detail)) {
@@ -633,6 +663,52 @@ QList<Screenshot> screenshotsFor(const AppDetail &detail, const QString &uiLocal
                                                             : QStringLiteral("zh_CN");
     const QList<Screenshot> first = detail.screenshots.value(primary);
     return first.isEmpty() ? detail.screenshots.value(other) : first;
+}
+
+bool isValidL10nKey(const QString &key)
+{
+    static const QRegularExpression re(QStringLiteral("\\A[a-z]{2,3}(_[A-Z]{2})?\\z"));
+    return re.match(key).hasMatch();
+}
+
+bool isValidL10nPackage(const QString &name)
+{
+    static const QRegularExpression re(QStringLiteral("\\A[a-z0-9][a-z0-9+.-]+\\z"));
+    return name.size() <= 128 && re.match(name).hasMatch();
+}
+
+QString pickL10nKey(const QHash<QString, QStringList> &l10n, const QString &locale)
+{
+    if (l10n.isEmpty() || !isValidL10nKey(locale))
+        return QString();
+    if (l10n.contains(locale))
+        return locale;
+    const QString lang = langOf(locale);
+    if (l10n.contains(lang))
+        return lang;
+    QStringList keys = l10n.keys();
+    std::sort(keys.begin(), keys.end());
+    for (const QString &k : std::as_const(keys)) {
+        if (k.startsWith(lang + QLatin1Char('_')))
+            return k;
+    }
+    return QString();
+}
+
+QStringList l10nPackagesFor(const QHash<QString, QStringList> &l10n, const QString &locale)
+{
+    const QString key = pickL10nKey(l10n, locale);
+    return key.isEmpty() ? QStringList() : l10n.value(key);
+}
+
+QStringList allL10nPackages(const QHash<QString, QStringList> &l10n)
+{
+    QSet<QString> seen;
+    for (const QStringList &names : l10n)
+        seen.unite(QSet<QString>(names.begin(), names.end()));
+    QStringList out(seen.begin(), seen.end());
+    std::sort(out.begin(), out.end());
+    return out;
 }
 
 QString sourceToString(Source source)

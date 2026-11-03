@@ -119,6 +119,26 @@ class TestApp(ContentCase):
         self.edit_app("gimp", lambda d: dict(d, launchable="../x.desktop"))
         self.assertRejected("launchable")
 
+    def test_l10n_loaded(self):
+        self.edit_app("gimp", lambda d: dict(d, l10n={"zh_CN": ["gimp-help-zh-cn"], "fr": ["gimp-help-fr", "x-fr"]}))
+        gimp = C.load(self.root).app("gimp")
+        self.assertEqual(gimp.l10n, {"zh_CN": ("gimp-help-zh-cn",), "fr": ("gimp-help-fr", "x-fr")})
+
+    def test_l10n_absent_is_none(self):
+        self.assertIsNone(C.load(self.root).app("gimp").l10n)
+
+    def test_l10n_only_for_milkyway(self):
+        self.edit_app("chrome", lambda d: dict(d, l10n={"zh_CN": ["chrome-l10n"]}))
+        self.assertRejected("only allowed for kind milkyway")
+
+    def test_l10n_bad_values(self):
+        for bad in ({"zh-cn": ["a-l10n"]}, {"zh_CN": []}, {"zh_CN": ["Bad Name"]}, {"zh_CN": "a-l10n"},
+                    {"zh_CN": ["a1", "a2", "a3", "a4", "a5"]}, {}, ["a-l10n"],
+                    {l: ["pkg-" + l] for l in ("aa", "bb", "cc", "dd", "ee", "ff", "gg", "hh", "ii")}):
+            with self.subTest(bad=bad):
+                self.edit_app("gimp", lambda d, bad=bad: dict(d, l10n=bad))
+                self.assertRejected("l10n")
+
     def test_yaml_python_tags_are_not_executed(self):
         H.write(self.path("apps", "gimp", "app.yaml"), b"!!python/object/apply:os.system ['true']\n")
         self.assertRejected("invalid YAML")

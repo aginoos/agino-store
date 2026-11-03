@@ -38,7 +38,8 @@ def install(guest, job):
     if job.source == "milkyway" and not update.ok:
         raise InstallError("apt-get update failed (exit %d)" % update.exitcode, update.exitcode,
                            clean(update.text[-600:] + update.err.decode("utf-8", "replace")[-300:], 900))
-    res = guest.apt(["install", "-y", target], APT_INSTALL_TIMEOUT)
+    extra = list(job.l10n) if job.source == "milkyway" else []
+    res = guest.apt(["install", "-y", target, *extra], APT_INSTALL_TIMEOUT)
     if not res.ok:
         raise InstallError("apt-get install failed (exit %d)" % res.exitcode, res.exitcode,
                            clean(res.text[-600:] + res.err.decode("utf-8", "replace")[-300:], 900))

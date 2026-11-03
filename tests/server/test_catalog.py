@@ -100,6 +100,15 @@ class TestBuild(CatalogCase):
         self.assertEqual(data["featured"][0]["apps"], ["chrome", "gimp"])
         self.assertTrue(os.path.isfile(os.path.join(self.current(), gimp["icon"])))
 
+    def test_l10n_in_catalog(self):
+        self.publish_all()
+        H.edit_yaml(os.path.join(self.cfg.content, "apps", "gimp", "app.yaml"),
+                    lambda d: dict(d, l10n={"zh_CN": ["gimp-l10n-zh-cn"], "fr": ["gimp-l10n-fr"]}))
+        self.build()
+        chrome, gimp = self.read("catalog.json")["apps"]
+        self.assertEqual(gimp["l10n"], {"fr": ["gimp-l10n-fr"], "zh_CN": ["gimp-l10n-zh-cn"]})
+        self.assertNotIn("l10n", chrome)
+
     def test_details(self):
         self.publish_all()
         self.build()

@@ -59,6 +59,12 @@ private slots:
     void rejectsUnsafePaths_data();
     void rejectsUnsafePaths();
     void rejectsDebWithoutDeb();
+    void l10nParsing_data();
+    void l10nParsing();
+    void l10nDebRejected();
+    void l10nSelection_data();
+    void l10nSelection();
+    void l10nAllPackages();
     void launchable_data();
     void launchable();
     void rejectsBadSha256_data();
@@ -219,6 +225,122 @@ void TestCatalog::launchable()
     QCOMPARE(catalog.has_value(), ok);
     if (ok)
         QCOMPARE(catalog->apps.first().launchable, value.toString());
+}
+
+namespace {
+QJsonObject milkywayPackage()
+{
+    QJsonObject pkg;
+    pkg.insert(QStringLiteral("kind"), QStringLiteral("milkyway"));
+    pkg.insert(QStringLiteral("name"), QStringLiteral("thunderbird"));
+    return pkg;
+}
+
+QJsonObject l10nObject(const QString &key, const QJsonArray &names)
+{
+    QJsonObject o;
+    o.insert(key, names);
+    return o;
+}
+} // namespace
+
+void TestCatalog::l10nParsing_data()
+{
+    QTest::addColumn<QJsonValue>("value");
+    QTest::addColumn<bool>("ok");
+    const QJsonArray one{QStringLiteral("thunderbird-l10n-zh-cn")};
+    QTest::newRow("zh_CN") << QJsonValue(l10nObject(QStringLiteral("zh_CN"), one)) << true;
+    QTest::newRow("bare-language") << QJsonValue(l10nObject(QStringLiteral("fr"), one)) << true;
+    QTest::newRow("bad-key") << QJsonValue(l10nObject(QStringLiteral("zh-cn"), one)) << false;
+    QTest::newRow("lowercase-region") << QJsonValue(l10nObject(QStringLiteral("zh_cn"), one)) << false;
+    QTest::newRow("empty-object") << QJsonValue(QJsonObject()) << false;
+    QTest::newRow("empty-list") << QJsonValue(l10nObject(QStringLiteral("fr"), QJsonArray())) << false;
+    QTest::newRow("not-object") << QJsonValue(one) << false;
+    QTest::newRow("bad-name") << QJsonValue(l10nObject(QStringLiteral("fr"), QJsonArray{QStringLiteral("Bad Name")})) << false;
+    QTest::newRow("dash-name") << QJsonValue(l10nObject(QStringLiteral("fr"), QJsonArray{QStringLiteral("-x-y")})) << false;
+    QTest::newRow("non-string") << QJsonValue(l10nObject(QStringLiteral("fr"), QJsonArray{1})) << false;
+    QTest::newRow("five-packages")
+        << QJsonValue(l10nObject(QStringLiteral("fr"), QJsonArray{QStringLiteral("aa"), QStringLiteral("bb"),
+                                                              QStringLiteral("cc"), QStringLiteral("dd"),
+                                                              QStringLiteral("ee")}))
+        << false;
+    QJsonObject nine;
+    for (const char *k : {"aa", "bb", "cc", "dd", "ee", "ff", "gg", "hh", "ii"})
+        nine.insert(QString::fromLatin1(k), one);
+    QTest::newRow("nine-languages") << QJsonValue(nine) << false;
+}
+
+void TestCatalog::l10nParsing()
+{
+    QFETCH(QJsonValue, value);
+    QFETCH(bool, ok);
+    const QByteArray json = catalogWithApp([&](QJsonObject &app) {
+        app.insert(QStringLiteral("package"), milkywayPackage());
+        app.insert(QStringLiteral("l10n"), value);
+    });
+    const auto catalog = parseCatalog(json, nullptr);
+    QCOMPARE(catalog.has_value(), ok);
+    if (ok)
+        QVERIFY(!catalog->apps.first().l10n.isEmpty());
+}
+
+void TestCatalog::l10nDebRejected()
+{
+    // The sample catalog has deb apps; find one and give it an l10n block.
+    QJsonObject root = sampleCatalogObject();
+    QJsonArray apps = root.value(QStringLiteral("apps")).toArray();
+    bool changed = false;
+    for (int i = 0; i < apps.size() && !changed; ++i) {
+        QJsonObject app = apps.at(i).toObject();
+        if (app.value(QStringLiteral("package")).toObject().value(QStringLiteral("kind")).toString() != QLatin1String("deb"))
+            continue;
+        app.insert(QStringLiteral("l10n"), l10nObject(QStringLiteral("fr"), QJsonArray{QStringLiteral("x-l10n-fr")}));
+        apps.replace(i, app);
+        changed = true;
+    }
+    QVERIFY(changed);
+    root.insert(QStringLiteral("apps"), apps);
+    QVERIFY(!parseCatalog(toJson(root), nullptr).has_value());
+}
+
+void TestCatalog::l10nSelection_data()
+{
+    QTest::addColumn<QStringList>("keys");
+    QTest::addColumn<QString>("locale");
+    QTest::addColumn<QString>("expected");
+    QTest::newRow("exact") << QStringList{"zh_CN", "zh_TW", "zh"} << "zh_TW" << "zh_TW";
+    QTest::newRow("bare-language") << QStringList{"zh_CN", "zh"} << "zh_HK" << "zh";
+    QTest::newRow("same-language-prefix") << QStringList{"zh_TW", "zh_CN", "fr"} << "zh_HK" << "zh_CN";
+    QTest::newRow("bare-locale-prefers-region-key") << QStringList{"zh_CN"} << "zh" << "zh_CN";
+    QTest::newRow("other-language") << QStringList{"zh_CN"} << "fr_FR" << "";
+    QTest::newRow("language-only-key") << QStringList{"fr"} << "fr_CA" << "fr";
+    QTest::newRow("no-partial-prefix") << QStringList{"zhx_CN"} << "zh_CN" << "";
+    QTest::newRow("c-locale") << QStringList{"zh_CN"} << "C" << "";
+    QTest::newRow("empty-locale") << QStringList{"zh_CN"} << "" << "";
+    QTest::newRow("hostile-locale") << QStringList{"zh_CN"} << "zh_CN;rm" << "";
+    QTest::newRow("no-keys") << QStringList{} << "zh_CN" << "";
+}
+
+void TestCatalog::l10nSelection()
+{
+    QFETCH(QStringList, keys);
+    QFETCH(QString, locale);
+    QFETCH(QString, expected);
+    QHash<QString, QStringList> l10n;
+    for (const QString &k : keys)
+        l10n.insert(k, QStringList{k + QStringLiteral("-pkg")});
+    QCOMPARE(pickL10nKey(l10n, locale), expected);
+    QCOMPARE(l10nPackagesFor(l10n, locale),
+             expected.isEmpty() ? QStringList() : QStringList{expected + QStringLiteral("-pkg")});
+}
+
+void TestCatalog::l10nAllPackages()
+{
+    QHash<QString, QStringList> l10n;
+    l10n.insert(QStringLiteral("zh_CN"), {QStringLiteral("b-zh"), QStringLiteral("a-common")});
+    l10n.insert(QStringLiteral("fr"), {QStringLiteral("a-common"), QStringLiteral("c-fr")});
+    QCOMPARE(allL10nPackages(l10n), (QStringList{"a-common", "b-zh", "c-fr"}));
+    QVERIFY(allL10nPackages({}).isEmpty());
 }
 
 void TestCatalog::rejectsDebWithoutDeb()
