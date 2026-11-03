@@ -30,6 +30,9 @@ HOST_RE = re.compile(r"\A[a-z0-9]([a-z0-9.-]*[a-z0-9])?\Z")
 FINGERPRINT_RE = re.compile(r"\A[0-9A-Fa-f]{40}\Z")
 DOTTED_RE = re.compile(r"\A[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*\Z")
 SUITE_RE = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9._-]*\Z")
+PACKAGE_RE = re.compile(r"\A[a-z0-9][a-z0-9+.-]+\Z")
+MAX_L10N_LANGS = 8
+MAX_L10N_PACKAGES = 4
 ARCH_RE = re.compile(r"\A[a-z0-9][a-z0-9-]*\Z")
 
 ICON_EXTS = (".svg", ".png", ".jpg", ".jpeg", ".webp")
@@ -109,6 +112,7 @@ class App:
     vendor: str | None
     install_profile: dict | None
     release_notes: dict     # version -> {lang: tuple of lines}
+    l10n: dict | None = None    # lang -> tuple of language package names (kind milkyway only)
     shots: dict | None = None   # validated shots.yaml (schema, window, scenes), None without the file
     promo: tuple = ()           # vendor promo images from shots.yaml (reviewed by hand, not built)
 
@@ -454,6 +458,29 @@ def _launchable(chk, path, value):
     return text
 
 
+def _l10n(chk, path, value, kind):
+    """Language packages per locale key: {lang: (package, ...)} or None when absent/invalid."""
+    if value is None:
+        return None
+    if kind != "milkyway":
+        chk.fail(path, "only allowed for kind milkyway")
+        return None
+    if not isinstance(value, dict) or not 1 <= len(value) <= MAX_L10N_LANGS:
+        chk.fail(path, "must be a mapping of 1..%d languages to package lists" % MAX_L10N_LANGS)
+        return None
+    out = {}
+    for lang, names in value.items():
+        where = "%s.%s" % (path, lang)
+        if not isinstance(lang, str) or not LANG_RE.match(lang):
+            chk.fail(path, "bad language key %r" % (lang,))
+            continue
+        items = chk.sequence(where, names, 1, MAX_L10N_PACKAGES)
+        parsed = [chk.string("%s[%d]" % (where, i), n, PACKAGE_RE, 128) for i, n in enumerate(items or [])]
+        if items and None not in parsed:
+            out[lang] = tuple(parsed)
+    return out if len(out) == len(value) else None
+
+
 def _app_fields(chk, where, data, app_dir):
     """Validate everything in app.yaml that does not depend on other files."""
     cats = chk.sequence(where + ".categories", data["categories"], 1, 10) or []
@@ -540,7 +567,7 @@ def _app(chk, root, app_id, vendors, category_ids, demo_names=frozenset()):
     required = ("name", "summary", "description", "categories", "source", "license",
                 "developer", "icon", "package")
     optional = ("proprietary", "homepage", "maintainer", "launchable", "screenshots",
-                "install_profile", "release_notes")
+                "install_profile", "release_notes", "l10n")
     before = len(chk.errors)
     # Unknown keys are reported but do not stop the remaining checks; missing ones do.
     if data is None or (not chk.mapping(rel, data, required, optional)
@@ -553,11 +580,12 @@ def _app(chk, root, app_id, vendors, category_ids, demo_names=frozenset()):
             chk.fail("%s.categories[%d]" % (rel, i), "unknown category %r" % cat)
     if data["source"] == "personal" and not fields["maintainer"]:
         chk.fail(rel + ".maintainer", "required for source personal")
+    l10n = _l10n(chk, rel + ".l10n", data.get("l10n"), package[0] if package else None)
     app_shots, promo = _shots(chk, root, app_id, app_dir, demo_names)
     if len(chk.errors) != before or package is None:
         return None
     return App(id=app_id, dir=app_dir, source=data["source"], kind=package[0],
-               package=package[1], vendor=package[2], shots=app_shots, promo=promo, **fields)
+               package=package[1], vendor=package[2], l10n=l10n, shots=app_shots, promo=promo, **fields)
 
 
 # vendors/<id>.yaml

@@ -217,6 +217,8 @@ def _shots_job(cfg, st, content, request):
             return "package %s is not in milkyway" % entry.package
         base, record = shotsreq.milkyway_base(app, entry.package, found["version"]), None
         ident = {"source": "milkyway", "version": found["version"], "sha256": None, "package": entry.package}
+        if entry.l10n:
+            ident["l10n"] = sorted({n for names in entry.l10n.values() for n in names})
     else:
         record = shotsreq.newest_candidate(st, app)
         if record is None:

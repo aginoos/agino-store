@@ -81,6 +81,15 @@ class ParseTests(unittest.TestCase):
         self.assertEqual((job.mode, job.source, job.sha256, job.deb_path, job.package),
                          ("shots", "milkyway", None, None, "app-pkg"))
 
+    def test_milkyway_job_l10n(self):
+        name = write(self.tmp.name, mw_stem(), mw_doc(l10n=["a-l10n-fr", "a-l10n-zh-cn", "a-l10n-fr"]))
+        self.assertEqual(jobs.read_job(self.tmp.name, name).l10n, ("a-l10n-fr", "a-l10n-zh-cn"))
+
+    def test_milkyway_job_bad_l10n(self):
+        for bad in ("a-l10n", ["Bad Name"], [1], ["x" * 129], ["p%dx" % i for i in range(33)]):
+            with self.subTest(bad=bad), self.assertRaises(jobs.JobError):
+                jobs.read_job(self.tmp.name, write(self.tmp.name, mw_stem(), mw_doc(l10n=bad)))
+
     def test_milkyway_job_keeps_launchable(self):
         job = jobs.read_job(self.tmp.name, write(self.tmp.name, mw_stem(), mw_doc(launchable="calibre-gui.desktop")))
         self.assertEqual(job.launchable, "calibre-gui.desktop")
@@ -183,6 +192,21 @@ class InstallTests(unittest.TestCase):
         shots_job.install(g, job)
         self.assertEqual([c.args[0] for c in g.apt.call_args_list], [["update"], ["install", "-y", "app-pkg"]])
         self.assertFalse(g.copy_deb.called)
+
+    def test_milkyway_installs_l10n_together(self):
+        job = jobs.Job("s", "app", "1", None, 0, "app-pkg", None, [], [], None, mode="shots", source="milkyway",
+                       l10n=("app-l10n-fr", "app-l10n-zh-cn"))
+        g = self.guest([FakeRes(), FakeRes()])
+        shots_job.install(g, job)
+        self.assertEqual(g.apt.call_args_list[1].args[0],
+                         ["install", "-y", "app-pkg", "app-l10n-fr", "app-l10n-zh-cn"])
+
+    def test_deb_ignores_l10n(self):
+        job = jobs.Job("s", "app", "1", "0" * 64, 3, "app", None, [], [], "/q/x.deb", mode="shots", l10n=("x-l10n",))
+        g = self.guest([FakeRes(), FakeRes()])
+        g.apply_profile.return_value = None
+        shots_job.install(g, job)
+        self.assertEqual(g.apt.call_args_list[1].args[0], ["install", "-y", "/var/tmp/sbx/x.deb"])
 
     def test_deb_uses_copy_and_profile(self):
         job = jobs.Job("s", "app", "1", "0" * 64, 3, "app", None, [], [], "/q/x.deb", mode="shots")

@@ -44,6 +44,7 @@ class Job:
     demo_sha256: object = None
     mode: str = "check"  # "check" (sandbox checks) or "shots" (screenshots only)
     source: str = "deb"  # "deb" or "milkyway" (shots jobs only)
+    l10n: tuple = ()  # language packages installed with a milkyway app (all languages, flat)
 
 
 def _regular(path, limit):
@@ -131,6 +132,19 @@ def milkyway_stem(app, package, version):
     return "%s_%s" % (app, h)
 
 
+MAX_L10N = 32
+
+
+def _l10n(value):
+    """Validated flat tuple of language package names; JobError for anything else."""
+    if value is None:
+        return ()
+    if (not isinstance(value, list) or len(value) > MAX_L10N
+            or not all(isinstance(n, str) and len(n) <= 128 and PACKAGE_RE.match(n) for n in value)):
+        raise JobError("bad l10n")
+    return tuple(dict.fromkeys(value))
+
+
 def _read_milkyway(doc, stem, queue):
     """A shots job for a package from the milkyway repository: no deb, no hash, install by name."""
     app, version, package = doc.get("app"), doc.get("version"), doc.get("package")
@@ -142,7 +156,7 @@ def _read_milkyway(doc, stem, queue):
     if stem != milkyway_stem(app, package, version):
         raise JobError("job name does not match package and version")
     job = Job(stem, app, version, None, 0, package, _launchable(doc.get("launchable")), [], [], None, mode="shots",
-              source="milkyway")
+              source="milkyway", l10n=_l10n(doc.get("l10n")))
     job = _with_shots(job, doc, queue)
     if job.shots is None:
         raise JobError("shots job without usable shots: %s" % (job.shots_error or "missing"))
