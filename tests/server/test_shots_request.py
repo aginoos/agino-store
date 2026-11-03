@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 from agino_store_server import cli, config, content, sandboxqueue
 from agino_store_server.state import State
@@ -31,6 +32,39 @@ class TestShotsRequestCli(CliCase):
         self.assertIn("cancelled", self.run_cli("shots-request", "--cancel", "gimp")[1])
         self.assertEqual(self.st.shots_requests(), [])
         self.assertIn("no shots request", self.run_cli("shots-request", "--cancel", "gimp")[1])
+
+    def test_for_session_record(self):
+        add_shots(self.cfg.content, app="gimp")
+        code, out, _ = self.run_cli("shots-request", "gimp", "--for-session")
+        self.assertEqual(code, 0)
+        self.assertIn("requested session shots for gimp", out)
+        request, = self.st.shots_requests()
+        self.assertIs(request["session"], True)
+        self.assertEqual(request["by"], "alice")
+        self.assertEqual(request["expires"], "2026-11-02T14:00:00Z")   # SOURCE_DATE_EPOCH + 2 h
+        self.assertIn("cancelled", self.run_cli("shots-request", "--cancel", "gimp")[1])
+        self.assertEqual(self.st.shots_requests(), [])
+
+    def test_for_session_upgrades_plain_and_is_not_downgraded(self):
+        add_shots(self.cfg.content, app="gimp")
+        self.run_cli("shots-request", "gimp")
+        plain, = self.st.shots_requests()
+        self.assertNotIn("session", plain)
+        self.run_cli("shots-request", "gimp", "--for-session")
+        upgraded, = self.st.shots_requests()
+        self.assertIs(upgraded["session"], True)
+        self.assertEqual(upgraded["requested"], plain["requested"])
+        code, out, _ = self.run_cli("shots-request", "gimp")
+        self.assertIn("already requested", out)
+        self.assertEqual(self.st.shots_requests(), [upgraded])
+
+    def test_for_session_validation(self):
+        add_shots(self.cfg.content, app="gimp")
+        self.assertEqual(self.run_cli("shots-request", "--cancel", "gimp", "--for-session")[0], cli.EXIT_USAGE)
+        self.assertEqual(self.run_cli("shots-request", "nosuch", "--for-session")[0], cli.EXIT_USAGE)
+        with self.assertRaises(SystemExit):   # the flag belongs to shots-request only
+            self.run_cli("shots-import", "gimp", "--for-session")
+        self.assertEqual(self.st.shots_requests(), [])
 
     def test_unknown_app_and_no_shots(self):
         self.assertEqual(self.run_cli("shots-request", "nosuch")[0], cli.EXIT_USAGE)
@@ -63,6 +97,13 @@ class TestShotsJobs(unittest.TestCase):
 
     def request(self, app):
         self.st.add_shots_request(app, {"app": app, "requested": "2026-11-03T00:00:00Z", "by": "alice"})
+
+    def session_request(self, app, expires="2026-11-03T02:00:00Z"):
+        self.st.add_shots_request(app, {"app": app, "requested": "2026-11-03T00:00:00Z", "by": "alice",
+                                        "session": True, "expires": expires})
+
+    def at(self, epoch):
+        return mock.patch.dict(os.environ, {"SOURCE_DATE_EPOCH": str(epoch)})
 
     def candidate(self, version="2.0-1", sha="a" * 64, status="pending", sandbox="pass"):
         record = H.candidate(version=version, sha=sha, status=status,
@@ -179,6 +220,44 @@ class TestShotsJobs(unittest.TestCase):
         os.symlink(os.path.join(real, "shots.json"), os.path.join(self.out, "chrome_aaaaaaaaaaaa", "shots.json"))
         self.run_queue()
         self.assertEqual(len(self.st.shots_requests()), 1)
+
+    def test_session_request_survives_done_and_creates_job(self):
+        self.st.save_milkyway({"gimp": {"version": "3.0.4-1"}})
+        name = milkyway_name("3.0.4-1")
+        self.finish(name)   # screenshots already exist
+        self.session_request("gimp")
+        with self.at(1793584800):   # 2026-11-02T02:00:00Z, before the expiry
+            messages = self.run_queue()
+            self.assertEqual(self.names(), [name + ".demo.tar", name + ".json"])
+            self.assertEqual(self.doc(name)["mode"], "shots")
+            self.assertEqual(len(messages), 1)
+            self.assertEqual(self.run_queue(), [])
+        self.assertEqual(len(self.st.shots_requests()), 1)
+
+    def test_plain_request_with_output_creates_no_job(self):
+        self.st.save_milkyway({"gimp": {"version": "3.0.4-1"}})
+        self.finish(milkyway_name("3.0.4-1"))
+        self.request("gimp")
+        self.run_queue()
+        self.assertEqual((self.st.shots_requests(), self.names()), ([], []))
+
+    def test_expired_session_request_is_removed_and_job_cleaned(self):
+        self.st.save_milkyway({"gimp": {"version": "3.0.4-1"}})
+        name = milkyway_name("3.0.4-1")
+        self.session_request("gimp", expires="2026-11-03T02:00:00Z")
+        with self.at(1793584800 - 86400 * 2):
+            self.run_queue()
+        self.assertIn(name + ".json", self.names())
+        with self.at(1793584800 + 86400 * 2):
+            messages = self.run_queue()
+        self.assertIn("expired session shots request gimp", messages)
+        self.assertEqual((self.st.shots_requests(), self.names()), ([], []))
+
+    def test_session_request_without_expiry_counts_as_expired(self):
+        self.st.save_milkyway({"gimp": {"version": "3.0.4-1"}})
+        self.st.add_shots_request("gimp", {"app": "gimp", "requested": "x", "by": "a", "session": True})
+        self.run_queue()
+        self.assertEqual((self.st.shots_requests(), self.names()), ([], []))
 
     def test_check_job_wins_the_name(self):
         self.candidate(sandbox="missing")

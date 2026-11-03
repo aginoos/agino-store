@@ -235,15 +235,21 @@ def _shots_job(cfg, st, content, request):
 
 
 def _shots_wanted(cfg, st, content, checks, messages):
-    """{base: (record, doc, tar)} of the open shots requests; closes the ones that are done."""
+    """{base: (record, doc, tar)} of the open shots requests; closes the ones that are done. A session
+    request (interactive session daemon) is never closed by the output, only when it expires."""
     out = {}
     for request in st.shots_requests():
+        session = shotsreq.is_session(request)
+        if session and shotsreq.session_expired(request, catalogwriter.now()):
+            st.remove_shots_request(request["app"])
+            messages.append("expired session shots request %s" % request["app"])
+            continue
         job = _shots_job(cfg, st, content, request)
         if isinstance(job, str):
             messages.append("skipped shots %s: %s" % (request["app"], job))
             continue
         base, record, doc, tar = job
-        if shotsreq.is_done(cfg.shots_out, base):
+        if not session and shotsreq.is_done(cfg.shots_out, base):
             st.remove_shots_request(request["app"])
             messages.append("closed shots request %s (%s)" % (request["app"], base))
         elif base not in checks:   # a check job of the same candidate takes the shots itself

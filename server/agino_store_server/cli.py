@@ -17,7 +17,7 @@ import sys
 import tempfile
 
 from . import (catalog, catalogwriter, config, content, content_edit, reports, sandboxqueue, shots_cmds, shots_import,
-               shots_session, shots_store, status)
+               shots_session, shots_store, shotsreq, status)
 from .state import ID_RE, VERSION_RE, State, StateError, StateLocked
 
 EXIT_OK, EXIT_PROBLEM, EXIT_USAGE, EXIT_LOCKED = 0, 1, 2, 3
@@ -63,6 +63,8 @@ def _parser():
     p = sub.add_parser("shots-request", help="have the sandbox host take screenshots of APP")
     p.add_argument("app")
     p.add_argument("--cancel", action="store_true", help="withdraw the request")
+    p.add_argument("--for-session", action="store_true",
+                   help="keep the job in the queue for 2 hours for an interactive session")
     p = sub.add_parser("shots-import", help="take the newest sandbox screenshots of APP in as drafts")
     p.add_argument("app")
     p = sub.add_parser("shots-session-import", help="take picked captures of an interactive session in as drafts")
@@ -411,6 +413,8 @@ def cmd_sandbox_queue(cfg, st, args):
 
 
 def cmd_shots_request(cfg, st, args):
+    if args.for_session and args.cancel:
+        raise UsageError("--for-session cannot be combined with --cancel")
     with st.lock():
         if args.cancel:
             print(("cancelled shots request for %s" if st.remove_shots_request(args.app)
@@ -421,7 +425,16 @@ def cmd_shots_request(cfg, st, args):
             raise UsageError("unknown app %s" % args.app)
         if entry.shots is None:
             raise UsageError("%s has no valid shots.yaml" % args.app)
-        if any(r["app"] == args.app for r in st.shots_requests()):
+        existing = [r for r in st.shots_requests() if r["app"] == args.app]
+        if args.for_session:
+            now = catalogwriter.now()
+            record = {"app": args.app, "requested": existing[0].get("requested", _stamp()) if existing else _stamp(),
+                      "by": existing[0].get("by", _actor()) if existing else _actor(),
+                      "session": True, "expires": shotsreq.session_expiry(now)}
+            st.add_shots_request(args.app, record)
+            print("requested session shots for %s" % args.app)
+            return EXIT_OK
+        if existing:
             print("shots already requested for %s" % args.app)
             return EXIT_OK
         st.add_shots_request(args.app, {"app": args.app, "requested": _stamp(), "by": _actor()})

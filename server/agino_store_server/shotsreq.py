@@ -6,12 +6,16 @@ with "mode": "shots" (vendor apps: the newest pending or approved candidate; mil
 version in the cached milkyway index) until the sandbox host has written shots_out/<job>/shots.json.
 """
 
+import datetime
 import functools
 import hashlib
 import os
 import stat
 
 from . import catalog
+
+SESSION_TTL = datetime.timedelta(hours=2)
+TIME_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
 
 def milkyway_base(app, package, version):
@@ -50,3 +54,22 @@ def is_done(shots_out, base):
         return False
     finally:
         os.close(top)
+
+
+def session_expiry(now):
+    """The "expires" stamp of a session request made at now (a UTC datetime)."""
+    return (now + SESSION_TTL).strftime(TIME_FORMAT)
+
+
+def is_session(request):
+    return request.get("session") is True
+
+
+def session_expired(request, now):
+    """True if a session request has no readable "expires" stamp or it is not after now."""
+    try:
+        expires = datetime.datetime.strptime(request.get("expires"), TIME_FORMAT).replace(
+            tzinfo=datetime.timezone.utc)
+    except (TypeError, ValueError):
+        return True
+    return expires <= now
