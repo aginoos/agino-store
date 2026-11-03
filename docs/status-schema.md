@@ -11,11 +11,14 @@ ASCII JSON. Sections not requested (or not implemented yet) are absent. This exa
   "sections": {
     "apps": [{
       "id": "chrome", "name": {"zh_CN": "Chrome", "en_US": "Chrome"},
-      "summary": {"zh_CN": "...", "en_US": "Browser"}, "categories": ["web"],
+      "summary": {"zh_CN": "...", "en_US": "Browser"},
+      "description": {"zh_CN": ["...", "..."], "en_US": ["Paragraph one", "Paragraph two"]},
+      "license": "LicenseRef-proprietary", "categories": ["web"],
       "source": "official", "kind": "deb", "package": "google-chrome-stable", "vendor": "chrome",
       "proprietary": true, "developer": {"zh_CN": "...", "en_US": "Google"}, "homepage": null,
       "maintainer": null, "launchable": "google-chrome.desktop", "has_icon": true,
-      "description_source": "submitter", "l10n": false,
+      "description_source": "confirmed", "description_confirmed": {"by": "alice", "at": "2026-11-03T08:00:00Z"},
+      "l10n": false,
       "shots": {"state": "draft", "scenes": 2, "langs": ["zh_CN", "en_US"],
                 "counts": {"draft": 4, "approved": 0, "rejected": 1}},
       "approved": {"version": "156.0-1", "approved_at": "2026-11-01T08:00:00Z", "by": "alice"},
@@ -56,6 +59,7 @@ ASCII JSON. Sections not requested (or not implemented yet) are absent. This exa
                            "size": 123456, "sha256": "...", "source": "sandbox", "status": "approved",
                            "reviewer": "alice", "reviewed": "2026-11-03T08:00:00Z", "note": "",
                            "origin": "chrome_0123456789ab"}]}],
+    "categories": [{"id": "web", "name": {"zh_CN": "网络", "en_US": "Web"}}],
     "timers": [{"unit": "agino-store-track.timer", "LoadState": "loaded", "ActiveState": "active",
                 "SubState": "waiting", "LastTriggerUSec": "Tue 2026-11-03 06:00:00 UTC",
                 "NextElapseUSecRealtime": "Tue 2026-11-03 12:00:00 UTC"}]
@@ -65,5 +69,7 @@ ASCII JSON. Sections not requested (or not implemented yet) are absent. This exa
 }
 ```
 
-`truncated` is present only when the size guard cut a list. Exit code is 0 even when `errors` is
+`description_source` is one of `ai`, `confirmed`, `submitter` (default), `official`; `description_confirmed` is
+`{by, at}` or `null`. Section `categories` lists `categories.yaml` in file order and is also a valid `--section`
+name. `truncated` is present only when the size guard cut a list. Exit code is 0 even when `errors` is
 non-empty; 2 for a missing `--json` or an unknown `--section`.

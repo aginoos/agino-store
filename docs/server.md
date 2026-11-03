@@ -19,6 +19,7 @@ server/agino_store_server/
   debinfo.py     读 deb：control、maintainer 脚本、文件清单
   checks.py      依赖检查（dose-debcheck）、和上一版的差异
   reports.py     导入沙箱报告
+  content_edit.py / content_patch.py / content_git.py   content-edit、content-confirm：补丁校验、写回 app.yaml、提交和推送（第 13 节）
 tests/server/    unittest；fixture 在测试里现场生成（gpg 临时密钥、dpkg-deb 打的小包、本地 http 服务）
 ```
 
@@ -45,6 +46,10 @@ shots_staging = /var/lib/agino-admin/shots-staging   # 可选（默认值即此�
 [shots]                                # 可选，整段可省略
 max_per_lang = 6                       # 每个应用每种语言最多几张（不含 rejected），1..20
 min_width = 900                        # 截图最小宽度（像素），100..4096
+
+[content]                              # 可选，整段可省略（第 13 节）
+push = no                              # yes：content-edit / content-confirm 提交后推送到 origin 的 main；默认 no（只在本地提交）
+push_ssh_command =                     # 推送和 pull --rebase 用的 GIT_SSH_COMMAND，例如 ssh -i /srv/store/.ssh/content -o BatchMode=yes；空 = 普通 ssh
 
 [milkyway]
 url = https://repo.aginoos.com        # 取 dists/milkyway/<component>/binary-{amd64,all}/Packages.gz
@@ -132,6 +137,10 @@ icon: icon.png
 screenshots:                          # 可选；图片相对于应用目录
   zh_CN: [{image: screenshots/zh_CN/1.png}]
   en_US: [{image: screenshots/en_US/1.png}]
+description_source: confirmed          # 可选：ai | confirmed | submitter | official；缺省 = submitter（第 13 节）
+description_confirmed:                # 可选，只允许在 description_source: confirmed 时出现
+  by: alice                           # ^[A-Za-z0-9._-]{1,32}$
+  at: "2026-11-03T08:00:00Z"          # UTC，必须加引号（不加引号 YAML 会把它读成时间对象，校验拒绝）
 package:
   kind: milkyway                      # 或 deb
   name: gimp
@@ -148,7 +157,7 @@ release_notes:                        # 可选，按版本号
 - `name`、`summary`、`description` 必须同时有 `zh_CN` 和 `en_US`，其他语言可选。
 - `kind: milkyway` 的 `source` 只能是 `system`；`kind: deb` 只能是 `official` 或 `personal`。
 - 截图的宽高由 build 从 PNG 头读出；PoC 不生成缩略图（`thumb` 与 `image` 相同）。`screenshots:` 仍然接受（向后兼容），但某个应用在截图目录里有 approved 的图时，以目录为准（D-203，见第 12 节）。
-- 未知字段报错（防止拼错的字段被静默忽略）。
+- 未知字段报错（防止拼错的字段被静默忽略）。`description_source` 和 `description_confirmed` 是仅有的两个新增可选字段（D-203）。`description_source: ai` 的应用不能直接放行（第 5 节 `approve`）。
 
 `apps/<id>/shots.yaml`（可选；没有这个文件就不为该应用自动截图。完整约定见 research/app-store-13/shots-contract.md）：
 
@@ -281,7 +290,7 @@ class State:
 | `check [--app ID]` | 拉 milkyway Packages，更新 `milkyway.json`，重查 pending 和已放行候选的依赖，A 类包不存在的报出来 | `checks.run_check(cfg, st, content, app=None) -> list[dict]`（返回问题列表） |
 | `intake VENDOR FILE [--url 来源页]` | 人工下载的 deb 入库：包名、架构必须对，版本必须等于 awaiting-upload 的版本（没有就必须高于已放行的） | `trackers.intake(cfg, st, content, vendor, path, url) -> dict` |
 | `pending [--json]` | 列出 pending / awaiting-upload：版本、大小、各项检查、diff 摘要 | cli |
-| `approve APP[@VERSION] \| all [--no-sandbox] [--include-flagged] [--note 文字]` | 放行。依赖失败的不能放行；沙箱不是 pass 的要 `--no-sandbox`（记入 log）。`all` 跳过不满足条件的并列出，也跳过有 inspect flags、`diff.scripts_changed` 或 `diff.flags_added` 的候选，除非给 `--include-flagged`；单个应用照常放行，但会先打印它放行的 flags 和改动的脚本 | cli |
+| `approve APP[@VERSION] \| all [--no-sandbox] [--include-flagged] [--description-reviewed] [--note 文字]` | 放行。介绍来源（`description_source`）是 `ai` 时拒绝（退出码 1，"the description is AI-generated and not confirmed; confirm it or pass --description-reviewed"），给 `--description-reviewed` 才放行，`approvals.log` 的该行记 `"description_reviewed": true`（没给则为 false）；`all` 一律跳过并列出这类应用，`all` 不接受 `--description-reviewed`（退出码 2，要按名字放行）；其他来源不受影响。依赖失败的不能放行；沙箱不是 pass 的要 `--no-sandbox`（记入 log）。`all` 跳过不满足条件的并列出，也跳过有 inspect flags、`diff.scripts_changed` 或 `diff.flags_added` 的候选，除非给 `--include-flagged`；单个应用照常放行，但会先打印它放行的 flags 和改动的脚本 | cli |
 | `revoke APP[@VERSION] [--note]` | 撤销放行：从 `approved.json` 删除该应用，对应候选记为 `revoked`，写入 `approvals.log`；下一次 `build` 不再包含它 | cli |
 | `reject APP@VERSION [--note]` | 拒绝 | cli |
 | `reports-ingest` | 导入 `paths.reports` 下的新报告 | `reports.ingest(cfg, st) -> list[dict]` |
@@ -291,13 +300,15 @@ class State:
 | `shots-ingest APP --lang L --scene S --file STAGED --source upload\|manual --status draft\|approved --reviewer NAME [--replace NN-scene.png]` | 取 `paths.shots_staging/STAGED` 的 PNG，校验、去掉附加块后存为 `<L>/NN-<S>.png`（或顶替 `--replace` 指定的图，旧图进 `.prev`），读完删除暂存文件 | `shots_cmds.cmd_ingest` |
 | `shots-review APP --lang L --file NN-scene.png --status approved\|rejected\|draft --reviewer NAME [--note 文字]` | 改一张图的状态；approved 要重新校验文件并受每语言上限限制 | `shots_cmds.cmd_review` |
 | `shots-remove APP --lang L --file NN-scene.png --reviewer NAME` | 把图移到 `.prev`，从 `meta.json` 去掉 | `shots_cmds.cmd_remove` |
+| `content-edit APP --patch NAME.json --editor NAME` | 取 `paths.shots_staging/NAME.json` 的 JSON 补丁改 `apps/APP/app.yaml`，校验整个内容仓库，提交（可选推送）；全局锁；见第 13 节 | `content_edit.cmd_edit` |
+| `content-confirm APP --editor NAME` | 把介绍标为人工确认（`description_source: confirmed` + `description_confirmed {by, at}`），提交（可选推送）；已确认则什么都不做（退出码 0）；全局锁；见第 13 节 | `content_edit.cmd_confirm` |
 | `build [--if-changed]` | 生成并签名目录；`--if-changed`：输入没变且距上次不到 `renew_after_hours` 就什么都不做（输入没变但该续期了就只换 serial 和有效期） | `catalog.build(cfg, st, content, if_changed=False) -> dict` |
 | `metrics` | 写 `agino_store_server.prom` | cli |
 | `status --json [--section 名称 ...]` | 只读状态总览，给管理后台用（第 11 节）；不拿锁、不写、不联网 | cli、`status.build(cfg, sections, clean) -> str` |
 
 `allow_insecure = true` 时命令行直接退出（码 2），除非环境变量 `AGINO_STORE_SERVER_TESTS=1`（测试设置它）。`pending` 和各命令输出里，厂商或候选提供的字符串会去掉控制字符（制表符、换行除外）。
 
-退出码：0 成功；1 有问题需要人看（检查失败、跟踪出错）；2 用法或配置错误；3 锁被占用（`shots-*` 命令是某个应用的截图锁被占用）。
+退出码：0 成功；1 有问题需要人看（检查失败、跟踪出错、补丁或内容无效、推送失败）；2 用法或配置错误；3 锁被占用（`shots-*` 命令是某个应用的截图锁被占用；`content-*` 用全局锁）。
 
 ## 6. 跟踪和下载
 
@@ -408,17 +419,18 @@ milkyway 里的应用不进沙箱队列，已通过沙箱的候选也不会再�
 
 `agino-store-server status --json [--section NAME ...]` 是管理后台（agino-store-admin）读状态的唯一接口，后台不解析内部文件格式。严格只读：不拿 `state/.lock`（所以和任何写命令并行都行），不写文件，不调用 sudo，不联网。状态 JSON 是原子替换的，每个文件只打开读一次（`O_NOFOLLOW`，必须是普通文件，最大 8 MiB）；文件缺失、读到一半或 JSON 无效时，记入 `errors` 后继续。退出码 0（有 `errors` 也是 0）；`--json` 缺失或段名未知退出码 2。
 
-输出一个 JSON 对象（ensure_ascii，示例见 `docs/status-schema.md`）：`{"schema": 1, "generated": "<UTC>", "sections": {…}, "errors": [{"section", "detail"}]}`。`--section` 可重复，默认全部。已实现：`apps`、`candidates`、`approved`、`vendors`、`catalog`、`sandbox`、`timers`、`shots`；`upstreams`、`submissions`、`sessions`、`builds` 是预留名，现在接受但输出里没有这一段。
+输出一个 JSON 对象（ensure_ascii，示例见 `docs/status-schema.md`）：`{"schema": 1, "generated": "<UTC>", "sections": {…}, "errors": [{"section", "detail"}]}`。`--section` 可重复，默认全部。已实现：`apps`、`candidates`、`approved`、`vendors`、`catalog`、`sandbox`、`timers`、`shots`、`categories`；`upstreams`、`submissions`、`sessions`、`builds` 是预留名，现在接受但输出里没有这一段。
 
 | 段 | 内容 |
 |---|---|
-| `apps` | 列表，每项：`id`、`name`、`summary`（`{zh_CN, en_US}`）、`categories`、`source`、`kind`、`package`、`vendor`、`proprietary`、`developer`、`homepage`、`maintainer`、`launchable`、`has_icon`、`description_source`（缺省 `submitter`）、`l10n`（布尔）、`shots`（`{state: none\|draft\|approved, scenes, langs, counts: {draft, approved, rejected}}`，来自 `paths.screenshots/<应用>/meta.json`；至少一张 approved 的图就是 approved，否则有 draft 为 draft，否则 none；`scenes`、`langs` 只数没被 rejected 的图）、`approved`（`{version, approved_at, by}` 或 null）、`current_candidate_status`（版本最高的候选的状态）。内容仓库校验失败时这一段为空，每条问题记入 `errors` |
+| `apps` | 列表，每项：`id`、`name`、`summary`（`{zh_CN, en_US}`）、`description`（`{zh_CN: [段落…], en_US: […]}`，全文）、`license`、`categories`、`source`、`kind`、`package`、`vendor`、`proprietary`、`developer`（`{zh_CN, en_US}`）、`homepage`、`maintainer`、`launchable`、`has_icon`、`description_source`（缺省 `submitter`）、`description_confirmed`（`{by, at}` 或 null）、`l10n`（布尔）、`shots`（`{state: none\|draft\|approved, scenes, langs, counts: {draft, approved, rejected}}`，来自 `paths.screenshots/<应用>/meta.json`；至少一张 approved 的图就是 approved，否则有 draft 为 draft，否则 none；`scenes`、`langs` 只数没被 rejected 的图）、`approved`（`{version, approved_at, by}` 或 null）、`current_candidate_status`（版本最高的候选的状态）。内容仓库校验失败时这一段为空，每条问题记入 `errors` |
 | `candidates` | 全部候选，按 `found` 从新到旧：`id`（`<应用>/<文件名去 .json>`）、`app`、`vendor`、`package`、`version`、`size`、`installed_size`、`found`、`status`、`origin`（`type`，apt 带 `signed_by`）、`source_class`（`official`＝apt/https，`personal`＝manual/built，否则 `unknown`）、`checks`（`deps{ok,detail}`、`inspect{flags}`、`diff{against,scripts_changed,flags_added,summary}`、`sandbox{status,summary,report}`）、`decided`。不含脚本原文和文件清单 |
 | `approved` | `{apps: approved.json 原样, log: approvals.log 最后 50 行解析后的对象（坏行跳过）}` |
 | `vendors` | 每个厂商：`id`、`name`（厂商包名）、`in_content`、`last_check`、`last_ok`、`last_error`、`seen_version`；内容仓库里的和 `state/vendors/` 里有记录的取并集 |
 | `catalog` | `{state: {serial, revision, built_at, inputs_sha256, apps}, published: {serial, revision, created, expires, valid_until, apps, signature_present} 或 null}`；`published` 读 `paths.preview/current/` 的 `manifest.json` 和 `catalog.json`，只看签名文件在不在，不验签 |
 | `sandbox` | `{queue: [{job, mode(check\|shots), app, version, size, created}], jobs: [{job, status, result, attempts, reason, report, updated}]（`paths.sandbox_state/*.json`）, reports: 最新 30 份（`paths.reports/` 和 `done/`）[{name, location, app, version, result, finished, at, summary}]}` |
 | `shots` | 内容仓库里每个应用一项：`id`、`counts`（`{draft, approved, rejected}`）、`images`（按语言、文件名排序，每张图是 `meta.json` 里的完整记录：`lang`、`file`、`scene`、`width`、`height`、`size`、`sha256`、`source`、`status`、`reviewer`、`reviewed`、`note`、`origin`），管理后台一次调用读全部。目录或 `meta.json` 缺失时 `images` 为空，`meta.json` 损坏记入 `errors`（段名 `shots`） |
+| `categories` | `categories.yaml` 的列表：`[{id, name: {zh_CN, en_US}}]`，顺序同文件；内容仓库校验失败时为空列表（问题记入 `errors`，段名 `apps`） |
 | `timers` | `agino-store-{track,check,build,sandbox,reports}.{service,timer}` 十个单元的 `systemctl show`（固定参数，不经 shell，每个 5 秒超时）：`unit`、`LoadState`、`ActiveState`、`SubState`、`Result`、`LastTriggerUSec`、`NextElapseUSecRealtime`、`ExecMainStatus`。没有 systemctl 时为空列表并记入 `errors` |
 
 所有来自厂商、候选、沙箱和内容仓库的字符串先过 `pending` 用的控制字符清理（控制字符换成 `?`，包括键名）。文档超过 8 MiB 时，把最长的列表（`apps`、`candidates`、`approved.log`、`vendors`、`sandbox.*`）反复砍掉后一半，被砍的段名写进顶层 `"truncated"`。
@@ -454,3 +466,23 @@ milkyway 里的应用不进沙箱队列，已通过沙箱的候选也不会再�
 - `shots-review`：approved 要求文件仍然通过全部校验（含 sha256 与记录相符、不含不允许的块）且不超每语言上限；改回 draft 清空审核人和时间；`--note` 缺省时保留原备注。rejected 的图留在磁盘上，不删除。
 - `shots-remove`：图移到 `.prev`，从 `meta.json` 去掉；`--reviewer` 只用于校验和输出。
 - 回退：把图改回 draft/rejected，或把 `.prev` 里的文件放回去并相应修改 `meta.json`，下一次 `build --if-changed` 生效。
+
+## 13. 应用信息的修改和介绍确认（D-203）
+
+管理后台的"应用信息"标签通过两条命令改 `apps/<id>/app.yaml`，两条都不让后台直接碰内容仓库。设计见 agino-store-admin 的 `docs/design.md` 7.6。
+
+**介绍来源**（`app.yaml` 的 `description_source`，缺省 `submitter`）：`ai`（AI 撰写，放行前必须人工确认）、`confirmed`（人工改过或确认过，可带 `description_confirmed {by, at}`）、`submitter`（提交者写的）、`official`（官方来源的）。`approve` 对 `ai` 的限制见第 5 节。
+
+**`content-edit APP --patch NAME.json --editor NAME`**
+- 参数全部严格校验，错误退出码 2：`APP` 同 `shots-*`（内容仓库里有 `apps/<id>/app.yaml`）；`NAME` 为 `^[A-Za-z0-9_-]{8,64}\.json$`；`--editor` 为 `^[A-Za-z0-9._-]{1,32}$`。
+- 补丁文件在 `paths.shots_staging`（和截图上传同一个暂存目录），以 `O_NOFOLLOW` 打开，必须是普通文件，<= 64 KiB，UTF-8 JSON 对象，不许重复键和 `NaN`。成功后删除，失败（包括补丁无效）时留着。
+- 允许的键，其他一律拒绝（退出码 1，补丁不能带 `description_source`）：`name`、`summary`、`developer`（`{zh_CN, en_US}`，上限 100/300/100 字符，单行）、`description`（`{zh_CN: [段落], en_US: [段落]}`，每种语言 1..50 段，每段 <= 4000 字符）、`categories`（1..2 个，必须在 `categories.yaml` 里，不重复）、`license`（`content.py` 的许可证格式）、`proprietary`（布尔）、`homepage`（https URL，无用户名密码）。本地化键必须同时给出 `zh_CN` 和 `en_US`，且只能有这两个；一个键出现就替换它的值（本地化键里补丁没提到的其他语言保留）。所有文字不得含控制字符（含换行、制表符），也不得含看起来像标记的 `<` 加字母或 `/`（`1 < 2` 没问题）。
+- 语义：先校验当前内容仓库（本来就无效则退出码 1，不动文件），再应用补丁。补丁没改变任何值则输出 `no changes for APP`、退出码 0、只删补丁文件。`description` 或 `summary` 的值改变了就把 `description_source` 设为 `confirmed`、`description_confirmed` 设为 `{by: EDITOR, at: 现在(UTC)}`（人改过文字就算审阅过），两个键紧跟在 `description` 后面；只改了别的键则介绍来源不变。
+- 写回用 `yaml.safe_dump(sort_keys=False, allow_unicode=True, default_flow_style=False, width=1000000)`（宽度取很大，长段落不会被折行）。现有 store-content 的 `app.yaml` 里只有一处与它不同：`l10n` 的行内列表 `[a]` 会被展开成块列表，含义相同；测试用样例文件验证其余文件逐字节一致。
+- 然后用 `content.load` 校验整个内容仓库；失败则恢复原文件，退出码 1，输出错误。
+- git（`content_git.py`，在 `paths.content` 里）：开始前要求它是 git 检出且 `apps/<id>/app.yaml` 没有未提交的改动；`git add apps/<id>/app.yaml`，`git -c user.name=agino-store -c user.email=agino-store@localhost commit -m "info(<APP>): <改动的键> by <EDITOR>" -- apps/<id>/app.yaml`（只提交这个文件；关闭钩子和签名）。`[content] push = yes` 时 `git push origin HEAD:main`；被拒绝则做**一次** `git pull --rebase --autostash origin main` 再推；还是失败就撤销这次提交（`git reset --keep`，回到我们提交之前，已拉下来的别人的提交保留），不改别的，退出码 1，补丁留着。`push = no`（默认）只在本地提交，并输出 `warning: not pushed (content.push is off)`。
+- 所有 git 命令用固定的参数列表、不经 shell、60 秒超时，环境只保留 `PATH`、`HOME`、`GIT_SSH_COMMAND`（取自 `push_ssh_command`，空则不设）和 `GIT_TERMINAL_PROMPT=0`。
+- 锁：全局 `state/.lock`（和 `track`、`build`、其他修改互斥，被占用退出码 3）。
+- 回退：在内容仓库里 `git revert` 对应提交，下一次 `build` 恢复。
+
+**`content-confirm APP --editor NAME`**：把 `description_source` 设为 `confirmed`，`description_confirmed` 设为 `{by, at}`（来源原本是 `ai`、`submitter` 或 `official` 都行），按上面的 git 流程提交 `info(<APP>): confirm description by <EDITOR>`。已经是 `confirmed` 则输出 `description of APP is already confirmed`，退出码 0，不提交。同样拿全局锁。
