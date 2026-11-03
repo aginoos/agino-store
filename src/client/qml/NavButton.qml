@@ -50,13 +50,13 @@ Control {
             implicitWidth: Math.max(18, badgeText.implicitWidth + 10)
             implicitHeight: 18
             radius: 9
-            color: item.current ? item.palette.highlightedText : item.palette.highlight
+            color: item.current ? item.palette.highlightedText : "#e5484d"
             D.Label {
                 id: badgeText
                 anchors.centerIn: parent
                 text: item.badge
-                font: D.DTK.fontManager.t10
-                color: item.current ? item.palette.highlight : item.palette.highlightedText
+                font.pixelSize: 11
+                color: item.current ? item.palette.highlight : "#ffffff"
             }
         }
     }
