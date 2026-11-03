@@ -48,8 +48,15 @@ PageBase {
                     onToggled: Settings.notifyUpdates = checked
                 }
             }
-            // "Install store app updates automatically" (Settings.autoInstallUpdates) comes back
-            // with phase 2 of the store.
+            // Not wired up before phase 2 of the store, so shown disabled.
+            SettingsRow {
+                text: qsTr("Install store app updates automatically")
+                badge: qsTr("Phase 2")
+                D.Switch {
+                    enabled: false
+                    checked: false
+                }
+            }
         }
 
         SettingsGroup {

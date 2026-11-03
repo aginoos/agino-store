@@ -46,6 +46,7 @@ D.ApplicationWindow {
                 id: search
                 anchors.centerIn: parent
                 width: Math.min(360, parent.width - 24)
+                placeholderText: qsTr("Search apps")
                 onTextChanged: debounce.restart()
             }
             Timer {
