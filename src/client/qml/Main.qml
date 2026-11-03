@@ -13,8 +13,12 @@ D.ApplicationWindow {
     minimumHeight: 520
     visible: true
     title: qsTr("App Store")
-    // DTK draws the title bar (D.TitleBar below) instead of the window manager.
+    // DTK draws the title bar (D.TitleBar below) instead of the window manager. D.WindowButtonGroup
+    // shows each window button only when the window carries the matching hint, and a QML Window
+    // starts with plain Qt.Window, so the hints are listed here.
     D.DWindow.enabled: true
+    flags: Qt.Window | Qt.WindowTitleHint | Qt.WindowSystemMenuHint | Qt.WindowMinimizeButtonHint
+           | Qt.WindowMaximizeButtonHint | Qt.WindowCloseButtonHint
 
     readonly property Component pageComponent: {
         if (Store.catalogState === "unavailable" && Router.page !== "settings")
@@ -35,10 +39,17 @@ D.ApplicationWindow {
         icon.name: "agino-store"
 
         // TODO(verify): DTK icon name of the "back" arrow.
-        leftContent: D.IconButton {
-            icon.name: "arrow_ordinary_left"
-            enabled: Router.history.length > 0
-            onClicked: Router.back()
+        leftContent: RowLayout {
+            spacing: 4
+            D.IconButton {
+                icon.name: "arrow_ordinary_left"
+                enabled: Router.history.length > 0
+                onClicked: Router.back()
+            }
+            D.Label {
+                text: window.title
+                font: D.DTK.fontManager.t6
+            }
         }
 
         content: Item {
