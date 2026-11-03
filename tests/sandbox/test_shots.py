@@ -309,11 +309,13 @@ class MainWindowTests(unittest.TestCase):
         polls = [{"0x3"}, {"0x3", "0x2"}, {"0x2"}, {"0x2", "0x1"}, {"0x2", "0x1"}, {"0x2", "0x1"}]
         self.assertEqual(self.find(polls, types={"0x3": "SPLASH"}), "0x1")
 
-    def test_dialog_alone_is_no_main_window(self):
+    def test_dialog_alone_is_the_fallback(self):
         from unittest import mock
         from agino_store_sandbox import shots
         with mock.patch.object(shots, "WINDOW_WAIT", 0):
-            self.assertIsNone(self.find([{"0x2"}], types={"0x2": "DIALOG"}))
+            # Nothing but a dialog (a first-run wizard): it is better than no picture at all.
+            self.assertEqual(self.find([{"0x2"}], types={"0x2": "DIALOG"}), "0x2")
+            self.assertIsNone(self.find([set()]))
 
 
 
