@@ -40,12 +40,13 @@ def decode_rgb_png(data):
     return w, h, b"".join(raw[i * stride + 1:(i + 1) * stride] for i in range(h))
 
 
-def session_cfg(tmp, **session):
+def session_cfg(tmp, sandbox=None, **session):
     """A Config whose paths are all inside tmp."""
     values = {"queue": tmp + "/queue", "state": tmp + "/state", "run": tmp + "/run", "shot_dir": tmp + "/shots",
               "shots_out": tmp + "/shots-out", "reports": tmp + "/reports", "base": tmp + "/base.qcow2",
               "base_vars": tmp + "/base.vars", "ovmf_code": tmp + "/code.fd", "key": tmp + "/key.pem",
               "qemu_sandbox": "off"}
+    values.update(sandbox or {})
     sess = {"runtime_dir": tmp + "/rt", "captures": tmp + "/captures", "web_group": "nonexistent-group-xyz"}
     sess.update({k: str(v) for k, v in session.items()})
     return config.from_dict(values, sess)
