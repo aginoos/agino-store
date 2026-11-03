@@ -79,10 +79,11 @@ D.ApplicationWindow {
             }
             Rectangle {
                 x: bar.originX + 199
+                z: 10
                 width: 1
                 anchors.verticalCenter: parent.verticalCenter
                 height: parent.height
-                color: Qt.alpha(window.palette.windowText, 0.16)
+                color: Qt.alpha(window.palette.windowText, 0.22)
             }
             D.IconButton {
                 id: backButton
