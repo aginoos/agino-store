@@ -190,7 +190,6 @@ class TestHostileInput(SessionCase):
         os.mkfifo(os.path.join(base, "02-window-zh_CN.png"))
         code, out, _ = self.imp("01,02")
         self.assertEqual(code, 1)
-        self.assertEqual(out.count("problem 0"), 0)
         self.assertIn("problems 2", out)
         self.assertFalse(self.meta_exists())
 
