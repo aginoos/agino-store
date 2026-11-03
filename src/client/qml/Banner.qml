@@ -13,14 +13,26 @@ Control {
     property int index: 0
     readonly property var current: items.length > 0 ? items[Math.min(index, items.length - 1)] : null
 
+    readonly property bool hasSubtitle: current !== null && !!current.subtitle && current.subtitle !== ""
+
     padding: 28
 
     background: Rectangle {
         radius: 16
+        clip: true
         gradient: Gradient {
             orientation: Gradient.Horizontal
             GradientStop { position: 0.0; color: Qt.darker(banner.palette.highlight, 1.2) }
             GradientStop { position: 1.0; color: Qt.lighter(banner.palette.highlight, 1.25) }
+        }
+        // Decorative circle, partly off-canvas.
+        Rectangle {
+            x: parent.width - 280
+            y: -80
+            width: 340
+            height: 340
+            radius: 170
+            color: Qt.rgba(1, 1, 1, 0.08)
         }
     }
 
@@ -38,20 +50,37 @@ Control {
                 Layout.fillWidth: true
                 spacing: 6
                 D.Label {
-                    text: banner.current ? banner.current.title : ""
+                    // With no subtitle the title becomes the headline below.
+                    visible: text !== ""
+                    text: banner.hasSubtitle ? banner.current.title : ""
                     color: Qt.alpha(banner.palette.highlightedText, 0.85)
                     font: D.DTK.fontManager.t8
                 }
                 D.Label {
                     Layout.fillWidth: true
-                    text: banner.current ? banner.current.subtitle : ""
+                    text: banner.current ? (banner.hasSubtitle ? banner.current.subtitle : banner.current.title) : ""
                     color: banner.palette.highlightedText
                     font: Qt.font({ family: D.DTK.fontManager.t2.family, pixelSize: D.DTK.fontManager.t2.pixelSize, weight: Font.DemiBold })
                     wrapMode: Text.Wrap
                 }
                 D.Button {
+                    id: go
                     Layout.topMargin: 8
                     text: qsTr("Explore")
+                    // White pill with dark text, whatever the accent.
+                    contentItem: Text {
+                        text: go.text
+                        font.weight: Font.Medium
+                        color: "#112233"
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    background: Rectangle {
+                        implicitWidth: 88
+                        implicitHeight: 32
+                        radius: height / 2
+                        color: go.down ? "#e6e9ee" : "#ffffff"
+                    }
                     onClicked: {
                         const apps = banner.current ? banner.current.apps : []
                         const cats = apps.length > 0 ? Store.app(apps[0]).categories : []
