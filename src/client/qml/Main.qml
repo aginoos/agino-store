@@ -117,14 +117,15 @@ D.ApplicationWindow {
             }
         }
 
-        // The popup stays inside the window, so it carries the edge line that popup windows get
-        // from the window border in the current themes.
+        // The popup stays inside the window, where D.Menu leaves the panel's edge line off; the
+        // theme's own panel style (D.FloatingPanel defaults) brings it back.
         menu: D.Menu {
-            background: Rectangle {
-                radius: 10
-                color: Qt.lighter(window.palette.window, 1.12)
-                border.width: 1
-                border.color: Qt.alpha(window.palette.windowText, 0.18)
+            id: menu
+            background: D.FloatingPanel {
+                backgroundColor: menu.backgroundColor
+                backgroundNoBlurColor: menu.backgroundNoBlurColor
+                blurMultiplier: 8.0
+                enableBlur: false
             }
             D.Action {
                 text: qsTr("Settings")
