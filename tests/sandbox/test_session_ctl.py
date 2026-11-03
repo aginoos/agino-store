@@ -21,6 +21,7 @@ start) [ -f "$FAKE/start-fails" ] && exit 1
          mkdir -p "$FAKE/rt/$app"
          [ -f "$FAKE/session-id" ] && cp "$FAKE/session-id" "$FAKE/rt/$app/session.id"
          [ -f "$FAKE/token" ] && cp "$FAKE/token" "$FAKE/rt/$app/token.once"
+         [ -f "$FAKE/readonly-dir" ] && chmod 500 "$FAKE/rt/$app"
        fi
        exit 0;;
 stop) [ -f "$FAKE/stop-fails" ] && exit 1; exit 0;;
@@ -143,6 +144,17 @@ class StartTests(CtlCase):
         self.daemon(token=None)
         code, out, err = self.run_ctl("start", "demo")
         self.assertEqual((code, out), (1, ""))
+        self.assertEqual(self.calls()[-1], "stop agino-store-session@demo.service")
+
+    @unittest.skipIf(os.geteuid() == 0, "root ignores directory permissions")
+    def test_unlink_failure_stops_the_unit_and_is_a_clean_refusal(self):
+        self.put("readonly-dir", "")
+        self.addCleanup(lambda: os.path.isdir(os.path.join(self.fake, "rt", "demo"))
+                        and os.chmod(os.path.join(self.fake, "rt", "demo"), 0o700))
+        code, out, err = self.run_ctl("start", "demo")
+        self.assertEqual((code, out), (1, ""))
+        self.assertIn("agino-session-ctl: cannot collect the session token", err)
+        self.assertNotIn("Traceback", err)
         self.assertEqual(self.calls()[-1], "stop agino-store-session@demo.service")
 
     def test_stale_files_of_an_earlier_run_are_not_returned(self):

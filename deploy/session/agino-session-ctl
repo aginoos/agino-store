@@ -12,6 +12,7 @@ Test mode (AGINO_SESSION_CTL_TEST=1 in the environment, never used in production
 --runtime-dir DIR, --max-sessions N and --wait SECONDS before the command, and finds systemctl through PATH.
 """
 
+import ctypes
 import errno
 import fcntl
 import os
@@ -161,6 +162,24 @@ def remove_stale(runtime, app):
         os.close(root)
 
 
+def unlink_token(app_fd, test_mode):
+    """Delete token.once. The daemon's directory belongs to SANDBOX_USER and the console unit's capability
+    bounding set (inherited through sudo) has no CAP_DAC_OVERRIDE, so root cannot unlink there by itself:
+    the file system identity is switched to the owner for the call (CAP_SETUID is in the set)."""
+    if test_mode:
+        os.unlink("token.once", dir_fd=app_fd)
+        return
+    uid = pwd.getpwnam(SANDBOX_USER).pw_uid
+    libc = ctypes.CDLL(None, use_errno=True)
+    previous = libc.setfsuid(ctypes.c_uint(uid))
+    try:
+        if libc.setfsuid(ctypes.c_uint(0xFFFFFFFF)) != uid:
+            raise Refuse("cannot take the file system identity of %s" % SANDBOX_USER)
+        os.unlink("token.once", dir_fd=app_fd)
+    finally:
+        libc.setfsuid(ctypes.c_uint(previous))
+
+
 def collect(runtime, app, test_mode, wait=WAIT_TOKEN):
     """(session id, token) written by the freshly started daemon; the token file is deleted after reading."""
     end = time.monotonic() + wait
@@ -178,7 +197,7 @@ def collect(runtime, app, test_mode, wait=WAIT_TOKEN):
             token = read_small(app_fd, "token.once", TOKEN_RE, test_mode)
             if token is not None:
                 session_id = read_small(app_fd, "session.id", ID_RE, test_mode)
-                os.unlink("token.once", dir_fd=app_fd)
+                unlink_token(app_fd, test_mode)
                 if session_id is None:
                     raise Refuse("the daemon wrote no session id")
                 return session_id, token
@@ -203,9 +222,11 @@ def start(runtime, limit, wait, app, test_mode):
             raise Refuse("systemctl start failed")
         try:
             session_id, token = collect(runtime, app, test_mode, wait)
-        except Refuse:
+        except (Refuse, OSError) as e:
             run_systemctl(test_mode, "stop", unit)
-            raise
+            if isinstance(e, Refuse):
+                raise
+            raise Refuse("cannot collect the session token: %s" % (e.strerror or type(e).__name__)) from None
         sys.stdout.write("SESSION %s\nTOKEN %s\n" % (session_id, token))
         sys.stdout.flush()
     finally:
