@@ -15,7 +15,8 @@ import struct
 
 VERSION = b"RFB 003.008\n"
 SECURITY_NONE = 1
-MAX_ENCODINGS = 20
+# noVNC 1.5 offers 22; unwanted ones are stripped below, the cap only bounds the buffer.
+MAX_ENCODINGS = 64
 # Raw, CopyRect, Tight, ZRLE, Cursor, DesktopSize, ExtendedDesktopSize, LastRect
 ENCODINGS = frozenset((0, 1, 7, 16, -239, -223, -308, -224))
 TIGHT_QUALITY = range(-32, -22)      # -32 .. -23

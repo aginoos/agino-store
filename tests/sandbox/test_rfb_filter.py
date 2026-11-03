@@ -150,10 +150,17 @@ class MessageTests(unittest.TestCase):
         self.assertEqual(out, set_encodings(kept))
         self.assertEqual(fresh().feed(set_encodings([-258, -259, 255])), set_encodings([]))
 
+    def test_novnc_default_encoding_list_is_accepted(self):
+        # what @novnc/novnc 1.5.0 sends: 22 entries, most of them stripped
+        codes = [7, 6, 5, 16, 0, 1, -260, -314, -308, -307, -306, -305, -304, -303, -302, -301, -258, -257, -224,
+                 -223, -240, -239]
+        self.assertEqual(len(codes), 22)
+        self.assertEqual(fresh().feed(set_encodings(codes)), set_encodings([7, 16, 0, 1, -308, -224, -223, -239]))
+
     def test_encoding_count_limit(self):
-        self.assertEqual(fresh().feed(set_encodings([0] * 20)), set_encodings([0] * 20))
+        self.assertEqual(fresh().feed(set_encodings([0] * 64)), set_encodings([0] * 64))
         with self.assertRaises(R.RfbReject):
-            fresh().feed(struct.pack(">BxH", 2, 21))
+            fresh().feed(struct.pack(">BxH", 2, 65))
         with self.assertRaises(R.RfbReject):
             fresh().feed(struct.pack(">BxH", 2, 65535))
 
