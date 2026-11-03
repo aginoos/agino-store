@@ -164,11 +164,17 @@ class CaptureStore:
         self._lock = threading.Lock()
 
     def create_directory(self):
-        os.makedirs(os.path.dirname(self.directory), mode=0o750, exist_ok=True)
-        os.mkdir(self.directory, 0o750)
-        # The process umask must not narrow the mode. The setgid bit stays ON: files created here inherit
-        # the group of the captures directory (agino-store), which the import command needs to read them.
-        os.chmod(self.directory, 0o2750)
+        parent = os.path.dirname(self.directory)
+        os.makedirs(parent, mode=0o750, exist_ok=True)
+        # The unit runs with RestrictSUIDSGID, so no chmod may set or clear the setgid bit: the directory
+        # gets it from its setgid parent at mkdir time (files created here then inherit the group
+        # agino-store, which the import command needs to read them). Only the group bits have to be
+        # opened, and that is done through the umask for this one mkdir.
+        old = os.umask(0o027)
+        try:
+            os.mkdir(self.directory, 0o750)
+        finally:
+            os.umask(old)
         self._write_index()
 
     def count(self):

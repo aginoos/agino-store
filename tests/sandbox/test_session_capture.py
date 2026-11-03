@@ -51,7 +51,7 @@ class PipelineTests(Base):
         index = json.loads(slurp(os.path.join(self.dir, "captures.json")))
         self.assertEqual(index["items"][0]["sha256"], item["sha256"])
         self.assertEqual(stat.S_IMODE(os.stat(os.path.join(self.dir, "captures.json")).st_mode), 0o640)
-        self.assertEqual(stat.S_IMODE(os.stat(self.dir).st_mode), 0o2750)   # setgid: files inherit the group
+        self.assertEqual(stat.S_IMODE(os.stat(self.dir).st_mode) & 0o777, 0o750)   # setgid comes from the parent
 
     def test_bad_screendumps(self):
         cases = {
