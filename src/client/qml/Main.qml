@@ -35,64 +35,58 @@ D.ApplicationWindow {
         }
     }
 
-    // Title bar after the deepin store: the left part is the rail's width (app icon and name), a
-    // separator continues the rail's edge, then back button and search.
+    // Title bar after the deepin store: over the rail (200 wide) the app icon and name, the rail's
+    // separator continues up, and right of it come the back button and the search. Everything sits
+    // in the content area, positioned from the title bar's left edge.
     header: D.TitleBar {
         id: titleBar
 
-        // The loader takes no size from the layout, so the width is spelled out: rail part (190)
-        // + separator + gap + back button.
-        leftContent: RowLayout {
-            implicitWidth: 190 + 1 + 14 + 36
-            width: implicitWidth
-            implicitHeight: titleBar.height
-            height: implicitHeight
-            spacing: 0
+        content: Item {
+            id: bar
+            readonly property real originX: -mapToItem(titleBar, 0, 0).x
+
             Rectangle {
-                Layout.preferredWidth: 200 - 10
-                Layout.fillHeight: true
+                x: bar.originX
+                width: 199
+                height: parent.height
                 color: Qt.darker(window.palette.window, 1.04)
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: 10
-                    spacing: 8
-                    D.DciIcon {
-                        name: "agino-store"
-                        sourceSize: Qt.size(24, 24)
-                        Layout.preferredWidth: 24
-                        Layout.preferredHeight: 24
-                    }
-                    D.Label {
-                        text: window.title
-                        font: D.DTK.fontManager.t6
-                    }
+            }
+            RowLayout {
+                x: bar.originX + 10
+                height: parent.height
+                spacing: 8
+                D.DciIcon {
+                    name: "agino-store"
+                    sourceSize: Qt.size(24, 24)
+                    Layout.preferredWidth: 24
+                    Layout.preferredHeight: 24
+                }
+                D.Label {
+                    text: window.title
+                    font: D.DTK.fontManager.t6
                 }
             }
             Rectangle {
-                Layout.fillHeight: true
-                Layout.preferredWidth: 1
+                x: bar.originX + 199
+                width: 1
+                height: parent.height
                 color: Qt.alpha(window.palette.windowText, 0.1)
             }
             D.IconButton {
-                Layout.leftMargin: 14
+                id: backButton
+                x: bar.originX + 200 + 14
+                anchors.verticalCenter: parent.verticalCenter
                 icon.name: "arrow_ordinary_left"
                 enabled: Router.history.length > 0
                 onClicked: Router.back()
             }
-        }
-
-        content: Item {
-            RowLayout {
-                anchors.left: parent.left
-                anchors.leftMargin: 4
+            D.SearchEdit {
+                id: search
+                x: backButton.x + backButton.width + 10
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: 14
-                D.SearchEdit {
-                    id: search
-                    Layout.preferredWidth: Math.max(160, Math.min(340, titleBar.width - 560))
-                    placeholder: qsTr("Search apps")
-                    onTextChanged: debounce.restart()
-                }
+                width: Math.max(160, Math.min(340, parent.width - x - 20))
+                placeholder: qsTr("Search apps")
+                onTextChanged: debounce.restart()
             }
             Timer {
                 id: debounce
