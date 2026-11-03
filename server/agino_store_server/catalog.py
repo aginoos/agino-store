@@ -12,7 +12,7 @@ import stat
 import struct
 from urllib.parse import quote
 
-from . import catalogwriter as cw
+from . import catalogwriter as cw, shots_catalog
 from .content import content_digest
 
 CATALOG_DIR_RE = re.compile(r"\Acatalog-(\d{10})\Z")
@@ -189,9 +189,12 @@ def resolve(cfg, st, content):
     return facts, skipped
 
 
-def inputs_hash(cfg, content, facts):
+def inputs_hash(cfg, content, facts, shots=None):
     shown = {k: {f: v for f, v in info.items() if f != "path"} for k, info in facts.items()}
     blob = {"content": content_digest(content.root), "facts": shown, "deb_base_url": cfg.deb_base_url}
+    rows = shots_catalog.inputs(shots or {})
+    if rows:   # only when there are any, so catalogs without directory screenshots keep their hash
+        blob["screenshots"] = rows
     return cw.sha256_bytes(json.dumps(blob, sort_keys=True).encode("utf-8"))
 
 
@@ -258,7 +261,11 @@ def _summary(cfg, app, info, icon):
     return out
 
 
-def _screenshots(store, app):
+def _screenshots(store, app, cfg=None, images=None, warnings=None):
+    """The `screenshots` field: approved images of the screenshot directory, else the app.yaml list."""
+    published = shots_catalog.publish(cfg, store, app.id, images, warnings) if images else None
+    if published is not None:
+        return published
     out = {}
     for lang, rels in app.screenshots.items():
         shots = []
@@ -299,20 +306,25 @@ def _install_profile(app):
             "default_files": [dict(f) for f in app.install_profile["default_files"]]}
 
 
-def _detail(st, store, app, info):
+def _detail(st, store, app, info, cfg=None, images=None, warnings=None):
     maintainer = app.maintainer
     out = {"id": app.id, "description": {k: list(v) for k, v in app.description.items()},
            "developer": app.developer, "homepage": app.homepage,
            "maintainer": "%s (%s)" % (maintainer["name"], maintainer["contact"]) if maintainer else None,
-           "screenshots": _screenshots(store, app), "releases": _releases(st, app, info)}
+           "screenshots": _screenshots(store, app, cfg, images, warnings), "releases": _releases(st, app, info)}
     profile = _install_profile(app)
     if profile:
         out["install_profile"] = profile
     return out
 
 
-def build_files(cfg, st, content, facts):
-    """(files for the tree, [included app ids], [{"id", "reason"}] for apps dropped here)."""
+def build_files(cfg, st, content, facts, shots=None, warnings=None):
+    """(files for the tree, [included app ids], [{"id", "reason"}] for apps dropped here).
+
+    `shots` is {app id: approved screenshot records}; problems with them are appended to `warnings`.
+    """
+    shots = shots or {}
+    warnings = warnings if warnings is not None else []
     store = cw.AssetStore()
     files, apps, skipped = {}, [], []
     for app in content.apps:
@@ -320,7 +332,7 @@ def build_files(cfg, st, content, facts):
             continue
         try:
             icon = _asset_path(store, app, app.icon)
-            detail = _detail(st, store, app, facts[app.id])
+            detail = _detail(st, store, app, facts[app.id], cfg, shots.get(app.id), warnings)
             apps.append(_summary(cfg, app, facts[app.id], icon))
             files["apps/%s.json" % app.id] = cw.dump_json(detail)
         except Skip as e:
@@ -456,18 +468,19 @@ def prune_debs(preview, valid_days, now):
 def build(cfg, st, content, if_changed=False):
     """Build and publish the catalog; returns a summary dict (docs/server.md section 8)."""
     facts, skipped = resolve(cfg, st, content)
-    inputs = inputs_hash(cfg, content, facts)
+    shots, warnings = shots_catalog.collect(cfg, content)
+    inputs = inputs_hash(cfg, content, facts, shots)
     now = cw.now()
     prev = st.catalog_state()
     current_dir = os.path.join(cfg.preview, "current")
     if if_changed and _unchanged(cfg, prev, inputs, current_dir, now):
         return {"serial": prev["serial"], "revision": prev.get("revision"), "apps": prev.get("apps", 0),
-                "skipped": skipped, "changed": False}
+                "skipped": skipped, "warnings": warnings, "changed": False}
     renewed = prev.get("inputs_sha256") == inputs
     os.makedirs(cfg.preview, exist_ok=True)
     serial = _free_serial(cfg.preview, prev.get("serial", 0), now)
     revision = "r%d-%s" % (serial, inputs[:12])
-    files, included, dropped = build_files(cfg, st, content, facts)
+    files, included, dropped = build_files(cfg, st, content, facts, shots, warnings)
     name = "catalog-%d" % serial
     _publish(cfg, files, serial, revision, name, now, facts, included)
     st.save_catalog_state({"serial": serial, "inputs_sha256": inputs, "revision": revision, "apps": len(included),
@@ -475,7 +488,7 @@ def build(cfg, st, content, if_changed=False):
     prune(cfg.preview, cfg.keep_catalogs)
     prune_debs(cfg.preview, cfg.valid_days, now)
     return {"serial": serial, "revision": revision, "apps": len(included), "skipped": skipped + dropped,
-            "changed": True, "renewed": renewed}
+            "warnings": warnings, "changed": True, "renewed": renewed}
 
 
 def _publish(cfg, files, serial, revision, name, now, facts, included):

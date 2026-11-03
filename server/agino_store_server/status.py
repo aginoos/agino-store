@@ -7,15 +7,15 @@ Never takes state/.lock, writes nothing, runs no sudo and uses no network.
 import datetime
 import json
 
-from . import status_apps, status_sandbox, status_state
+from . import status_apps, status_sandbox, status_shots, status_state
 from .status_io import Errors, sanitize
 
 SCHEMA = 1
-SECTIONS = ("apps", "candidates", "approved", "vendors", "catalog", "sandbox", "timers")
+SECTIONS = ("apps", "candidates", "approved", "vendors", "catalog", "sandbox", "timers", "shots")
 FUTURE_SECTIONS = ("upstreams", "submissions", "sessions", "builds")
 MAX_BYTES = 8 << 20
 # (section, path inside the section) of the lists the size guard may shorten; newest or most important first.
-TRUNCATABLE = (("apps", ()), ("candidates", ()), ("approved", ("log",)), ("vendors", ()),
+TRUNCATABLE = (("apps", ()), ("shots", ()), ("candidates", ()), ("approved", ("log",)), ("vendors", ()),
                ("sandbox", ("queue",)), ("sandbox", ("jobs",)), ("sandbox", ("reports",)))
 
 
@@ -39,7 +39,7 @@ def _now():
 
 
 def _collect(cfg, wanted, errors):
-    content = status_apps.load_content(cfg, errors) if {"apps", "vendors"} & set(wanted) else None
+    content = status_apps.load_content(cfg, errors) if {"apps", "vendors", "shots"} & set(wanted) else None
     candidates = (status_state.load_candidates(cfg, errors)
                   if {"apps", "candidates"} & set(wanted) else [])
     approved = status_state.read_approved(cfg, errors) if {"apps", "approved"} & set(wanted) else {}
@@ -51,6 +51,7 @@ def _collect(cfg, wanted, errors):
         "catalog": lambda: status_state.catalog_section(cfg, errors),
         "sandbox": lambda: status_sandbox.sandbox_section(cfg, errors),
         "timers": lambda: status_sandbox.timers_section(errors),
+        "shots": lambda: status_shots.section(cfg, content, errors),
     }
     out = {}
     for name in wanted:

@@ -10,6 +10,9 @@ DEFAULT_SANDBOX_QUEUE = "/srv/store/sandbox/queue"
 DEFAULT_SHOTS_OUT = "/srv/store/sandbox/shots-out"
 DEFAULT_SANDBOX_STATE = "/srv/store/sandbox/state"
 DEFAULT_SCREENSHOTS = "/srv/store/screenshots"
+DEFAULT_SHOTS_STAGING = "/var/lib/agino-admin/shots-staging"
+DEFAULT_SHOTS_MAX_PER_LANG = 6
+DEFAULT_SHOTS_MIN_WIDTH = 900
 
 
 class ConfigError(Exception):
@@ -44,7 +47,10 @@ class Config:
     sandbox_queue: str = DEFAULT_SANDBOX_QUEUE
     shots_out: str = DEFAULT_SHOTS_OUT
     sandbox_state: str = DEFAULT_SANDBOX_STATE   # read only by `status`
-    screenshots: str = DEFAULT_SCREENSHOTS       # read only by `status`
+    screenshots: str = DEFAULT_SCREENSHOTS       # screenshot directory (docs/server.md section 12)
+    shots_staging: str = DEFAULT_SHOTS_STAGING   # where the admin console drops uploads for shots-ingest
+    shots_max_per_lang: int = DEFAULT_SHOTS_MAX_PER_LANG
+    shots_min_width: int = DEFAULT_SHOTS_MIN_WIDTH
 
 
 def _get(cp, section, key, conv=str):
@@ -72,6 +78,19 @@ def _opt(cp, section, key):
         return cp.get(section, key).strip() or None
     except (configparser.NoSectionError, configparser.NoOptionError):
         return None
+
+
+def _shots_int(cp, key, default, low, high):
+    raw = _opt(cp, "shots", key)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except ValueError as e:
+        raise ConfigError("bad value for [shots] %s: %r" % (key, raw)) from e
+    if not low <= value <= high:
+        raise ConfigError("[shots] %s must be between %d and %d" % (key, low, high))
+    return value
 
 
 def _sign_command(raw):
@@ -118,6 +137,9 @@ def load(path=DEFAULT_PATH):
         shots_out=_opt(cp, "paths", "shots_out") or DEFAULT_SHOTS_OUT,
         sandbox_state=_opt(cp, "paths", "sandbox_state") or DEFAULT_SANDBOX_STATE,
         screenshots=_opt(cp, "paths", "screenshots") or DEFAULT_SCREENSHOTS,
+        shots_staging=_opt(cp, "paths", "shots_staging") or DEFAULT_SHOTS_STAGING,
+        shots_max_per_lang=_shots_int(cp, "max_per_lang", DEFAULT_SHOTS_MAX_PER_LANG, 1, 20),
+        shots_min_width=_shots_int(cp, "min_width", DEFAULT_SHOTS_MIN_WIDTH, 100, 4096),
     )
     if bool(cfg.key) == bool(cfg.sign_command):
         raise ConfigError("[catalog] exactly one of key and sign_command must be set")

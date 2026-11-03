@@ -16,7 +16,8 @@ import re
 import sys
 import tempfile
 
-from . import catalog, catalogwriter, config, content, reports, sandboxqueue, status
+from . import (catalog, catalogwriter, config, content, reports, sandboxqueue, shots_cmds, shots_import,
+               shots_store, status)
 from .state import ID_RE, VERSION_RE, State, StateError, StateLocked
 
 EXIT_OK, EXIT_PROBLEM, EXIT_USAGE, EXIT_LOCKED = 0, 1, 2, 3
@@ -60,6 +61,29 @@ def _parser():
     p = sub.add_parser("shots-request", help="have the sandbox host take screenshots of APP")
     p.add_argument("app")
     p.add_argument("--cancel", action="store_true", help="withdraw the request")
+    p = sub.add_parser("shots-import", help="take the newest sandbox screenshots of APP in as drafts")
+    p.add_argument("app")
+    p = sub.add_parser("shots-ingest", help="store a staged PNG as a screenshot of APP")
+    p.add_argument("app")
+    p.add_argument("--lang", required=True)
+    p.add_argument("--scene", required=True)
+    p.add_argument("--file", required=True, metavar="STAGED_NAME", help="PNG in paths.shots_staging")
+    p.add_argument("--source", required=True)
+    p.add_argument("--status", required=True)
+    p.add_argument("--reviewer", required=True)
+    p.add_argument("--replace", default=None, metavar="NN-SCENE.PNG", help="image whose slot the new one takes")
+    p = sub.add_parser("shots-review", help="approve, reject or reset one screenshot")
+    p.add_argument("app")
+    p.add_argument("--lang", required=True)
+    p.add_argument("--file", required=True, metavar="NN-SCENE.PNG")
+    p.add_argument("--status", required=True)
+    p.add_argument("--reviewer", required=True)
+    p.add_argument("--note", default=None)
+    p = sub.add_parser("shots-remove", help="move one screenshot to .prev")
+    p.add_argument("app")
+    p.add_argument("--lang", required=True)
+    p.add_argument("--file", required=True, metavar="NN-SCENE.PNG")
+    p.add_argument("--reviewer", required=True)
     sub.add_parser("build", help="build and publish the catalog").add_argument("--if-changed", action="store_true")
     sub.add_parser("metrics", help="write the Prometheus text file")
     p = sub.add_parser("status", help="read-only state overview for the admin console (needs --json)")
@@ -371,6 +395,11 @@ def cmd_shots_request(cfg, st, args):
     return EXIT_OK
 
 
+def _shots(func):
+    """Adapter: the shots-* commands work on paths.screenshots only and never take the state lock."""
+    return lambda cfg, st, args: func(cfg, args)
+
+
 def cmd_build(cfg, st, args):
     with st.lock():
         try:
@@ -384,6 +413,8 @@ def cmd_build(cfg, st, args):
     print("built serial %s, revision %s, %d apps" % (summary["serial"], summary["revision"], summary["apps"]))
     for item in summary["skipped"]:
         print("not published: %s (%s)" % (item["id"], item["reason"]))
+    for line in summary.get("warnings", ()):
+        print("warning: %s" % _clean(line))
     return EXIT_OK
 
 
@@ -463,6 +494,8 @@ def cmd_status(cfg, st, args):
 COMMANDS = {"track": cmd_track, "check": cmd_check, "intake": cmd_intake, "pending": cmd_pending,
             "approve": cmd_approve, "revoke": cmd_revoke, "reject": cmd_reject, "reports-ingest": cmd_reports_ingest,
             "sandbox-queue": cmd_sandbox_queue, "shots-request": cmd_shots_request,
+            "shots-import": _shots(shots_import.cmd_import), "shots-ingest": _shots(shots_cmds.cmd_ingest),
+            "shots-review": _shots(shots_cmds.cmd_review), "shots-remove": _shots(shots_cmds.cmd_remove),
             "build": cmd_build, "metrics": cmd_metrics, "status": cmd_status}
 # Commands whose implementation lives in modules written separately: any failure there is reported, not traced.
 GUARDED = ("track", "check", "intake")
@@ -482,7 +515,7 @@ def main(argv=None):
     st = State(cfg.state)
     try:
         return COMMANDS[args.command](cfg, st, args)
-    except UsageError as e:
+    except (UsageError, shots_cmds.ShotsUsage) as e:
         print("error: %s" % e, file=sys.stderr)
         return EXIT_USAGE
     except StateLocked as e:
@@ -491,7 +524,7 @@ def main(argv=None):
     except content.ContentError as e:
         print("store-content is invalid:\n%s" % e, file=sys.stderr)
         return EXIT_PROBLEM
-    except (StateError, OSError) as e:
+    except (StateError, shots_store.ShotsError, OSError) as e:
         print("error: %s" % e, file=sys.stderr)
         return EXIT_PROBLEM
     except Exception as e:  # noqa: BLE001 - see GUARDED
