@@ -81,6 +81,35 @@ class TestStatus(StatusCase):
         self.assertIsNone(apps["gimp"]["approved"])
         self.assertEqual(doc["schema"], 1)
 
+    def test_apps_carry_the_editable_information(self):
+        H.edit_yaml(os.path.join(self.cfg.content, "apps", "gimp", "app.yaml"), lambda d: dict(
+            d, description_source="confirmed", description_confirmed={"by": "bob", "at": "2026-11-03T08:00:00Z"}))
+        apps = {a["id"]: a for a in self.doc("apps")["sections"]["apps"]}
+        gimp, chrome = apps["gimp"], apps["chrome"]
+        self.assertEqual(gimp["summary"], {"zh_CN": "图像编辑器", "en_US": "Image editor"})
+        self.assertEqual(gimp["description"], {"zh_CN": ["段落一", "段落二"], "en_US": ["One", "Two"]})
+        self.assertEqual(gimp["license"], "GPL-3.0-or-later")
+        self.assertEqual(gimp["developer"], {"zh_CN": "GIMP 团队", "en_US": "The GIMP Team"})
+        self.assertEqual(gimp["description_source"], "confirmed")
+        self.assertEqual(gimp["description_confirmed"], {"by": "bob", "at": "2026-11-03T08:00:00Z"})
+        self.assertEqual((chrome["description_source"], chrome["description_confirmed"]), ("submitter", None))
+        self.assertEqual(chrome["license"], "LicenseRef-proprietary")
+
+    def test_categories_section(self):
+        doc = self.doc("categories")
+        self.assertEqual(list(doc["sections"]), ["categories"])
+        self.assertEqual(doc["sections"]["categories"], [
+            {"id": "graphics", "name": {"zh_CN": "图形", "en_US": "Graphics"}},
+            {"id": "web", "name": {"zh_CN": "网络", "en_US": "Web"}}])
+        self.assertEqual(doc["errors"], [])
+        self.assertIn("categories", self.doc()["sections"])
+
+    def test_categories_with_broken_content_is_empty(self):
+        os.unlink(os.path.join(self.cfg.content, "apps", "gimp", "icon.svg"))
+        doc = self.doc("categories")
+        self.assertEqual(doc["sections"]["categories"], [])
+        self.assertTrue(doc["errors"])
+
     def test_apps_broken_content_is_an_error(self):
         os.unlink(os.path.join(self.cfg.content, "apps", "gimp", "icon.svg"))
         doc = self.doc("apps")

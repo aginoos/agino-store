@@ -1,0 +1,39 @@
+name:
+  zh_CN: Google Chrome
+  en_US: Google Chrome
+summary:
+  zh_CN: 谷歌出品的网页浏览器
+  en_US: Web browser from Google
+description:
+  zh_CN:
+  - Google Chrome 是谷歌开发的网页浏览器，用于浏览网页和运行网页应用。它基于开源的 Chromium 项目，但 Chrome 本身是专有软件，由谷歌以二进制形式发布。
+  - 登录谷歌账号后，可以在多台设备间同步书签、密码和设置；不登录也可以正常浏览。Chrome 支持从官方扩展商店安装扩展，支持 HTML5、WebAssembly 等现代网页标准，也可以打开 PDF 文件。
+  - Chrome 带有安全浏览、沙箱隔离和隐私浏览（无痕）模式，并随版本更新持续修复安全问题。可在 Linux、Windows、macOS、Android 和 iOS 上使用。
+  en_US:
+  - Google Chrome is a web browser developed by Google, used to browse websites and run web applications. It is based on the open-source Chromium project, but Chrome itself is proprietary software distributed by Google in binary form.
+  - After you sign in with a Google account, bookmarks, passwords and settings can be synced across devices; signing in is optional and the browser works without it. Chrome can install extensions from its official extension store, supports modern web standards such as HTML5 and WebAssembly, and can open PDF files.
+  - Chrome includes Safe Browsing, process sandboxing and a private (Incognito) browsing mode, and receives regular updates for security fixes. It is available for Linux, Windows, macOS, Android and iOS.
+categories:
+- web
+source: official
+license: LicenseRef-proprietary
+proprietary: true
+developer:
+  zh_CN: 谷歌
+  en_US: Google
+homepage: https://www.google.com/chrome/
+maintainer: null
+launchable: google-chrome.desktop
+icon: icon.png
+package:
+  kind: deb
+  name: google-chrome-stable
+  vendor: chrome
+install_profile:
+  default_files:
+  - path: /etc/default/google-chrome
+    content: 'repo_add_once="false"
+
+      repo_reenable_on_distupgrade="false"
+
+      '

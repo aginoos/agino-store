@@ -1,0 +1,32 @@
+name:
+  zh_CN: Thunderbird
+  en_US: Thunderbird
+summary:
+  zh_CN: 电子邮件客户端
+  en_US: Email client
+description:
+  zh_CN:
+  - Thunderbird 是自由开源的电子邮件客户端，同时支持新闻组、聊天和日历，易于设置和定制。它由 Thunderbird 项目开发，源自 Mozilla，以 MPL 2.0 许可证发布。
+  - 软件支持 IMAP、POP3 和 SMTP 协议，可以同时管理多个邮箱账号，提供统一收件箱、搜索与过滤、标签、通讯录和垃圾邮件识别功能。日历功能可以使用本地日历，也可以连接 CalDAV 等标准日历服务。
+  - Thunderbird 支持 OpenPGP 邮件加密与签名，也可以通过附加组件扩展功能。它坚持使用和推广开放标准，让用户自行选择邮件服务商和沟通方式。
+  en_US:
+  - Thunderbird is a free and open-source email client that also supports newsfeeds, chat and calendaring, and is easy to set up and customize. It is developed by the Thunderbird Project, has its origins at Mozilla, and is released under the MPL 2.0 licence.
+  - It supports the IMAP, POP3 and SMTP protocols and can manage several mail accounts at once, with a unified inbox, search and filters, tags, an address book and junk mail detection. The calendar can be used locally or connected to standard calendar services such as CalDAV.
+  - Thunderbird supports OpenPGP email encryption and signing, and can be extended with add-ons. It uses and promotes open standards, so users can choose their own mail provider and way of communicating.
+categories:
+- office
+source: system
+license: MPL-2.0
+proprietary: false
+developer:
+  zh_CN: Thunderbird 项目
+  en_US: Thunderbird Project
+homepage: https://www.thunderbird.net/
+maintainer: null
+launchable: thunderbird.desktop
+icon: icon.png
+package:
+  kind: milkyway
+  name: thunderbird
+l10n:
+  zh_CN: [thunderbird-l10n-zh-cn]

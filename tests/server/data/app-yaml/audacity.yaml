@@ -1,0 +1,30 @@
+name:
+  zh_CN: Audacity
+  en_US: Audacity
+summary:
+  zh_CN: 音频录制与编辑
+  en_US: Audio recorder and editor
+description:
+  zh_CN:
+  - Audacity 是自由开源的音频录制与编辑软件，由志愿者社区开发，目前由 Muse Group 维护，以 GNU 通用公共许可证发布，可在 Linux、Windows 和 macOS 上运行。
+  - 它可以通过麦克风或声卡录制实时音频，也可以把磁带和唱片转录为数字录音。支持导入和导出 WAV、AIFF、FLAC、MP2、MP3 和 Ogg Vorbis 等格式的声音文件。
+  - 在编辑方面，Audacity 支持多轨工程，可以剪切、复制、拼接和混合声音，调整速度和音高，并提供降噪、均衡、淡入淡出等多种音频效果，还可以通过插件加载更多效果。
+  en_US:
+  - Audacity is free and open-source software for recording and editing audio. It is developed by a volunteer community, is currently maintained by Muse Group, is released under the GNU General Public License, and runs on Linux, Windows and macOS.
+  - It can record live audio through a microphone or sound card, and can convert tapes and records into digital recordings. It imports and exports sound files in formats such as WAV, AIFF, FLAC, MP2, MP3 and Ogg Vorbis.
+  - For editing, Audacity works with multi-track projects. You can cut, copy, splice and mix sounds, change the speed and pitch of a recording, and apply effects such as noise reduction, equalization and fades. More effects can be added through plug-ins.
+categories:
+- media
+source: system
+license: GPL-3.0-only
+proprietary: false
+developer:
+  zh_CN: Muse Group
+  en_US: Muse Group
+homepage: https://www.audacityteam.org/
+maintainer: null
+launchable: audacity.desktop
+icon: icon.png
+package:
+  kind: milkyway
+  name: audacity

@@ -1,0 +1,34 @@
+name:
+  zh_CN: Visual Studio Code
+  en_US: Visual Studio Code
+summary:
+  zh_CN: 微软出品的代码编辑器
+  en_US: Code editor from Microsoft
+description:
+  zh_CN:
+  - Visual Studio Code 是微软开发的代码编辑器，可在多种操作系统上运行。它支持语法高亮、智能补全、代码导航与重构、断点调试和内置的 Git 版本控制，并带有集成终端和任务运行功能。
+  - 编辑器可以通过扩展增加对更多编程语言、调试器、工具和界面主题的支持，几乎所有主流语言都能找到对应的扩展。它也可以用于编辑配置文件、脚本和标记语言文档，并支持打开远程机器或容器中的项目。
+  - 本软件是微软发布的专有构建，使用微软的产品许可条款，与以 MIT 许可证开源的代码仓库不同。安装时不会自动添加微软的软件源，软件更新由商店负责。
+  en_US:
+  - Visual Studio Code is a code editor developed by Microsoft that runs on several operating systems. It offers syntax highlighting, intelligent completion, code navigation and refactoring, breakpoint debugging and built-in Git integration, together with an integrated terminal and task runner.
+  - Extensions add support for more programming languages, debuggers, tools and colour themes, and extensions exist for nearly all mainstream languages. The editor can also be used for configuration files, scripts and markup documents, and it can open projects on remote machines or in containers.
+  - This is the proprietary build distributed by Microsoft under Microsoft's product licence terms, which differs from the source repository released under the MIT licence. Installation does not add the Microsoft software repository, and updates are handled by the store.
+categories:
+- dev
+source: official
+license: LicenseRef-proprietary
+proprietary: true
+developer:
+  zh_CN: 微软
+  en_US: Microsoft
+homepage: https://code.visualstudio.com/
+maintainer: null
+launchable: com.microsoft.VSCode.desktop
+icon: icon.png
+package:
+  kind: deb
+  name: code
+  vendor: code
+install_profile:
+  debconf:
+  - code code/add-microsoft-repo boolean false

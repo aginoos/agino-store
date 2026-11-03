@@ -354,3 +354,61 @@ VENDOR_URL = H.VENDOR["track"]["url"]
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestDescriptionReview(ContentCase):
+    CONFIRMED = {"by": "alice", "at": "2026-11-03T08:00:00Z"}
+
+    def set_review(self, source=None, confirmed=None, app="gimp"):
+        def change(data):
+            if source is not None:
+                data["description_source"] = source
+            if confirmed is not None:
+                data["description_confirmed"] = confirmed
+            return data
+        self.edit_app(app, change)
+
+    def test_defaults(self):
+        app = C.load(self.root).app("gimp")
+        self.assertEqual((app.description_source, app.description_confirmed), ("submitter", None))
+
+    def test_every_source_is_accepted(self):
+        for source in ("ai", "submitter", "official"):
+            with self.subTest(source):
+                self.set_review(source)
+                self.assertEqual(C.load(self.root).app("gimp").description_source, source)
+
+    def test_confirmed_with_and_without_details(self):
+        self.set_review("confirmed")
+        app = C.load(self.root).app("gimp")
+        self.assertEqual((app.description_source, app.description_confirmed), ("confirmed", None))
+        self.set_review("confirmed", self.CONFIRMED)
+        self.assertEqual(C.load(self.root).app("gimp").description_confirmed, self.CONFIRMED)
+
+    def test_unknown_source(self):
+        self.set_review("robot")
+        self.assertRejected("description_source: must be one of")
+
+    def test_details_need_the_confirmed_source(self):
+        for source in (None, "ai", "official"):
+            with self.subTest(source):
+                self.set_review(source, self.CONFIRMED)
+                self.assertRejected("only allowed with description_source: confirmed")
+
+    def test_bad_details(self):
+        for bad in ({"by": "a b", "at": "2026-11-03T08:00:00Z"}, {"by": "x" * 33, "at": "2026-11-03T08:00:00Z"},
+                    {"by": "alice", "at": "yesterday"}, {"by": "alice", "at": "2026-11-03 08:00:00"},
+                    {"by": "alice"}, {"at": "2026-11-03T08:00:00Z"},
+                    {"by": "alice", "at": "2026-11-03T08:00:00Z", "why": "x"}, "alice", None):
+            with self.subTest(bad):
+                self.set_review("confirmed", bad)
+                self.assertRejected("description_confirmed")
+
+    def test_unquoted_timestamp_is_rejected(self):
+        with open(self.path("apps", "gimp", "app.yaml"), "a", encoding="utf-8") as f:
+            f.write("description_source: confirmed\ndescription_confirmed:\n  by: alice\n  at: 2026-11-03T08:00:00Z\n")
+        self.assertRejected("description_confirmed.at")
+
+    def test_other_unknown_keys_are_still_rejected(self):
+        self.edit_app("gimp", lambda d: dict(d, description_origin="ai"))
+        self.assertRejected("unknown key 'description_origin'")
