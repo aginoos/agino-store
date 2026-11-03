@@ -1,0 +1,9 @@
+[Unit]
+Description=agino app store: session captures cleanup timer
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+
+[Install]
+WantedBy=timers.target

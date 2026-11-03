@@ -1,0 +1,12 @@
+[Unit]
+Description=agino app store: remove old interactive session captures
+
+[Service]
+Type=oneshot
+User=agino-sandbox
+ExecStart=/usr/local/bin/agino-store-sandbox --config /etc/agino-store-sandbox/sandbox.conf session cleanup
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/srv/store/sandbox/captures
+PrivateTmp=true
+ProtectHome=true

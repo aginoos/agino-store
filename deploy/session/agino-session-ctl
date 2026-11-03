@@ -1,0 +1,240 @@
+#!/usr/bin/python3 -I
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""agino-session-ctl: the only root entry that starts and stops interactive screenshot sessions.
+
+    agino-session-ctl start APP    start agino-store-session@APP.service, print "SESSION <id>" and "TOKEN <hex>"
+    agino-session-ctl stop APP     stop it
+
+Called by `sudo` from the agino-store user. No shell, no environment input (a fixed PATH is used),
+APP is checked against a strict pattern and only ever passed as the instance name of the fixed
+template. A lock serialises the count of active sessions and the start.
+Test mode (AGINO_SESSION_CTL_TEST=1 in the environment, never used in production) allows
+--runtime-dir DIR, --max-sessions N and --wait SECONDS before the command, and finds systemctl through PATH.
+"""
+
+import errno
+import fcntl
+import os
+import pwd
+import re
+import stat
+import subprocess
+import sys
+import time
+
+APP_RE = re.compile(r"\A[a-z0-9][a-z0-9-]{0,63}\Z")
+UNIT_RE = re.compile(r"\Aagino-store-session@([a-z0-9][a-z0-9-]{0,63})\.service\Z")
+ID_RE = re.compile(rb"\A[0-9a-f]{16}\n?\Z")
+TOKEN_RE = re.compile(rb"\A[0-9a-f]{64}\n?\Z")
+RUNTIME_DIR = "/run/agino-session"
+SYSTEMCTL = "/usr/bin/systemctl"
+SANDBOX_USER = "agino-sandbox"
+MAX_SESSIONS = 2          # keep equal to [session] max_sessions in sandbox.conf
+WAIT_TOKEN = 20.0
+LOCK_WAIT = 40.0
+SYSTEMCTL_TIMEOUT = 60
+SAFE_PATH = "/usr/sbin:/usr/bin:/sbin:/bin"
+
+
+class Refuse(Exception):
+    def __init__(self, message, code=1):
+        super().__init__(message)
+        self.code = code
+
+
+def parse_args(argv, test_mode):
+    """(runtime_dir, max_sessions, wait, command, app) from argv[1:]; Refuse(…, 2) for any deviation."""
+    args = list(argv)
+    runtime, limit, wait = RUNTIME_DIR, MAX_SESSIONS, WAIT_TOKEN
+    while args and args[0].startswith("--"):
+        if not test_mode:
+            raise Refuse("usage: agino-session-ctl start|stop APP", 2)
+        flag = args.pop(0)
+        if flag not in ("--runtime-dir", "--max-sessions", "--wait") or not args:
+            raise Refuse("bad option", 2)
+        value = args.pop(0)
+        if flag == "--runtime-dir":
+            runtime = value
+        elif flag == "--max-sessions" and value.isdigit() and 1 <= int(value) <= 99:
+            limit = int(value)
+        elif flag == "--wait" and re.match(r"\A[0-9](\.[0-9]{1,2})?\Z", value):
+            wait = float(value)
+        else:
+            raise Refuse("bad option value", 2)
+    if len(args) != 2 or args[0] not in ("start", "stop") or not APP_RE.match(args[1]):
+        raise Refuse("usage: agino-session-ctl start|stop APP", 2)
+    return runtime, limit, wait, args[0], args[1]
+
+
+def systemctl_path(test_mode):
+    return "systemctl" if test_mode else SYSTEMCTL
+
+
+def run_systemctl(test_mode, *argv):
+    env = dict(os.environ) if test_mode else {"PATH": SAFE_PATH, "LANG": "C"}
+    try:
+        return subprocess.run([systemctl_path(test_mode), *argv], stdin=subprocess.DEVNULL, capture_output=True,
+                              timeout=SYSTEMCTL_TIMEOUT, env=env, check=False)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise Refuse("systemctl failed: %s" % type(e).__name__) from None
+
+
+def active_apps(test_mode):
+    """Set of apps whose agino-store-session@ unit is active."""
+    done = run_systemctl(test_mode, "list-units", "--state=active", "--plain", "--no-legend",
+                         "agino-store-session@*.service")
+    if done.returncode != 0:
+        raise Refuse("cannot list the session units")
+    apps = set()
+    for line in done.stdout.decode("utf-8", "replace").splitlines():
+        fields = line.split()
+        m = UNIT_RE.match(fields[0]) if fields else None
+        if m:
+            apps.add(m.group(1))
+    return apps
+
+
+class Lock:
+    def __init__(self, runtime):
+        try:
+            os.makedirs(runtime, mode=0o750, exist_ok=True)
+            self.fd = os.open(os.path.join(runtime, ".lock"), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        except OSError as e:
+            raise Refuse("cannot open the lock: %s" % e.strerror) from None
+        end = time.monotonic() + LOCK_WAIT
+        while True:
+            try:
+                fcntl.flock(self.fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return
+            except OSError as e:
+                if e.errno not in (errno.EAGAIN, errno.EACCES) or time.monotonic() > end:
+                    raise Refuse("another session command is running", 3) from None
+                time.sleep(0.1)
+
+
+def _open_dir(path, dir_fd=None):
+    return os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=dir_fd)
+
+
+def read_small(dir_fd, name, pattern, test_mode):
+    """Content of a small file below dir_fd that must match `pattern`; None if it is not there (yet)."""
+    try:
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dir_fd)
+    except FileNotFoundError:
+        return None
+    except OSError as e:
+        raise Refuse("cannot read %s: %s" % (name, e.strerror)) from None
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_size > 128:
+            raise Refuse("%s is not what the daemon writes" % name)
+        if not test_mode and info.st_uid != pwd.getpwnam(SANDBOX_USER).pw_uid:
+            raise Refuse("%s is not owned by %s" % (name, SANDBOX_USER))
+        data = os.read(fd, 129)
+    finally:
+        os.close(fd)
+    if not pattern.match(data):
+        raise Refuse("%s has an unexpected content" % name)
+    return data.strip().decode("ascii")
+
+
+def remove_stale(runtime, app):
+    """Drop token.once and session.id of an earlier run so they cannot be taken for the new session's."""
+    try:
+        root = _open_dir(runtime)
+    except OSError:
+        return
+    try:
+        try:
+            app_fd = _open_dir(app, root)
+        except OSError:
+            return
+        try:
+            for name in ("token.once", "session.id"):
+                try:
+                    os.unlink(name, dir_fd=app_fd)
+                except FileNotFoundError:
+                    pass
+        finally:
+            os.close(app_fd)
+    finally:
+        os.close(root)
+
+
+def collect(runtime, app, test_mode, wait=WAIT_TOKEN):
+    """(session id, token) written by the freshly started daemon; the token file is deleted after reading."""
+    end = time.monotonic() + wait
+    while time.monotonic() < end:
+        try:
+            root = _open_dir(runtime)
+            try:
+                app_fd = _open_dir(app, root)
+            finally:
+                os.close(root)
+        except OSError:
+            time.sleep(0.2)
+            continue
+        try:
+            token = read_small(app_fd, "token.once", TOKEN_RE, test_mode)
+            if token is not None:
+                session_id = read_small(app_fd, "session.id", ID_RE, test_mode)
+                os.unlink("token.once", dir_fd=app_fd)
+                if session_id is None:
+                    raise Refuse("the daemon wrote no session id")
+                return session_id, token
+        finally:
+            os.close(app_fd)
+        time.sleep(0.2)
+    raise Refuse("the session daemon did not publish its token in time")
+
+
+def start(runtime, limit, wait, app, test_mode):
+    unit = "agino-store-session@%s.service" % app
+    lock = Lock(runtime)
+    try:
+        active = active_apps(test_mode)
+        if app in active:
+            raise Refuse("a session for %s is already running" % app, 3)
+        if len(active) >= limit:
+            raise Refuse("too many sessions (%d active, at most %d)" % (len(active), limit), 3)
+        remove_stale(runtime, app)
+        done = run_systemctl(test_mode, "start", unit)
+        if done.returncode != 0:
+            raise Refuse("systemctl start failed")
+        try:
+            session_id, token = collect(runtime, app, test_mode, wait)
+        except Refuse:
+            run_systemctl(test_mode, "stop", unit)
+            raise
+        sys.stdout.write("SESSION %s\nTOKEN %s\n" % (session_id, token))
+        sys.stdout.flush()
+    finally:
+        os.close(lock.fd)
+
+
+def stop(runtime, app, test_mode):
+    lock = Lock(runtime)
+    try:
+        done = run_systemctl(test_mode, "stop", "agino-store-session@%s.service" % app)
+        if done.returncode != 0:
+            raise Refuse("systemctl stop failed")
+    finally:
+        os.close(lock.fd)
+
+
+def main(argv):
+    test_mode = os.environ.get("AGINO_SESSION_CTL_TEST") == "1"
+    try:
+        runtime, limit, wait, command, app = parse_args(argv[1:], test_mode)
+        if command == "start":
+            start(runtime, limit, wait, app, test_mode)
+        else:
+            stop(runtime, app, test_mode)
+    except Refuse as e:
+        print("agino-session-ctl: %s" % e, file=sys.stderr)
+        return e.code
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

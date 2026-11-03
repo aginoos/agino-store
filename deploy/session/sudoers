@@ -1,0 +1,3 @@
+# /etc/sudoers.d/agino-session (mode 0440, root:root). The helper checks APP itself and rejects extra arguments.
+Defaults:agino-store env_reset
+agino-store ALL=(root) NOPASSWD: /usr/local/sbin/agino-session-ctl start *, /usr/local/sbin/agino-session-ctl stop *

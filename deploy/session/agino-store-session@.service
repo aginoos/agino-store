@@ -1,0 +1,39 @@
+[Unit]
+Description=agino app store: interactive screenshot session for %i
+After=network-online.target agino-sandbox-net.service agino-sandbox-dhcp.service
+Wants=network-online.target
+Requires=agino-sandbox-net.service agino-sandbox-dhcp.service
+
+[Service]
+# One session per instance. The instance name is the app id, validated by agino-session-ctl and
+# again by the daemon; it is used as %i only (never %I).
+Type=simple
+User=agino-sandbox
+# agino-admin: the daemon gives web.sock to that group. kvm comes with the user (same as the batch unit).
+SupplementaryGroups=agino-admin
+ExecStart=/usr/local/bin/agino-store-sandbox --config /etc/agino-store-sandbox/sandbox.conf session serve %i
+# Hard limit: 60 min total + clean-up. Never restarted: a session is not resumable.
+RuntimeMaxSec=3900
+Restart=no
+TimeoutStopSec=30
+KillMode=control-group
+Nice=10
+UMask=0077
+# No RuntimeDirectory=: its group would be the unit's, not agino-admin (tmpfiles.d creates /run/agino-session).
+# Hardening, same as agino-store-sandbox.service. /dev/kvm and /dev/net/tun are used, so PrivateDevices stays off.
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/srv/store/sandbox /run/agino-session
+PrivateTmp=true
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+DevicePolicy=closed
+DeviceAllow=/dev/kvm rw
+DeviceAllow=/dev/net/tun rw
+DeviceAllow=/dev/null rw
+DeviceAllow=/dev/zero rw
+DeviceAllow=/dev/urandom r
+DeviceAllow=/dev/random r
