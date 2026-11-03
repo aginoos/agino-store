@@ -9,6 +9,7 @@ from .guest import USER, WINDOW_RE
 from .util import InfraError, clean
 
 DEMO_TAR = "/var/tmp/sbx/demo.tar"
+APP_ERR = "/home/tester/.sbx-app.err"
 DEMO_DIR = shots_scene.HOME + "/Demo"
 MAX_PIDS = 500
 TRANSIENT_TYPES = ("SPLASH", "DIALOG", "NOTIFICATION", "TOOLTIP", "POPUP_MENU", "DROPDOWN_MENU", "UTILITY")
@@ -97,7 +98,23 @@ class ShotsGuest:
                "LC_ALL=" + shots_scene.LOCALES[lang], "HOME=" + shots_scene.HOME]
         session = ["%s=%s" % kv for kv in sorted(self.guest.env.items())]
         return self.qga.start(["/usr/bin/timeout", "-k", "5", "600", "/usr/sbin/runuser", "-u", USER, "--",
-                               "/usr/bin/env", *session, *env, *argv])
+                               "/usr/bin/env", *session, *env,
+                               "/bin/sh", "-c", 'exec "$@" 2>' + APP_ERR, "sh", *argv])
+
+    def diagnose(self, base_pids):
+        """What the app left behind when no window appeared: its stderr tail and what still runs."""
+        parts = []
+        res = self.qga.exec(["/usr/bin/tail", "-c", "600", "--", APP_ERR], 20)
+        if res.ok and res.text.strip():
+            parts.append("stderr: " + clean(" | ".join(res.text.strip().splitlines()[-4:]), 300))
+        new = sorted(self.tester_pids() - base_pids)[:MAX_PIDS]
+        if new:
+            res = self.qga.exec(["/bin/ps", "-o", "comm=", "-p", ",".join(str(p) for p in new)], 20)
+            names = sorted(set(res.text.split())) if res.ok else []
+            parts.append("running: " + clean(" ".join(names[:12]), 120))
+        else:
+            parts.append("the app exited")
+        return "; ".join(parts)
 
     def read_desktop_exec(self, desktop_path):
         res = self.qga.exec(["/bin/cat", "--", desktop_path], 20)

@@ -108,7 +108,7 @@ class Phase:
             self.g.start_app(argv, lang)
             target = self._main_window(baseline)
             if target is None:
-                problem("window not found")
+                problem("window not found (%s)" % self.g.diagnose(base_pids))
                 return
             self._arrange(target, sc["window"])
             main = target
