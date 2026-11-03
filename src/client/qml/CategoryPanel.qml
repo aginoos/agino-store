@@ -50,6 +50,7 @@ Control {
             }
             D.ToolButton {
                 text: qsTr("See all")
+                palette.buttonText: palette.highlight
                 onClicked: Router.openCategory(panel.categoryId)
             }
         }

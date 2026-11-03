@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Effects
 import QtQuick.Layouts
 import org.deepin.dtk 1.0 as D
 
@@ -17,22 +18,37 @@ Control {
 
     padding: 28
 
-    background: Rectangle {
-        radius: 16
-        clip: true
-        gradient: Gradient {
-            orientation: Gradient.Horizontal
-            GradientStop { position: 0.0; color: Qt.darker(banner.palette.highlight, 1.2) }
-            GradientStop { position: 1.0; color: Qt.lighter(banner.palette.highlight, 1.25) }
-        }
-        // Decorative circle, partly off-canvas.
+    background: Item {
         Rectangle {
-            x: parent.width - 280
-            y: -80
-            width: 340
-            height: 340
-            radius: 170
-            color: Qt.rgba(1, 1, 1, 0.08)
+            id: fill
+            anchors.fill: parent
+            radius: 16
+            layer.enabled: true
+            layer.effect: MultiEffect {
+                maskEnabled: true
+                maskSource: mask
+            }
+            gradient: Gradient {
+                orientation: Gradient.Horizontal
+                GradientStop { position: 0.0; color: Qt.darker(banner.palette.highlight, 1.2) }
+                GradientStop { position: 1.0; color: Qt.lighter(banner.palette.highlight, 1.25) }
+            }
+            // Decorative circle, partly off-canvas (the mask keeps the card's rounded corners).
+            Rectangle {
+                x: parent.width - 280
+                y: -80
+                width: 340
+                height: 340
+                radius: 170
+                color: Qt.rgba(1, 1, 1, 0.08)
+            }
+        }
+        Rectangle {
+            id: mask
+            anchors.fill: parent
+            radius: 16
+            visible: false
+            layer.enabled: true
         }
     }
 
