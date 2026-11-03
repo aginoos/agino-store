@@ -8,6 +8,8 @@ from dataclasses import dataclass
 DEFAULT_PATH = "/etc/agino-store-server/server.conf"
 DEFAULT_SANDBOX_QUEUE = "/srv/store/sandbox/queue"
 DEFAULT_SHOTS_OUT = "/srv/store/sandbox/shots-out"
+DEFAULT_SANDBOX_STATE = "/srv/store/sandbox/state"
+DEFAULT_SCREENSHOTS = "/srv/store/screenshots"
 
 
 class ConfigError(Exception):
@@ -41,6 +43,8 @@ class Config:
     sign_command: tuple = ()
     sandbox_queue: str = DEFAULT_SANDBOX_QUEUE
     shots_out: str = DEFAULT_SHOTS_OUT
+    sandbox_state: str = DEFAULT_SANDBOX_STATE   # read only by `status`
+    screenshots: str = DEFAULT_SCREENSHOTS       # read only by `status`
 
 
 def _get(cp, section, key, conv=str):
@@ -112,6 +116,8 @@ def load(path=DEFAULT_PATH):
         sign_command=_sign_command(_opt(cp, "catalog", "sign_command")),
         sandbox_queue=_opt(cp, "paths", "sandbox_queue") or DEFAULT_SANDBOX_QUEUE,
         shots_out=_opt(cp, "paths", "shots_out") or DEFAULT_SHOTS_OUT,
+        sandbox_state=_opt(cp, "paths", "sandbox_state") or DEFAULT_SANDBOX_STATE,
+        screenshots=_opt(cp, "paths", "screenshots") or DEFAULT_SCREENSHOTS,
     )
     if bool(cfg.key) == bool(cfg.sign_command):
         raise ConfigError("[catalog] exactly one of key and sign_command must be set")

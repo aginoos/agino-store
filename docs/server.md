@@ -38,6 +38,8 @@ reports = /srv/store/reports          # 从沙箱主机拉回的报告
 sandbox_queue = /srv/store/sandbox/queue   # 可选（默认值即此）；交给沙箱主机的 deb + JSON，见第 10 节
 shots_out = /srv/store/sandbox/shots-out   # 可选（默认值即此）；沙箱主机写的截图，只读它来关闭截图请求，见第 10 节
 metrics = /var/lib/prometheus/node-exporter
+sandbox_state = /srv/store/sandbox/state   # 可选（默认值即此）；只有 status 读：沙箱主机每个任务的状态文件
+screenshots = /srv/store/screenshots       # 可选（默认值即此）；只有 status 读：截图目录和 meta.json
 
 [milkyway]
 url = https://repo.aginoos.com        # 取 dists/milkyway/<component>/binary-{amd64,all}/Packages.gz
@@ -282,6 +284,7 @@ class State:
 | `shots-request APP \| --cancel APP` | 请沙箱主机为 APP 截图：写 `state/shots-requests/<app>.json`（`app`、`requested`、`by`）；APP 必须有有效的 `shots.yaml`。`--cancel` 撤回请求。已有请求再请求不重复（见第 10 节） | cli、`state.shots_requests()` |
 | `build [--if-changed]` | 生成并签名目录；`--if-changed`：输入没变且距上次不到 `renew_after_hours` 就什么都不做（输入没变但该续期了就只换 serial 和有效期） | `catalog.build(cfg, st, content, if_changed=False) -> dict` |
 | `metrics` | 写 `agino_store_server.prom` | cli |
+| `status --json [--section 名称 ...]` | 只读状态总览，给管理后台用（第 11 节）；不拿锁、不写、不联网 | cli、`status.build(cfg, sections, clean) -> str` |
 
 `allow_insecure = true` 时命令行直接退出（码 2），除非环境变量 `AGINO_STORE_SERVER_TESTS=1`（测试设置它）。`pending` 和各命令输出里，厂商或候选提供的字符串会去掉控制字符（制表符、换行除外）。
 
@@ -390,3 +393,23 @@ milkyway 里的应用不进沙箱队列，已通过沙箱的候选也不会再�
 - milkyway 应用：`"source": "milkyway"`、`package`（应用的 milkyway 包名）、`version`（缓存的 milkyway 索引，即 `milkyway.json`）、`"sha256": null`，没有 deb 和 `install_profile`；名字 `<应用>_<h12>`，`h12` 为 `sha256("milkyway:" + 包名 + "=" + 版本)` 前 12 位十六进制，符合同一个名字正则。包不在 milkyway 里则输出 `skipped shots APP: package … is not in milkyway`，请求保留。
 - 名字冲突：如果同一个厂商候选此刻也需要 check 任务（名字相同），只导出 check 任务，请求保持打开。该 check 任务的 JSON 在应用有 `shots.yaml` 时本来就带 `shots`，所以它产出的 `shots.json` 同样关闭这个请求。shots 任务和 check 任务从不共用名字。
 - 关闭：`<shots_out>/<任务名>/shots.json` 存在（普通文件）时，请求删除，输出 `closed shots request …`，队列里对应的条目随后按“不再需要”清掉。`shots_out`（`[paths] shots_out`，默认 `/srv/store/sandbox/shots-out`，目录对 `agino-store` 组可读）里的项一律用 `O_NOFOLLOW` 打开，符号链接不算；`shots_out` 不存在或读不了时什么都不关闭。
+
+## 11. `status --json`
+
+`agino-store-server status --json [--section NAME ...]` 是管理后台（agino-store-admin）读状态的唯一接口，后台不解析内部文件格式。严格只读：不拿 `state/.lock`（所以和任何写命令并行都行），不写文件，不调用 sudo，不联网。状态 JSON 是原子替换的，每个文件只打开读一次（`O_NOFOLLOW`，必须是普通文件，最大 8 MiB）；文件缺失、读到一半或 JSON 无效时，记入 `errors` 后继续。退出码 0（有 `errors` 也是 0）；`--json` 缺失或段名未知退出码 2。
+
+输出一个 JSON 对象（ensure_ascii，示例见 `docs/status-schema.md`）：`{"schema": 1, "generated": "<UTC>", "sections": {…}, "errors": [{"section", "detail"}]}`。`--section` 可重复，默认全部。已实现：`apps`、`candidates`、`approved`、`vendors`、`catalog`、`sandbox`、`timers`；`upstreams`、`submissions`、`sessions`、`builds` 是预留名，现在接受但输出里没有这一段。
+
+| 段 | 内容 |
+|---|---|
+| `apps` | 列表，每项：`id`、`name`、`summary`（`{zh_CN, en_US}`）、`categories`、`source`、`kind`、`package`、`vendor`、`proprietary`、`developer`、`homepage`、`maintainer`、`launchable`、`has_icon`、`description_source`（缺省 `submitter`）、`l10n`（布尔）、`shots`（`{state: none\|draft\|approved, scenes, langs, statuses?}`，来自 `paths.screenshots/<应用>/`，`meta.json` 里每张图的状态都是 `approved` 才算 approved）、`approved`（`{version, approved_at, by}` 或 null）、`current_candidate_status`（版本最高的候选的状态）。内容仓库校验失败时这一段为空，每条问题记入 `errors` |
+| `candidates` | 全部候选，按 `found` 从新到旧：`id`（`<应用>/<文件名去 .json>`）、`app`、`vendor`、`package`、`version`、`size`、`installed_size`、`found`、`status`、`origin`（`type`，apt 带 `signed_by`）、`source_class`（`official`＝apt/https，`personal`＝manual/built，否则 `unknown`）、`checks`（`deps{ok,detail}`、`inspect{flags}`、`diff{against,scripts_changed,flags_added,summary}`、`sandbox{status,summary,report}`）、`decided`。不含脚本原文和文件清单 |
+| `approved` | `{apps: approved.json 原样, log: approvals.log 最后 50 行解析后的对象（坏行跳过）}` |
+| `vendors` | 每个厂商：`id`、`name`（厂商包名）、`in_content`、`last_check`、`last_ok`、`last_error`、`seen_version`；内容仓库里的和 `state/vendors/` 里有记录的取并集 |
+| `catalog` | `{state: {serial, revision, built_at, inputs_sha256, apps}, published: {serial, revision, created, expires, valid_until, apps, signature_present} 或 null}`；`published` 读 `paths.preview/current/` 的 `manifest.json` 和 `catalog.json`，只看签名文件在不在，不验签 |
+| `sandbox` | `{queue: [{job, mode(check\|shots), app, version, size, created}], jobs: [{job, status, result, attempts, reason, report, updated}]（`paths.sandbox_state/*.json`）, reports: 最新 30 份（`paths.reports/` 和 `done/`）[{name, location, app, version, result, finished, at, summary}]}` |
+| `timers` | `agino-store-{track,check,build,sandbox,reports}.{service,timer}` 十个单元的 `systemctl show`（固定参数，不经 shell，每个 5 秒超时）：`unit`、`LoadState`、`ActiveState`、`SubState`、`Result`、`LastTriggerUSec`、`NextElapseUSecRealtime`、`ExecMainStatus`。没有 systemctl 时为空列表并记入 `errors` |
+
+所有来自厂商、候选、沙箱和内容仓库的字符串先过 `pending` 用的控制字符清理（控制字符换成 `?`，包括键名）。文档超过 8 MiB 时，把最长的列表（`apps`、`candidates`、`approved.log`、`vendors`、`sandbox.*`）反复砍掉后一半，被砍的段名写进顶层 `"truncated"`。
+
+`config.py` 新增两个可选键 `[paths] sandbox_state` 和 `screenshots`，只有 `status` 用。

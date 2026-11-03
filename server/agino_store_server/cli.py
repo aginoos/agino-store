@@ -16,7 +16,7 @@ import re
 import sys
 import tempfile
 
-from . import catalog, catalogwriter, config, content, reports, sandboxqueue
+from . import catalog, catalogwriter, config, content, reports, sandboxqueue, status
 from .state import ID_RE, VERSION_RE, State, StateError, StateLocked
 
 EXIT_OK, EXIT_PROBLEM, EXIT_USAGE, EXIT_LOCKED = 0, 1, 2, 3
@@ -62,6 +62,10 @@ def _parser():
     p.add_argument("--cancel", action="store_true", help="withdraw the request")
     sub.add_parser("build", help="build and publish the catalog").add_argument("--if-changed", action="store_true")
     sub.add_parser("metrics", help="write the Prometheus text file")
+    p = sub.add_parser("status", help="read-only state overview for the admin console (needs --json)")
+    p.add_argument("--json", action="store_true")
+    p.add_argument("--section", action="append", default=None, metavar="NAME",
+                   help="only this section (repeatable); default all")
     return ap
 
 
@@ -445,10 +449,21 @@ def cmd_metrics(cfg, st, args):
     return EXIT_OK
 
 
+def cmd_status(cfg, st, args):
+    if not args.json:
+        raise UsageError("status needs --json")
+    try:
+        text = status.build(cfg, args.section, _clean)
+    except status.UnknownSection as e:
+        raise UsageError(str(e)) from e
+    print(text)
+    return EXIT_OK
+
+
 COMMANDS = {"track": cmd_track, "check": cmd_check, "intake": cmd_intake, "pending": cmd_pending,
             "approve": cmd_approve, "revoke": cmd_revoke, "reject": cmd_reject, "reports-ingest": cmd_reports_ingest,
             "sandbox-queue": cmd_sandbox_queue, "shots-request": cmd_shots_request,
-            "build": cmd_build, "metrics": cmd_metrics}
+            "build": cmd_build, "metrics": cmd_metrics, "status": cmd_status}
 # Commands whose implementation lives in modules written separately: any failure there is reported, not traced.
 GUARDED = ("track", "check", "intake")
 
