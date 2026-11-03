@@ -73,7 +73,7 @@ manifest.json.sig    manifest.json 原始字节的 Ed25519 签名，base64，一
 catalog.json         索引（轻字段）
 apps/<id>.json       详情
 stats.json           可选：下载量
-assets/<sha256>.<ext> 图标和截图，按内容寻址
+assets/<sha256>.<ext> 图标和截图，按内容寻址（截图来自服务端的截图目录里 approved 的图，不在内容仓库里，见 server.md 第 12 节）
 ```
 
 `manifest.json`：

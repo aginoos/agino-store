@@ -16,7 +16,8 @@ ASCII JSON. Sections not requested (or not implemented yet) are absent. This exa
       "proprietary": true, "developer": {"zh_CN": "...", "en_US": "Google"}, "homepage": null,
       "maintainer": null, "launchable": "google-chrome.desktop", "has_icon": true,
       "description_source": "submitter", "l10n": false,
-      "shots": {"state": "draft", "scenes": 2, "langs": ["zh_CN", "en_US"], "statuses": {"draft": 4}},
+      "shots": {"state": "draft", "scenes": 2, "langs": ["zh_CN", "en_US"],
+                "counts": {"draft": 4, "approved": 0, "rejected": 1}},
       "approved": {"version": "156.0-1", "approved_at": "2026-11-01T08:00:00Z", "by": "alice"},
       "current_candidate_status": "pending"
     }],
@@ -50,6 +51,11 @@ ASCII JSON. Sections not requested (or not implemented yet) are absent. This exa
                 "reports": [{"name": "chrome_0123456789ab.json", "location": "done", "app": "chrome",
                              "version": "157.0-1", "result": "pass", "finished": "2026-11-02T08:30:00Z",
                              "at": "2026-11-02T08:31:00Z", "summary": "ok"}]},
+    "shots": [{"id": "chrome", "counts": {"draft": 1, "approved": 1, "rejected": 0},
+               "images": [{"lang": "zh_CN", "file": "01-main.png", "scene": "main", "width": 1280, "height": 800,
+                           "size": 123456, "sha256": "...", "source": "sandbox", "status": "approved",
+                           "reviewer": "alice", "reviewed": "2026-11-03T08:00:00Z", "note": "",
+                           "origin": "chrome_0123456789ab"}]}],
     "timers": [{"unit": "agino-store-track.timer", "LoadState": "loaded", "ActiveState": "active",
                 "SubState": "waiting", "LastTriggerUSec": "Tue 2026-11-03 06:00:00 UTC",
                 "NextElapseUSecRealtime": "Tue 2026-11-03 12:00:00 UTC"}]

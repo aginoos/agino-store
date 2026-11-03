@@ -39,7 +39,12 @@ sandbox_queue = /srv/store/sandbox/queue   # 可选（默认值即此）；交�
 shots_out = /srv/store/sandbox/shots-out   # 可选（默认值即此）；沙箱主机写的截图，只读它来关闭截图请求，见第 10 节
 metrics = /var/lib/prometheus/node-exporter
 sandbox_state = /srv/store/sandbox/state   # 可选（默认值即此）；只有 status 读：沙箱主机每个任务的状态文件
-screenshots = /srv/store/screenshots       # 可选（默认值即此）；只有 status 读：截图目录和 meta.json
+screenshots = /srv/store/screenshots       # 可选（默认值即此）；服务端管理的截图目录和 meta.json，见第 12 节
+shots_staging = /var/lib/agino-admin/shots-staging   # 可选（默认值即此）；管理后台放上传文件的暂存目录，shots-ingest 读完即删
+
+[shots]                                # 可选，整段可省略
+max_per_lang = 6                       # 每个应用每种语言最多几张（不含 rejected），1..20
+min_width = 900                        # 截图最小宽度（像素），100..4096
 
 [milkyway]
 url = https://repo.aginoos.com        # 取 dists/milkyway/<component>/binary-{amd64,all}/Packages.gz
@@ -80,7 +85,7 @@ categories.yaml
 featured.yaml
 apps/<id>/app.yaml
 apps/<id>/icon.svg | icon.png
-apps/<id>/screenshots/zh_CN/*.png, en_US/*.png     （可选）
+apps/<id>/screenshots/zh_CN/*.png, en_US/*.png     （可选，已弃用：截图改放 paths.screenshots，见第 12 节）
 apps/<id>/shots.yaml                               （可选）自动截图的场景脚本
 apps/<id>/promo/…                                  （可选）厂商宣传图，人工审核
 demo/<name>/…                                      （可选）自动截图用的演示数据
@@ -142,7 +147,7 @@ release_notes:                        # 可选，按版本号
 规则：
 - `name`、`summary`、`description` 必须同时有 `zh_CN` 和 `en_US`，其他语言可选。
 - `kind: milkyway` 的 `source` 只能是 `system`；`kind: deb` 只能是 `official` 或 `personal`。
-- 截图的宽高由 build 从 PNG 头读出；PoC 不生成缩略图（`thumb` 与 `image` 相同）。
+- 截图的宽高由 build 从 PNG 头读出；PoC 不生成缩略图（`thumb` 与 `image` 相同）。`screenshots:` 仍然接受（向后兼容），但某个应用在截图目录里有 approved 的图时，以目录为准（D-203，见第 12 节）。
 - 未知字段报错（防止拼错的字段被静默忽略）。
 
 `apps/<id>/shots.yaml`（可选；没有这个文件就不为该应用自动截图。完整约定见 research/app-store-13/shots-contract.md）：
@@ -282,13 +287,17 @@ class State:
 | `reports-ingest` | 导入 `paths.reports` 下的新报告 | `reports.ingest(cfg, st) -> list[dict]` |
 | `sandbox-queue` | 把等沙箱结果的候选交给沙箱主机（见第 10 节） | `sandboxqueue.run(cfg, st, content) -> list[str]` |
 | `shots-request APP \| --cancel APP` | 请沙箱主机为 APP 截图：写 `state/shots-requests/<app>.json`（`app`、`requested`、`by`）；APP 必须有有效的 `shots.yaml`。`--cancel` 撤回请求。已有请求再请求不重复（见第 10 节） | cli、`state.shots_requests()` |
+| `shots-import APP` | 把沙箱主机为 APP 拍的最新一组截图（`paths.shots_out/<APP>_<sha12>/` 里带 `shots.json` 的最新目录）导入截图目录，状态 `draft`、来源 `sandbox`、`origin` 为任务目录名；不改动 approved 的图，sha256 相同的跳过，超出每语言上限的报告并跳过。退出码 1 表示有图没能导入（见第 12 节） | `shots_import.cmd_import` |
+| `shots-ingest APP --lang L --scene S --file STAGED --source upload\|manual --status draft\|approved --reviewer NAME [--replace NN-scene.png]` | 取 `paths.shots_staging/STAGED` 的 PNG，校验、去掉附加块后存为 `<L>/NN-<S>.png`（或顶替 `--replace` 指定的图，旧图进 `.prev`），读完删除暂存文件 | `shots_cmds.cmd_ingest` |
+| `shots-review APP --lang L --file NN-scene.png --status approved\|rejected\|draft --reviewer NAME [--note 文字]` | 改一张图的状态；approved 要重新校验文件并受每语言上限限制 | `shots_cmds.cmd_review` |
+| `shots-remove APP --lang L --file NN-scene.png --reviewer NAME` | 把图移到 `.prev`，从 `meta.json` 去掉 | `shots_cmds.cmd_remove` |
 | `build [--if-changed]` | 生成并签名目录；`--if-changed`：输入没变且距上次不到 `renew_after_hours` 就什么都不做（输入没变但该续期了就只换 serial 和有效期） | `catalog.build(cfg, st, content, if_changed=False) -> dict` |
 | `metrics` | 写 `agino_store_server.prom` | cli |
 | `status --json [--section 名称 ...]` | 只读状态总览，给管理后台用（第 11 节）；不拿锁、不写、不联网 | cli、`status.build(cfg, sections, clean) -> str` |
 
 `allow_insecure = true` 时命令行直接退出（码 2），除非环境变量 `AGINO_STORE_SERVER_TESTS=1`（测试设置它）。`pending` 和各命令输出里，厂商或候选提供的字符串会去掉控制字符（制表符、换行除外）。
 
-退出码：0 成功；1 有问题需要人看（检查失败、跟踪出错）；2 用法或配置错误；3 锁被占用。
+退出码：0 成功；1 有问题需要人看（检查失败、跟踪出错）；2 用法或配置错误；3 锁被占用（`shots-*` 命令是某个应用的截图锁被占用）。
 
 ## 6. 跟踪和下载
 
@@ -310,7 +319,8 @@ class State:
 ## 8. 生成目录
 
 - 放行记录的校验：`kind: deb` 的应用，候选必须是 `approved` 状态且依赖检查 ok；build 会流式重算下载目录里 deb 的 sha256，和放行时记录的值比对，不符的应用带原因跳过（不进目录）。`preview/debs/<sha>/<文件名>` 已存在时，只有它与源文件是同一个 inode 或哈希相同才保留，否则替换。
-- 输入：内容仓库（校验通过）、`approved.json`、`milkyway.json`。`inputs_sha256` 是这三者规范化后的哈希（内容仓库按文件路径排序后逐个哈希，含图标和截图）。
+- 输入：内容仓库（校验通过）、`approved.json`、`milkyway.json`、截图目录里 approved 的图。`inputs_sha256` 是这些规范化后的哈希（内容仓库按文件路径排序后逐个哈希，含图标；截图目录部分是每张 approved 图的 `(应用, 语言, 文件名, sha256)`，没有任何 approved 图时不进哈希，所以只加草稿不触发重建，批准或撤回会）。
+- 截图（D-203）：每个应用取 `paths.screenshots/<应用>/meta.json` 里状态为 `approved` 的图，按（语言, 文件名）排序，复制到 `assets/<sha256>.png`（与图标同一套按哈希命名的机制，进清单和签名），`width`/`height` 读自 PNG 头；两种语言的键都输出（没有图的为空列表）。应用有 approved 的图时目录优先于 `app.yaml` 的 `screenshots:`；都没有时字段为空，同以前。磁盘上缺失或与记录的 sha256 不符的图被略过，原因进 `build` 摘要的 `warnings`（命令行打印 `warning: …`），不会让应用掉出目录；`meta.json` 损坏同样只是警告。
 - `kind: deb` 的应用没有放行版本时不进目录；`kind: milkyway` 的包在 `milkyway.json` 里没有时不进目录（`check` 会报出来）。
 - `package.deb`：`version`、`url`（`deb_base_url + <sha256>/<文件名>`）、`vendor_url`、`sha256`、`size`、`installed_size`（字节）。deb 文件硬链接到 `preview/debs/<sha256>/<文件名>`。
 - `updated`：deb 类用放行日期，milkyway 类用 `first_seen`。`releases`：当前版本 + `release_notes` 里有的旧版本，按版本降序，最多 5 条。
@@ -398,18 +408,49 @@ milkyway 里的应用不进沙箱队列，已通过沙箱的候选也不会再�
 
 `agino-store-server status --json [--section NAME ...]` 是管理后台（agino-store-admin）读状态的唯一接口，后台不解析内部文件格式。严格只读：不拿 `state/.lock`（所以和任何写命令并行都行），不写文件，不调用 sudo，不联网。状态 JSON 是原子替换的，每个文件只打开读一次（`O_NOFOLLOW`，必须是普通文件，最大 8 MiB）；文件缺失、读到一半或 JSON 无效时，记入 `errors` 后继续。退出码 0（有 `errors` 也是 0）；`--json` 缺失或段名未知退出码 2。
 
-输出一个 JSON 对象（ensure_ascii，示例见 `docs/status-schema.md`）：`{"schema": 1, "generated": "<UTC>", "sections": {…}, "errors": [{"section", "detail"}]}`。`--section` 可重复，默认全部。已实现：`apps`、`candidates`、`approved`、`vendors`、`catalog`、`sandbox`、`timers`；`upstreams`、`submissions`、`sessions`、`builds` 是预留名，现在接受但输出里没有这一段。
+输出一个 JSON 对象（ensure_ascii，示例见 `docs/status-schema.md`）：`{"schema": 1, "generated": "<UTC>", "sections": {…}, "errors": [{"section", "detail"}]}`。`--section` 可重复，默认全部。已实现：`apps`、`candidates`、`approved`、`vendors`、`catalog`、`sandbox`、`timers`、`shots`；`upstreams`、`submissions`、`sessions`、`builds` 是预留名，现在接受但输出里没有这一段。
 
 | 段 | 内容 |
 |---|---|
-| `apps` | 列表，每项：`id`、`name`、`summary`（`{zh_CN, en_US}`）、`categories`、`source`、`kind`、`package`、`vendor`、`proprietary`、`developer`、`homepage`、`maintainer`、`launchable`、`has_icon`、`description_source`（缺省 `submitter`）、`l10n`（布尔）、`shots`（`{state: none\|draft\|approved, scenes, langs, statuses?}`，来自 `paths.screenshots/<应用>/`，`meta.json` 里每张图的状态都是 `approved` 才算 approved）、`approved`（`{version, approved_at, by}` 或 null）、`current_candidate_status`（版本最高的候选的状态）。内容仓库校验失败时这一段为空，每条问题记入 `errors` |
+| `apps` | 列表，每项：`id`、`name`、`summary`（`{zh_CN, en_US}`）、`categories`、`source`、`kind`、`package`、`vendor`、`proprietary`、`developer`、`homepage`、`maintainer`、`launchable`、`has_icon`、`description_source`（缺省 `submitter`）、`l10n`（布尔）、`shots`（`{state: none\|draft\|approved, scenes, langs, counts: {draft, approved, rejected}}`，来自 `paths.screenshots/<应用>/meta.json`；至少一张 approved 的图就是 approved，否则有 draft 为 draft，否则 none；`scenes`、`langs` 只数没被 rejected 的图）、`approved`（`{version, approved_at, by}` 或 null）、`current_candidate_status`（版本最高的候选的状态）。内容仓库校验失败时这一段为空，每条问题记入 `errors` |
 | `candidates` | 全部候选，按 `found` 从新到旧：`id`（`<应用>/<文件名去 .json>`）、`app`、`vendor`、`package`、`version`、`size`、`installed_size`、`found`、`status`、`origin`（`type`，apt 带 `signed_by`）、`source_class`（`official`＝apt/https，`personal`＝manual/built，否则 `unknown`）、`checks`（`deps{ok,detail}`、`inspect{flags}`、`diff{against,scripts_changed,flags_added,summary}`、`sandbox{status,summary,report}`）、`decided`。不含脚本原文和文件清单 |
 | `approved` | `{apps: approved.json 原样, log: approvals.log 最后 50 行解析后的对象（坏行跳过）}` |
 | `vendors` | 每个厂商：`id`、`name`（厂商包名）、`in_content`、`last_check`、`last_ok`、`last_error`、`seen_version`；内容仓库里的和 `state/vendors/` 里有记录的取并集 |
 | `catalog` | `{state: {serial, revision, built_at, inputs_sha256, apps}, published: {serial, revision, created, expires, valid_until, apps, signature_present} 或 null}`；`published` 读 `paths.preview/current/` 的 `manifest.json` 和 `catalog.json`，只看签名文件在不在，不验签 |
 | `sandbox` | `{queue: [{job, mode(check\|shots), app, version, size, created}], jobs: [{job, status, result, attempts, reason, report, updated}]（`paths.sandbox_state/*.json`）, reports: 最新 30 份（`paths.reports/` 和 `done/`）[{name, location, app, version, result, finished, at, summary}]}` |
+| `shots` | 内容仓库里每个应用一项：`id`、`counts`（`{draft, approved, rejected}`）、`images`（按语言、文件名排序，每张图是 `meta.json` 里的完整记录：`lang`、`file`、`scene`、`width`、`height`、`size`、`sha256`、`source`、`status`、`reviewer`、`reviewed`、`note`、`origin`），管理后台一次调用读全部。目录或 `meta.json` 缺失时 `images` 为空，`meta.json` 损坏记入 `errors`（段名 `shots`） |
 | `timers` | `agino-store-{track,check,build,sandbox,reports}.{service,timer}` 十个单元的 `systemctl show`（固定参数，不经 shell，每个 5 秒超时）：`unit`、`LoadState`、`ActiveState`、`SubState`、`Result`、`LastTriggerUSec`、`NextElapseUSecRealtime`、`ExecMainStatus`。没有 systemctl 时为空列表并记入 `errors` |
 
 所有来自厂商、候选、沙箱和内容仓库的字符串先过 `pending` 用的控制字符清理（控制字符换成 `?`，包括键名）。文档超过 8 MiB 时，把最长的列表（`apps`、`candidates`、`approved.log`、`vendors`、`sandbox.*`）反复砍掉后一半，被砍的段名写进顶层 `"truncated"`。
 
-`config.py` 新增两个可选键 `[paths] sandbox_state` 和 `screenshots`，只有 `status` 用。
+`config.py` 新增可选键 `[paths] sandbox_state`（只有 `status` 用）。截图目录相关的键见第 12 节。
+
+## 12. 截图目录（D-203，取代 D-192 的“截图进 store-content”）
+
+截图放在服务端管理的固定目录 `paths.screenshots`（默认 `/srv/store/screenshots`），不在内容仓库里。管理后台（agino-store-admin）只通过 `shots-*` 命令和 `status --json --section shots` 使用它。
+
+```
+<root>/<app>/meta.json                       审核状态，原子写入，0644
+<root>/<app>/zh_CN/NN-<scene>.png            en_US 同
+<root>/<app>/.prev/<UTC 时间戳>/<lang>/<文件>  被替换或删除的图（同一秒内重复时时间戳加 -N），永不销毁
+<root>/<app>/.lock                           每个应用一把 flock
+```
+
+`meta.json`（`ensure_ascii`，键排序）：
+
+```json
+{"schema": 1, "app": "gimp", "updated": "2026-11-03T08:00:00Z", "images": [
+  {"lang": "zh_CN", "file": "01-main.png", "scene": "main", "sha256": "…", "size": 123456, "width": 1280, "height": 800,
+   "source": "sandbox", "status": "draft", "reviewer": null, "reviewed": null, "note": "", "origin": "gimp_0123456789ab"}]}
+```
+
+- `source`：`sandbox`（`shots-import`）、`upload`、`manual`、`vendor`；`status`：`draft`、`approved`、`rejected`，目录只用 approved。`reviewer`（`^[A-Za-z0-9._-]{1,32}$`）和 `reviewed` 在 draft 时为 null；`note`、`origin` 各不超过 200 个字符。
+- 规则：只收 PNG；宽度 >= `[shots] min_width`（900），高度 >= 300，宽高都 <= 4096；去掉附加块后文件 <= 1.5 MiB；同一应用同一语言没被 rejected 的图最多 `[shots] max_per_lang`（6）张；文件名 `NN-<scene>.png`（NN 两位，场景 `^[a-z0-9][a-z0-9-]{0,40}$`）在一个语言内唯一，新图的 NN 取已有最大值加 1。同一语言里与没被 rejected 的图 sha256 相同的图不收（`shots-import` 连 rejected 的也算，所以被拒的图不会再次导入）。
+- 校验和清理（`pngclean.py`）：签名、块的 CRC、IHDR（颜色类型、位深、不接受未知方法）、宽高上限先于解压检查；zlib 数据按头里推出的精确大小限量解压，大小必须吻合，IEND 后不得有数据。只保留 `IHDR`、`PLTE`、`tRNS`、`IDAT`、`IEND`，其余块（文本、EXIF、色彩配置等）丢弃，不做重新编码。
+- 锁：写命令只拿 `<root>/<app>/.lock`（`flock`，不等待，被占用退出码 3），不拿全局的 `state/.lock`，也不碰候选和放行记录；`status` 和 `build` 不加锁（`meta.json` 是原子替换的）。截图目录不存在时写命令报错退出（码 1），不会自己创建。`meta.json` 不合 schema 时写命令拒绝执行（不会覆盖），`status`/`build` 把它当警告。
+- 参数全部严格校验，错误退出码 2：应用 id `^[a-z0-9][a-z0-9-]{0,63}$` 且内容仓库里有 `apps/<id>/app.yaml`；语言 `zh_CN`/`en_US`；场景、文件名、审核人同上；备注不超过 200 个字符、无控制字符、合法 UTF-8、不以 `-` 开头（用 `--note=…` 传）。
+- `shots-import`：目录名 `<app>_<12 位十六进制>` 且含普通文件 `shots.json` 的最新一个（按 `shots.json` 的 mtime）。每个场景每种语言取 `<n>-<scene>.png`（按 `shots.json` 的 `n`、`id` 核对文件名和声明的 sha256，`O_NOFOLLOW` 读取），重新校验并清理。同场景已有 approved 或非 sandbox 来源的图则跳过；已有 sandbox 草稿则顶替（旧图进 `.prev`）。输出每张图一行（`imported`/`skipped`/`problem`）和 `job …: imported N, skipped N, problems N`；有 problem（坏图、太小、读不到、sha256 不符）时退出码 1，其余的图照常导入。
+- `shots-ingest`：暂存文件名 `^[A-Za-z0-9_-]{8,64}\.png$`，以 `O_NOFOLLOW` 打开，必须是普通文件，<= 4 MiB；成功后才删除暂存文件（失败时留着）。`--status approved` 同时写入审核人和时间；draft 两者为 null。`--replace` 的旧图进 `.prev`，新图沿用其 NN（场景不同则文件名里的场景也换）。
+- `shots-review`：approved 要求文件仍然通过全部校验（含 sha256 与记录相符、不含不允许的块）且不超每语言上限；改回 draft 清空审核人和时间；`--note` 缺省时保留原备注。rejected 的图留在磁盘上，不删除。
+- `shots-remove`：图移到 `.prev`，从 `meta.json` 去掉；`--reviewer` 只用于校验和输出。
+- 回退：把图改回 draft/rejected，或把 `.prev` 里的文件放回去并相应修改 `meta.json`，下一次 `build --if-changed` 生效。
