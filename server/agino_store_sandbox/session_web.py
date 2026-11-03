@@ -143,6 +143,9 @@ class WebServer:
         old = os.umask(0o177)  # never visible with wider permissions, even for an instant
         try:
             srv.bind(self.path)
+        except OSError:
+            srv.close()
+            raise
         finally:
             os.umask(old)
         try:
@@ -155,7 +158,7 @@ class WebServer:
         except OSError as e:
             log("cannot give web.sock to group %s: %s" % (self.group, e.strerror))
         os.chmod(self.path, 0o660)
-        srv.listen(8)
+        srv.listen(32)
         self.listener = srv
 
     def serve(self):
