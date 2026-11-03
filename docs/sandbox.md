@@ -104,7 +104,7 @@ milkyway 里的应用不进沙箱队列，已通过的候选也不会再排队�
 | 键 | 默认 | 说明 |
 |---|---|---|
 | `runtime_dir` | `/run/agino-session` | `<app>/web.sock`（0660，组 `web_group`）、`<app>/session.id`、`<app>/token.once`（0600）；`<app>/private/`（0700）放 `qmp.sock`、`qga.sock`、`vnc.sock`、`shot.ppm`、`status.json` |
-| `captures` | `/srv/store/sandbox/captures` | `<会话 id>/NN-<kind>-<lang>.png` 和 `captures.json`；目录 0750，文件 0640 |
+| `captures` | `/srv/store/sandbox/captures` | `<会话 id>/NN-<kind>-<lang>.png` 和 `captures.json`；目录 2750（setgid：文件继承 agino-store 组，导入命令才读得到），文件 0640 |
 | `web_group` | `agino-admin` | `web.sock` 和应用目录的组；组不存在时记日志，保持进程的组 |
 | `max_sessions` | 2 | 全站并发上限（助手里另有同值常量） |
 | `run_minutes` / `idle_minutes` / `total_minutes` / `install_minutes` | 30 / 10 / 60 / 15 | 运行阶段、无输入空闲、含排队和安装的总时长、启动加安装 |

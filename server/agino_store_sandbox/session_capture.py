@@ -166,7 +166,9 @@ class CaptureStore:
     def create_directory(self):
         os.makedirs(os.path.dirname(self.directory), mode=0o750, exist_ok=True)
         os.mkdir(self.directory, 0o750)
-        os.chmod(self.directory, 0o750)  # the process umask must not narrow it, nor the parent's setgid widen it
+        # The process umask must not narrow the mode. The setgid bit stays ON: files created here inherit
+        # the group of the captures directory (agino-store), which the import command needs to read them.
+        os.chmod(self.directory, 0o2750)
         self._write_index()
 
     def count(self):
