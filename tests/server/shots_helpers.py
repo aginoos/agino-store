@@ -53,6 +53,8 @@ class ShotsCase(CliCase):
         self.root = os.path.join(base, "screenshots")
         self.staging = os.path.join(base, "staging")
         self.out = os.path.join(base, "shots-out")
+        self.captures = os.path.join(base, "captures")
+        os.makedirs(self.captures)
         os.makedirs(self.root)
         os.makedirs(self.staging)
         os.makedirs(self.out)
@@ -64,8 +66,8 @@ class ShotsCase(CliCase):
             text = f.read()
         text = text.split("\n[shots]")[0]
         if "screenshots =" not in text:
-            text = text.replace("[paths]\n", "[paths]\nscreenshots = %s\nshots_staging = %s\nshots_out = %s\n" % (
-                self.root, self.staging, self.out), 1)
+            text = text.replace("[paths]\n", "[paths]\nscreenshots = %s\nshots_staging = %s\nshots_out = %s\ncaptures = %s\n" % (
+                self.root, self.staging, self.out, self.captures), 1)
         H.write(self.conf, text + extra, "w")
         self.scfg = config.load(self.conf)
 

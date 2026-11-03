@@ -30,6 +30,8 @@ SHA256_RE = re.compile(r"\A[0-9a-f]{64}\Z")
 SOURCES = ("sandbox", "upload", "manual", "vendor")
 STATUSES = ("draft", "approved", "rejected")
 MAX_BYTES = 3 << 19             # 1.5 MiB, the stored (stripped) file
+SESSION_MAX_BYTES = 3 << 20     # 3 MiB for images that come from an interactive session (source manual)
+SESSION_ORIGIN = "session:"
 MIN_HEIGHT = 300
 MAX_DIM = 4096
 MAX_TEXT = 200
@@ -117,7 +119,13 @@ def active(images, lang):
     return [i for i in images if i["lang"] == lang and i["status"] != "rejected"]
 
 
-def check_png(cfg, data):
+def size_limit(image):
+    """Largest stored size of an image record: session captures may be bigger than the others."""
+    session = image["source"] == "manual" and image["origin"].startswith(SESSION_ORIGIN)
+    return SESSION_MAX_BYTES if session else MAX_BYTES
+
+
+def check_png(cfg, data, max_bytes=MAX_BYTES):
     """(stripped bytes, width, height) for a PNG that may be stored; ShotsError otherwise."""
     try:
         data, width, height = pngclean.clean(data, MAX_DIM)
@@ -125,21 +133,22 @@ def check_png(cfg, data):
         raise ShotsError("not an acceptable PNG: %s" % e) from e
     if width < cfg.shots_min_width or height < MIN_HEIGHT:
         raise ShotsError("image is %dx%d, at least %dx%d is required" % (width, height, cfg.shots_min_width, MIN_HEIGHT))
-    if len(data) > MAX_BYTES:
-        raise ShotsError("image is %d bytes after stripping, at most %d are allowed" % (len(data), MAX_BYTES))
+    if len(data) > max_bytes:
+        raise ShotsError("image is %d bytes after stripping, at most %d are allowed" % (len(data), max_bytes))
     return data, width, height
 
 
 def verify_stored(cfg, app, image):
     """Re-validate the file on disk behind a meta.json record (before approving it)."""
     path = os.path.join(app_dir(cfg, app), image["lang"], image["file"])
+    limit = size_limit(image)
     try:
-        data = read_bytes(path, MAX_BYTES)
+        data = read_bytes(path, limit)
     except ReadError as e:
         raise ShotsError("cannot read %s/%s: %s" % (image["lang"], image["file"], e)) from e
     if hashlib.sha256(data).hexdigest() != image["sha256"]:
         raise ShotsError("%s/%s does not match its recorded sha256" % (image["lang"], image["file"]))
-    clean, _, _ = check_png(cfg, data)
+    clean, _, _ = check_png(cfg, data, limit)
     if clean != data:
         raise ShotsError("%s/%s contains chunks that are not allowed" % (image["lang"], image["file"]))
 

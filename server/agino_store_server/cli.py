@@ -17,7 +17,7 @@ import sys
 import tempfile
 
 from . import (catalog, catalogwriter, config, content, content_edit, reports, sandboxqueue, shots_cmds, shots_import,
-               shots_store, status)
+               shots_session, shots_store, status)
 from .state import ID_RE, VERSION_RE, State, StateError, StateLocked
 
 EXIT_OK, EXIT_PROBLEM, EXIT_USAGE, EXIT_LOCKED = 0, 1, 2, 3
@@ -65,6 +65,11 @@ def _parser():
     p.add_argument("--cancel", action="store_true", help="withdraw the request")
     p = sub.add_parser("shots-import", help="take the newest sandbox screenshots of APP in as drafts")
     p.add_argument("app")
+    p = sub.add_parser("shots-session-import", help="take picked captures of an interactive session in as drafts")
+    p.add_argument("app")
+    p.add_argument("--session", required=True, metavar="ID", help="16 hex digits")
+    p.add_argument("--reviewer", required=True)
+    p.add_argument("--pick", required=True, metavar="NN[,NN...]", help="two-digit capture numbers")
     p = sub.add_parser("shots-ingest", help="store a staged PNG as a screenshot of APP")
     p.add_argument("app")
     p.add_argument("--lang", required=True)
@@ -523,7 +528,8 @@ def cmd_status(cfg, st, args):
 COMMANDS = {"track": cmd_track, "check": cmd_check, "intake": cmd_intake, "pending": cmd_pending,
             "approve": cmd_approve, "revoke": cmd_revoke, "reject": cmd_reject, "reports-ingest": cmd_reports_ingest,
             "sandbox-queue": cmd_sandbox_queue, "shots-request": cmd_shots_request,
-            "shots-import": _shots(shots_import.cmd_import), "shots-ingest": _shots(shots_cmds.cmd_ingest),
+            "shots-import": _shots(shots_import.cmd_import),
+            "shots-session-import": _shots(shots_session.cmd_session_import), "shots-ingest": _shots(shots_cmds.cmd_ingest),
             "shots-review": _shots(shots_cmds.cmd_review), "shots-remove": _shots(shots_cmds.cmd_remove),
             "content-edit": content_edit.cmd_edit, "content-confirm": content_edit.cmd_confirm,
             "build": cmd_build, "metrics": cmd_metrics, "status": cmd_status}
