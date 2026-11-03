@@ -43,8 +43,10 @@ D.ApplicationWindow {
         // The loader takes no size from the layout, so the width is spelled out: rail part (190)
         // + separator + gap + back button.
         leftContent: RowLayout {
-            width: 190 + 1 + 14 + 36
-            height: titleBar.height
+            implicitWidth: 190 + 1 + 14 + 36
+            width: implicitWidth
+            implicitHeight: titleBar.height
+            height: implicitHeight
             spacing: 0
             Rectangle {
                 Layout.preferredWidth: 200 - 10
