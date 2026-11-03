@@ -17,9 +17,9 @@ Control {
 
     background: Rectangle {
         radius: 12
-        color: panel.palette.base
+        color: Surface.card(panel.palette)
         border.width: 1
-        border.color: Qt.alpha(panel.palette.windowText, 0.1)
+        border.color: Surface.line(panel.palette)
     }
 
     contentItem: ColumnLayout {
@@ -37,7 +37,7 @@ Control {
                     Layout.fillWidth: true
                     height: 1
                     visible: entry.index > 0
-                    color: Qt.alpha(panel.palette.windowText, 0.1)
+                    color: Surface.line(panel.palette)
                 }
                 RowLayout {
                     Layout.fillWidth: true

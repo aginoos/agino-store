@@ -22,7 +22,7 @@ Control {
         visible: item.y > 0.5
         height: 1
         width: parent.width
-        color: Qt.alpha(item.palette.windowText, 0.1)
+        color: Surface.line(item.palette)
     }
 
     contentItem: RowLayout {

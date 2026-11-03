@@ -24,9 +24,9 @@ ColumnLayout {
             padding: 0
             background: Rectangle {
                 radius: 12
-                color: card.palette.base
+                color: Surface.card(card.palette)
                 border.width: 1
-                border.color: Qt.alpha(card.palette.windowText, 0.1)
+                border.color: Surface.line(card.palette)
             }
             contentItem: ColumnLayout {
                 id: inner

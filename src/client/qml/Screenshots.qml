@@ -30,9 +30,9 @@ ListView {
 
         background: Rectangle {
             radius: 10
-            color: shot.palette.base
+            color: Surface.card(shot.palette)
             border.width: 1
-            border.color: Qt.alpha(shot.palette.windowText, 0.1)
+            border.color: Surface.line(shot.palette)
         }
         contentItem: Image {
             source: shot.url

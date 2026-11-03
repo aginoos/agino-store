@@ -15,10 +15,10 @@ Control {
 
     background: Rectangle {
         radius: 12
-        color: card.palette.base
+        color: Surface.card(card.palette)
         border.width: 1
         border.color: area.containsMouse ? Qt.alpha(card.palette.highlight, 0.55)
-                                         : Qt.alpha(card.palette.windowText, 0.1)
+                                         : Surface.line(card.palette)
         MouseArea {
             id: area
             anchors.fill: parent

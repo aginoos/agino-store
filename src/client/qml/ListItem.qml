@@ -25,7 +25,7 @@ Control {
             visible: item.separator
             width: parent.width
             height: 1
-            color: Qt.alpha(item.palette.windowText, 0.1)
+            color: Surface.line(item.palette)
         }
         MouseArea {
             anchors.fill: parent

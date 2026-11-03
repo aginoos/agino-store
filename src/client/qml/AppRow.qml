@@ -18,7 +18,7 @@ Control {
         Rectangle {
             width: parent.width
             height: 1
-            color: Qt.alpha(row.palette.windowText, 0.1)
+            color: Surface.line(row.palette)
         }
         MouseArea {
             anchors.fill: parent

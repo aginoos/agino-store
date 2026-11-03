@@ -7,12 +7,13 @@ find_package(Dtk6 REQUIRED COMPONENTS Core)
 qt_policy(SET QTP0001 NEW)
 
 # Singletons must be flagged before the module is created.
-set_source_files_properties(qml/Router.qml qml/Icons.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+set_source_files_properties(qml/Router.qml qml/Icons.qml qml/Surface.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
 set(AGINO_STORE_QML_FILES
     qml/Main.qml
     qml/Router.qml
     qml/Icons.qml
+    qml/Surface.qml
     qml/PageBase.qml
     qml/Muted.qml
     qml/Heading.qml

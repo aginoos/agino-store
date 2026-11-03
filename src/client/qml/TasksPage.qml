@@ -19,9 +19,9 @@ PageBase {
 
         background: Rectangle {
             radius: 12
-            color: box.palette.base
+            color: Surface.card(box.palette)
             border.width: 1
-            border.color: Qt.alpha(box.palette.windowText, 0.1)
+            border.color: Surface.line(box.palette)
         }
         contentItem: ColumnLayout {
             spacing: 0

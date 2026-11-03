@@ -59,7 +59,7 @@ Control {
         visible: row.separator
         height: 1
         width: parent.width
-        color: Qt.alpha(row.palette.windowText, 0.1)
+        color: Surface.line(row.palette)
     }
 
     contentItem: RowLayout {
