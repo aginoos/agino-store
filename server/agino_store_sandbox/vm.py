@@ -80,12 +80,17 @@ def build_argv(cfg, slot, files, deb_path, sandbox, demo_path=None):
     return argv
 
 
+# A stopped (-S) qemu does not exit when its QMP stdin reaches EOF, so the probe has to tell it to quit.
+# Without this the probe always timed out and -sandbox was silently never enabled.
+PROBE_QMP = b'{"execute": "qmp_capabilities"}\n{"execute": "quit"}\n'
+
+
 def probe_sandbox(cfg):
     """True if this qemu build accepts -sandbox on (a machine-less dry run)."""
     try:
         done = subprocess.run([cfg.qemu, "-sandbox", "on,obsolete=deny,elevateprivileges=deny,spawn=deny,"
                                "resourcecontrol=deny", "-machine", "none", "-S", "-display", "none", "-nodefaults",
-                               "-no-user-config", "-qmp", "stdio"], input=b"", capture_output=True, timeout=15)
+                               "-no-user-config", "-qmp", "stdio"], input=PROBE_QMP, capture_output=True, timeout=15)
     except (OSError, subprocess.TimeoutExpired):
         return False
     return done.returncode == 0
