@@ -104,7 +104,7 @@ def cmd_ingest(cfg, args):
     source = check_choice(args.source, INGEST_SOURCES, "source")
     status = check_choice(args.status, ("draft", "approved"), "status")
     reviewer = check_reviewer(args.reviewer)
-    replace = check_match(args.replace, S.FILE_RE, "--replace file") if args.replace else None
+    replace = check_match(args.replace, S.FILE_RE, "--replace file") if args.replace is not None else None
     raw = read_staged(cfg, name)
     payload, width, height = S.check_png(cfg, raw)
     with S.locked(cfg, app) as album:

@@ -282,7 +282,12 @@ class Album:
         doc = {"schema": SCHEMA, "app": self.app, "updated": _stamp(), "images": list(self.images)}
         tmp = _write_file_atomic(self.directory, "meta.json", (
             json.dumps(doc, ensure_ascii=True, indent=1, sort_keys=True) + "\n").encode("ascii"))
-        os.replace(tmp, os.path.join(self.directory, "meta.json"))
+        try:
+            os.replace(tmp, os.path.join(self.directory, "meta.json"))
+        except BaseException:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(tmp)
+            raise
         self.persist_dirs()
 
     def persist_dirs(self):
