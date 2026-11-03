@@ -64,13 +64,18 @@ def read_capture(directory, name):
         fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
     except OSError as e:
         raise ReadError("%s: %s" % (name, "is a symlink" if e.errno == errno.ELOOP else e.strerror)) from e
-    with os.fdopen(fd, "rb") as f:
-        info = os.fstat(f.fileno())
+    try:
+        info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode):
             raise ReadError("%s: not a regular file" % name)
         if info.st_size > MAX_SOURCE_BYTES:
             raise ReadError("%s: larger than %d bytes" % (name, MAX_SOURCE_BYTES))
-        return f.read(MAX_SOURCE_BYTES + 1)
+        with os.fdopen(fd, "rb") as f:
+            fd = -1
+            return f.read(MAX_SOURCE_BYTES + 1)
+    finally:
+        if fd >= 0:
+            os.close(fd)
 
 
 def check_capture(cfg, data):
