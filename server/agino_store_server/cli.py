@@ -16,7 +16,7 @@ import re
 import sys
 import tempfile
 
-from . import (catalog, catalogwriter, config, content, reports, sandboxqueue, shots_cmds, shots_import,
+from . import (catalog, catalogwriter, config, content, content_edit, reports, sandboxqueue, shots_cmds, shots_import,
                shots_store, status)
 from .state import ID_RE, VERSION_RE, State, StateError, StateLocked
 
@@ -49,6 +49,8 @@ def _parser():
     p.add_argument("--no-sandbox", action="store_true", help="approve without a passing sandbox report")
     p.add_argument("--include-flagged", action="store_true",
                    help="with 'all': also approve candidates with inspect flags or changed scripts")
+    p.add_argument("--description-reviewed", action="store_true",
+                   help="approve although the description is AI-generated and not confirmed (not with 'all')")
     p.add_argument("--note", default="")
     p = sub.add_parser("revoke", help="withdraw the approval of APP; the next build drops it")
     p.add_argument("target")
@@ -84,6 +86,13 @@ def _parser():
     p.add_argument("--lang", required=True)
     p.add_argument("--file", required=True, metavar="NN-SCENE.PNG")
     p.add_argument("--reviewer", required=True)
+    p = sub.add_parser("content-edit", help="apply a staged JSON patch to the information of APP")
+    p.add_argument("app")
+    p.add_argument("--patch", required=True, metavar="STAGED_NAME", help="JSON file in paths.shots_staging")
+    p.add_argument("--editor", required=True)
+    p = sub.add_parser("content-confirm", help="mark the description of APP as confirmed by a human")
+    p.add_argument("app")
+    p.add_argument("--editor", required=True)
     sub.add_parser("build", help="build and publish the catalog").add_argument("--if-changed", action="store_true")
     sub.add_parser("metrics", help="write the Prometheus text file")
     p = sub.add_parser("status", help="read-only state overview for the admin console (needs --json)")
@@ -246,7 +255,17 @@ def _check_not_downgrade(st, record):
         raise UsageError("%s %s is not newer than the approved %s" % (record["app"], record["version"], current["version"]))
 
 
-def approve_record(st, record, no_sandbox, note):
+AI_DESCRIPTION_BLOCKER = ("the description is AI-generated and not confirmed; "
+                          "confirm it or pass --description-reviewed")
+
+
+def _ai_description(loaded, app):
+    """True when the app's description (in the loaded content) is AI-generated and not yet confirmed."""
+    entry = loaded.app(app)
+    return entry is not None and entry.description_source == "ai"
+
+
+def approve_record(st, record, no_sandbox, note, description_reviewed=False):
     """Approve one pending candidate and supersede older pending ones of the same app."""
     _check_not_downgrade(st, record)
     who, when = _actor(), _stamp()
@@ -255,7 +274,8 @@ def approve_record(st, record, no_sandbox, note):
     entry = {"version": record["version"], "sha256": record["sha256"], "candidate": name,
              "approved_at": when, "by": who, "note": note}
     log = {"at": when, "action": "approve", "app": record["app"], "version": record["version"],
-           "sha256": record["sha256"], "by": who, "note": note, "sandbox": sandbox, "no_sandbox": no_sandbox}
+           "sha256": record["sha256"], "by": who, "note": note, "sandbox": sandbox, "no_sandbox": no_sandbox,
+           "description_reviewed": description_reviewed}
     st.set_approved(record["app"], entry, log)
     st.update_candidate(record, {"status": "approved", "decided": {"action": "approve", "at": when, "by": who,
                                                                     "note": note, "no_sandbox": no_sandbox}})
@@ -265,14 +285,21 @@ def approve_record(st, record, no_sandbox, note):
                 "action": "superseded", "at": when, "by": who, "note": "superseded by %s" % record["version"]}})
 
 
-def _approve_all(st, args):
+def _approve_all(cfg, st, args):
+    if args.description_reviewed:
+        raise UsageError("--description-reviewed cannot be used with 'all'; approve the app by name")
     apps = sorted({r["app"] for r in st.candidates(status="pending")})
+    loaded = _load_content(cfg)
     skipped = 0
     for app in apps:
         record = _select(st, app, None)
         blockers = _blockers(record, args.no_sandbox)
         if blockers:
             print("skipped %s %s: %s" % (app, record["version"], "; ".join(blockers)))
+            skipped += 1
+            continue
+        if _ai_description(loaded, app):
+            print("skipped %s %s: %s (approve it by name)" % (app, record["version"], AI_DESCRIPTION_BLOCKER))
             skipped += 1
             continue
         if _is_flagged(record) and not args.include_flagged:
@@ -294,17 +321,19 @@ def _approve_all(st, args):
 def cmd_approve(cfg, st, args):
     with st.lock():
         if args.target == "all":
-            return _approve_all(st, args)
+            return _approve_all(cfg, st, args)
         app, version = _split_target(args.target)
         record = _select(st, app, version)
         blockers = _blockers(record, args.no_sandbox)
+        if not args.description_reviewed and _ai_description(_load_content(cfg), app):
+            blockers.append(AI_DESCRIPTION_BLOCKER)
         if blockers:
             print("cannot approve %s %s: %s" % (app, record["version"], "; ".join(blockers)), file=sys.stderr)
             return EXIT_PROBLEM
         if _is_flagged(record):
             print("approving %s %s with:" % (app, record["version"]))
             _print_flagged(record)
-        approve_record(st, record, args.no_sandbox, args.note)
+        approve_record(st, record, args.no_sandbox, args.note, args.description_reviewed)
         print("approved %s %s" % (app, record["version"]))
     return EXIT_OK
 
@@ -496,6 +525,7 @@ COMMANDS = {"track": cmd_track, "check": cmd_check, "intake": cmd_intake, "pendi
             "sandbox-queue": cmd_sandbox_queue, "shots-request": cmd_shots_request,
             "shots-import": _shots(shots_import.cmd_import), "shots-ingest": _shots(shots_cmds.cmd_ingest),
             "shots-review": _shots(shots_cmds.cmd_review), "shots-remove": _shots(shots_cmds.cmd_remove),
+            "content-edit": content_edit.cmd_edit, "content-confirm": content_edit.cmd_confirm,
             "build": cmd_build, "metrics": cmd_metrics, "status": cmd_status}
 # Commands whose implementation lives in modules written separately: any failure there is reported, not traced.
 GUARDED = ("track", "check", "intake")
@@ -524,7 +554,7 @@ def main(argv=None):
     except content.ContentError as e:
         print("store-content is invalid:\n%s" % e, file=sys.stderr)
         return EXIT_PROBLEM
-    except (StateError, shots_store.ShotsError, OSError) as e:
+    except (StateError, shots_store.ShotsError, content_edit.EditError, OSError) as e:
         print("error: %s" % e, file=sys.stderr)
         return EXIT_PROBLEM
     except Exception as e:  # noqa: BLE001 - see GUARDED

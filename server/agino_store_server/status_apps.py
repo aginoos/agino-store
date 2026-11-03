@@ -31,14 +31,21 @@ def _approval(entry):
 def app_entry(app, shots, approved, newest):
     return {
         "id": app.id, "name": dict(app.name), "summary": dict(app.summary),
+        "description": {lang: list(paragraphs) for lang, paragraphs in app.description.items()},
+        "license": app.license,
         "categories": list(app.categories), "source": app.source, "kind": app.kind,
         "package": app.package, "vendor": app.vendor, "proprietary": app.proprietary,
         "developer": dict(app.developer), "homepage": app.homepage, "maintainer": app.maintainer,
         "launchable": app.launchable, "has_icon": bool(app.icon),
-        "description_source": getattr(app, "description_source", None) or DEFAULT_SOURCE,
+        "description_source": app.description_source or DEFAULT_SOURCE,
+        "description_confirmed": dict(app.description_confirmed) if app.description_confirmed else None,
         "l10n": bool(app.l10n), "shots": shots,
         "approved": _approval(approved), "current_candidate_status": newest,
     }
+
+
+def categories_section(content):
+    return [{"id": c.id, "name": dict(c.name)} for c in content.categories] if content is not None else []
 
 
 def section(cfg, content, approved, newest_status, errors):

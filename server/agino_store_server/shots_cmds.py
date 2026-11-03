@@ -64,8 +64,8 @@ def check_target(args):
 
 # staging directory
 
-def read_staged(cfg, name):
-    """The bytes of staging/<name>: a regular file opened without following symlinks."""
+def read_staged(cfg, name, limit=MAX_SOURCE_BYTES):
+    """The bytes of staging/<name>: a regular file of at most `limit` bytes opened without following symlinks."""
     try:
         directory = os.open(cfg.shots_staging, os.O_RDONLY | os.O_DIRECTORY)
     except OSError as e:
@@ -79,9 +79,9 @@ def read_staged(cfg, name):
             info = os.fstat(f.fileno())
             if not stat.S_ISREG(info.st_mode):
                 raise S.ShotsError("staged file %s is not a regular file" % name)
-            if info.st_size > MAX_SOURCE_BYTES:
-                raise S.ShotsError("staged file %s is larger than %d bytes" % (name, MAX_SOURCE_BYTES))
-            return f.read(MAX_SOURCE_BYTES + 1)
+            if info.st_size > limit:
+                raise S.ShotsError("staged file %s is larger than %d bytes" % (name, limit))
+            return f.read(limit + 1)
     finally:
         os.close(directory)
 

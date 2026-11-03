@@ -51,6 +51,8 @@ class Config:
     shots_staging: str = DEFAULT_SHOTS_STAGING   # where the admin console drops uploads for shots-ingest
     shots_max_per_lang: int = DEFAULT_SHOTS_MAX_PER_LANG
     shots_min_width: int = DEFAULT_SHOTS_MIN_WIDTH
+    content_push: bool = False          # [content] push: content-edit/content-confirm also push to origin
+    content_push_ssh_command: str = ""  # [content] push_ssh_command: GIT_SSH_COMMAND for those pushes
 
 
 def _get(cp, section, key, conv=str):
@@ -91,6 +93,16 @@ def _shots_int(cp, key, default, low, high):
     if not low <= value <= high:
         raise ConfigError("[shots] %s must be between %d and %d" % (key, low, high))
     return value
+
+
+def _content_push(cp):
+    raw = _opt(cp, "content", "push")
+    if raw is None:
+        return False
+    try:
+        return _bool(raw)
+    except ValueError as e:
+        raise ConfigError("bad value for [content] push: %r (yes or no)" % raw) from e
 
 
 def _sign_command(raw):
@@ -140,6 +152,8 @@ def load(path=DEFAULT_PATH):
         shots_staging=_opt(cp, "paths", "shots_staging") or DEFAULT_SHOTS_STAGING,
         shots_max_per_lang=_shots_int(cp, "max_per_lang", DEFAULT_SHOTS_MAX_PER_LANG, 1, 20),
         shots_min_width=_shots_int(cp, "min_width", DEFAULT_SHOTS_MIN_WIDTH, 100, 4096),
+        content_push=_content_push(cp),
+        content_push_ssh_command=_opt(cp, "content", "push_ssh_command") or "",
     )
     if bool(cfg.key) == bool(cfg.sign_command):
         raise ConfigError("[catalog] exactly one of key and sign_command must be set")

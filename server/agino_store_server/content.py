@@ -47,6 +47,10 @@ MAX_REGEX_LEN = 500
 # Heuristic: a repeat right before a group's closing paren and the group repeated again, e.g. (a+)+ (.*)* (a+)*.
 NESTED_QUANTIFIER_RE = re.compile(r"[+*}]\??\)[+*{]")
 MAX_TEXT_LEN = 4000
+DESCRIPTION_SOURCES = ("ai", "confirmed", "submitter", "official")
+DEFAULT_DESCRIPTION_SOURCE = "submitter"
+EDITOR_RE = re.compile(r"\A[A-Za-z0-9._-]{1,32}\Z")
+UTC_STAMP_RE = re.compile(r"\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\Z")
 
 # track type -> (required keys, optional keys) besides the common ones
 TRACK_FIELDS = {
@@ -115,6 +119,8 @@ class App:
     l10n: dict | None = None    # lang -> tuple of language package names (kind milkyway only)
     shots: dict | None = None   # validated shots.yaml (schema, window, scenes), None without the file
     promo: tuple = ()           # vendor promo images from shots.yaml (reviewed by hand, not built)
+    description_source: str = DEFAULT_DESCRIPTION_SOURCE   # ai | confirmed | submitter | official
+    description_confirmed: dict | None = None   # {by, at}; only with description_source confirmed
 
 
 @dataclass(frozen=True)
@@ -155,7 +161,7 @@ def tracking_view(content):
     return TrackingView(root=content.root, vendors=vendors, apps=apps)
 
 
-class _Check:
+class Check:
     """Error collector with the small validators every section shares."""
 
     def __init__(self):
@@ -481,6 +487,29 @@ def _l10n(chk, path, value, kind):
     return out if len(out) == len(value) else None
 
 
+def _description_review(chk, where, data):
+    """description_source (default submitter) and description_confirmed ({by, at} or None)."""
+    source = data.get("description_source", DEFAULT_DESCRIPTION_SOURCE)
+    if source not in DESCRIPTION_SOURCES:
+        chk.fail(where + ".description_source", "must be one of %s" % ", ".join(DESCRIPTION_SOURCES))
+        source = None
+    if "description_confirmed" not in data:
+        return {"description_source": source, "description_confirmed": None}
+    path, value = where + ".description_confirmed", data["description_confirmed"]
+    if source != "confirmed":
+        chk.fail(path, "only allowed with description_source: confirmed")
+        confirmed = None
+    elif chk.mapping(path, value, ("by", "at")):
+        by = chk.string(path + ".by", value["by"], EDITOR_RE, 32)
+        at = chk.string(path + ".at", value["at"], UTC_STAMP_RE, 20) if isinstance(value["at"], str) else None
+        if at is None and not isinstance(value["at"], str):
+            chk.fail(path + ".at", "must be a quoted UTC timestamp like \"2026-11-03T08:00:00Z\"")
+        confirmed = {"by": by, "at": at} if by and at else None
+    else:
+        confirmed = None
+    return {"description_source": source, "description_confirmed": confirmed}
+
+
 def _app_fields(chk, where, data, app_dir):
     """Validate everything in app.yaml that does not depend on other files."""
     cats = chk.sequence(where + ".categories", data["categories"], 1, 10) or []
@@ -501,6 +530,7 @@ def _app_fields(chk, where, data, app_dir):
         "screenshots": _screenshots(chk, where + ".screenshots", app_dir, data.get("screenshots")),
         "install_profile": _install_profile(chk, where + ".install_profile", data.get("install_profile")),
         "release_notes": _release_notes(chk, where + ".release_notes", data.get("release_notes")),
+        **_description_review(chk, where, data),
     }
 
 
@@ -567,7 +597,7 @@ def _app(chk, root, app_id, vendors, category_ids, demo_names=frozenset()):
     required = ("name", "summary", "description", "categories", "source", "license",
                 "developer", "icon", "package")
     optional = ("proprietary", "homepage", "maintainer", "launchable", "screenshots",
-                "install_profile", "release_notes", "l10n")
+                "install_profile", "release_notes", "l10n", "description_source", "description_confirmed")
     before = len(chk.errors)
     # Unknown keys are reported but do not stop the remaining checks; missing ones do.
     if data is None or (not chk.mapping(rel, data, required, optional)
@@ -757,7 +787,7 @@ def load(root, allow_insecure=False):
     root = os.path.abspath(root)
     if not os.path.isdir(root):
         raise ContentError(["%s: not a directory" % root])
-    chk = _Check()
+    chk = Check()
     vendors = _vendors(chk, root, allow_insecure)
     app_ids = _app_ids(chk, root)
     categories = _categories(chk, root)

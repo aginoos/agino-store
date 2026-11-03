@@ -11,7 +11,7 @@ from . import status_apps, status_sandbox, status_shots, status_state
 from .status_io import Errors, sanitize
 
 SCHEMA = 1
-SECTIONS = ("apps", "candidates", "approved", "vendors", "catalog", "sandbox", "timers", "shots")
+SECTIONS = ("apps", "candidates", "approved", "vendors", "catalog", "sandbox", "timers", "shots", "categories")
 FUTURE_SECTIONS = ("upstreams", "submissions", "sessions", "builds")
 MAX_BYTES = 8 << 20
 # (section, path inside the section) of the lists the size guard may shorten; newest or most important first.
@@ -39,7 +39,8 @@ def _now():
 
 
 def _collect(cfg, wanted, errors):
-    content = status_apps.load_content(cfg, errors) if {"apps", "vendors", "shots"} & set(wanted) else None
+    needs_content = {"apps", "vendors", "shots", "categories"} & set(wanted)
+    content = status_apps.load_content(cfg, errors) if needs_content else None
     candidates = (status_state.load_candidates(cfg, errors)
                   if {"apps", "candidates"} & set(wanted) else [])
     approved = status_state.read_approved(cfg, errors) if {"apps", "approved"} & set(wanted) else {}
@@ -52,6 +53,7 @@ def _collect(cfg, wanted, errors):
         "sandbox": lambda: status_sandbox.sandbox_section(cfg, errors),
         "timers": lambda: status_sandbox.timers_section(errors),
         "shots": lambda: status_shots.section(cfg, content, errors),
+        "categories": lambda: status_apps.categories_section(content),
     }
     out = {}
     for name in wanted:
