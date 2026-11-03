@@ -60,11 +60,12 @@ class TestStatus(StatusCase):
     def test_apps(self):
         self.add(version="2.0-1")
         self.st.set_approved("chrome", {"version": "1.0-1", "approved_at": "t", "by": "bob"}, {"a": 1})
-        H.write(os.path.join(self.shots, "gimp", "zh_CN", "01-main.png"), b"x")
-        H.write(os.path.join(self.shots, "gimp", "en_US", "01-main.png"), b"x")
-        H.write(os.path.join(self.shots, "gimp", "meta.json"),
-                json.dumps({"images": {"zh_CN/01-main.png": {"status": "approved"},
-                                       "en_US/01-main.png": {"status": "approved"}}}), "w")
+        image = {"lang": "zh_CN", "file": "01-main.png", "scene": "main", "sha256": "a" * 64, "size": 1, "width": 900,
+                 "height": 320, "source": "manual", "status": "approved", "reviewer": "bob", "reviewed": "t",
+                 "note": "", "origin": ""}
+        H.write(os.path.join(self.shots, "gimp", "meta.json"), json.dumps({
+            "schema": 1, "app": "gimp", "updated": "t",
+            "images": [image, dict(image, lang="en_US", sha256="b" * 64)]}), "w")
         doc = self.doc("apps")
         apps = {a["id"]: a for a in doc["sections"]["apps"]}
         self.assertEqual(set(apps), {"chrome", "gimp"})

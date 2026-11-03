@@ -10,7 +10,7 @@ from unittest import mock
 from agino_store_server import cli, shots_store
 
 from . import helpers as H
-from .shots_helpers import ShotsCase, chunk_kinds, make_png
+from .shots_helpers import ShotsCase, chunk_kinds, make_png, slurp
 
 
 class TestIngest(ShotsCase):
@@ -21,8 +21,7 @@ class TestIngest(ShotsCase):
         self.assertIn("stored zh_CN/01-main.png", out)
         self.assertFalse(os.path.exists(os.path.join(self.staging, "upload-0001.png")))
         stored_path = os.path.join(self.root, "gimp", "zh_CN", "01-main.png")
-        with open(stored_path, "rb") as f:
-            stored = f.read()
+        stored = slurp(stored_path)
         self.assertEqual(chunk_kinds(stored), ["IHDR", "IDAT", "IEND"])
         self.assertEqual(stat.S_IMODE(os.stat(stored_path).st_mode), 0o644)
         image = self.image("zh_CN", "01-main.png")
@@ -121,8 +120,7 @@ class TestIngest(ShotsCase):
         self.assertNotEqual(self._stored("zh_CN", "01-main.png"), old_stored)
         prev = self._prev_files()
         self.assertEqual([tuple(p.split(os.sep)[-2:]) for p in prev], [("zh_CN", "01-main.png")])
-        with open(prev[0], "rb") as f:
-            self.assertEqual(f.read(), old_stored)
+        self.assertEqual(slurp(prev[0]), old_stored)
         self.assertRegex(prev[0].split(os.sep)[-3], r"\A20261102T120000Z")
 
     def test_replace_with_other_scene_renames(self):
@@ -144,8 +142,7 @@ class TestIngest(ShotsCase):
         self.assertEqual(code, 0)      # a replacement does not count twice
 
     def _stored(self, lang, file):
-        with open(os.path.join(self.root, "gimp", lang, file), "rb") as f:
-            return f.read()
+        return slurp(os.path.join(self.root, "gimp", lang, file))
 
     def _prev_files(self):
         return [os.path.join(base, name) for base, _d, files in os.walk(os.path.join(self.root, "gimp", ".prev"))
@@ -213,16 +210,14 @@ class TestReviewRemove(ShotsCase):
     def test_remove_moves_to_prev(self):
         self.add_image(seed=1, scene="a")
         self.add_image(seed=2, scene="b")
-        with open(os.path.join(self.root, "gimp", "zh_CN", "01-a.png"), "rb") as f:
-            kept = f.read()
+        kept = slurp(os.path.join(self.root, "gimp", "zh_CN", "01-a.png"))
         code, out, _ = self.run_cli("shots-remove", "gimp", "--lang", "zh_CN", "--file", "01-a.png", "--reviewer", "bob")
         self.assertEqual(code, 0, out)
         self.assertEqual([i["file"] for i in self.images()], ["02-b.png"])
         self.assertFalse(os.path.exists(os.path.join(self.root, "gimp", "zh_CN", "01-a.png")))
         prev, = [os.path.join(b, n) for b, _d, fs in os.walk(os.path.join(self.root, "gimp", ".prev")) for n in fs]
         self.assertTrue(prev.endswith(os.path.join("zh_CN", "01-a.png")))
-        with open(prev, "rb") as f:
-            self.assertEqual(f.read(), kept)
+        self.assertEqual(slurp(prev), kept)
         self.assertEqual(self.run_cli("shots-remove", "gimp", "--lang", "zh_CN", "--file", "01-a.png",
                                       "--reviewer", "bob")[0], 1)
 
@@ -296,7 +291,7 @@ class TestArgumentsAndTree(ShotsCase):
         okay = self.review("01-main.png", "draft", "zh_CN", "bob", "gimp", "--note=ünï ok 中文")
         self.assertEqual(okay[0], 0)
         self.assertEqual(self.image("zh_CN", "01-main.png")["note"], "ünï ok 中文")
-        self.assertIn("\\u", open(os.path.join(self.root, "gimp", "meta.json"), encoding="ascii").read())
+        self.assertIn(b"\\u", slurp(os.path.join(self.root, "gimp", "meta.json")))
 
     def test_meta_schema_and_atomic_write(self):
         self.add_image(status="approved")
@@ -308,7 +303,7 @@ class TestArgumentsAndTree(ShotsCase):
         with open(path, "rb") as f:
             f.read().decode("ascii")
         self.assertEqual([n for n in os.listdir(os.path.join(self.root, "gimp")) if n.startswith(".tmp")], [])
-        before = open(path, "rb").read()
+        before = slurp(path)
         real = os.replace
 
         def failing(src, dst, *a, **k):
@@ -318,7 +313,7 @@ class TestArgumentsAndTree(ShotsCase):
         with mock.patch.object(shots_store.os, "replace", side_effect=failing):
             code, _, err = self.review("01-main.png", "rejected")
         self.assertEqual(code, 1)
-        self.assertEqual(open(path, "rb").read(), before)
+        self.assertEqual(slurp(path), before)
         self.assertEqual([n for n in os.listdir(os.path.join(self.root, "gimp")) if n.startswith(".tmp")], [])
 
     def test_damaged_meta_is_not_overwritten(self):
@@ -331,7 +326,7 @@ class TestArgumentsAndTree(ShotsCase):
                 H.write(path, bad, "w")
                 self.assertEqual(self.ingest("upload-0009.png", make_png(seed=9))[0], 1)
                 self.assertEqual(self.review("01-main.png", "rejected")[0], 1)
-                self.assertEqual(open(path, encoding="utf-8").read(), bad)
+                self.assertEqual(slurp(path), bad.encode("utf-8"))
 
     def test_missing_directories(self):
         self.stage("upload-0001.png", make_png())

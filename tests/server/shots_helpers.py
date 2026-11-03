@@ -30,6 +30,11 @@ def make_png(width=900, height=320, seed=1, extra=(), noise=False):
             + chunk(b"IEND", b""))
 
 
+def slurp(path):
+    with open(path, "rb") as f:
+        return f.read()
+
+
 def chunk_kinds(data):
     kinds, pos = [], 8
     while pos < len(data):
