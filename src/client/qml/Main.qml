@@ -62,7 +62,7 @@ D.ApplicationWindow {
             }
             RowLayout {
                 x: bar.originX + 10
-                height: parent.height
+                anchors.verticalCenter: parent.verticalCenter
                 spacing: 8
                 D.DciIcon {
                     name: "agino-store"
@@ -80,8 +80,9 @@ D.ApplicationWindow {
             Rectangle {
                 x: bar.originX + 199
                 width: 1
+                anchors.verticalCenter: parent.verticalCenter
                 height: parent.height
-                color: Qt.alpha(window.palette.windowText, 0.1)
+                color: Qt.alpha(window.palette.windowText, 0.16)
             }
             D.IconButton {
                 id: backButton
