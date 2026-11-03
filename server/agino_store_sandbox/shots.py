@@ -11,7 +11,7 @@ from .shots_guest import ShotsGuest
 from .shots_scene import BUTTONS, LANGS
 from .util import InfraError, SandboxError, clean
 
-WINDOW_WAIT = 30
+WINDOW_WAIT = 60
 SETTLE = 2
 STABLE = 3
 MAX_PPM_FILE = shots_img.MAX_PPM
@@ -121,7 +121,9 @@ class Phase:
             self.g.kill_new(base_pids)
 
     def _main_window(self, baseline):
-        """The largest new normal window once it stayed the same for STABLE polls (splash screens come first)."""
+        """The largest new normal window once it stayed the same for STABLE polls (splash screens come first).
+
+        Without any normal window the largest new window of any kind is the fallback."""
         deadline = time.monotonic() + WINDOW_WAIT
         last, seen = None, 0
         while time.monotonic() < deadline:
@@ -132,6 +134,11 @@ class Phase:
             if best is not None and seen >= STABLE:
                 return best
             time.sleep(1)
+        if last is None:
+            # Only dialogs or other transient windows (a first-run wizard, a legal notice): better
+            # than no picture, and the scene's own steps can still dismiss them.
+            rest = sorted(self.g.windows() - baseline)
+            last = max(rest, key=self._area) if rest else None
         return last
 
     def _area(self, wid):

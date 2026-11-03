@@ -102,11 +102,9 @@ class ShotsGuest:
                                "/bin/sh", "-c", 'exec "$@" 2>' + APP_ERR, "sh", *argv])
 
     def diagnose(self, base_pids):
-        """What the app left behind when no window appeared: its stderr tail and what still runs."""
+        """What the app left behind when no window appeared: what still runs, then its stderr tail
+        (toolkit warnings left out)."""
         parts = []
-        res = self.qga.exec(["/usr/bin/tail", "-c", "600", "--", APP_ERR], 20)
-        if res.ok and res.text.strip():
-            parts.append("stderr: " + clean(" | ".join(res.text.strip().splitlines()[-4:]), 300))
         new = sorted(self.tester_pids() - base_pids)[:MAX_PIDS]
         if new:
             res = self.qga.exec(["/bin/ps", "-o", "comm=", "-p", ",".join(str(p) for p in new)], 20)
@@ -114,6 +112,11 @@ class ShotsGuest:
             parts.append("running: " + clean(" ".join(names[:12]), 120))
         else:
             parts.append("the app exited")
+        res = self.qga.exec(["/usr/bin/tail", "-c", "2000", "--", APP_ERR], 20)
+        lines = [ln.strip() for ln in res.text.splitlines()] if res.ok else []
+        lines = [ln for ln in lines if ln and not re.search(r"-(WARNING|CRITICAL)|Gtk-|dbind", ln)]
+        if lines:
+            parts.append("stderr: " + clean(" | ".join(lines[-4:]), 300))
         return "; ".join(parts)
 
     def read_desktop_exec(self, desktop_path):
