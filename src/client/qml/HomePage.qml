@@ -36,8 +36,12 @@ PageBase {
                 text: page.essentials ? page.essentials.title : ""
             }
             D.ToolButton {
+                id: seeAll
                 text: qsTr("See all")
-                palette.buttonText: palette.highlight
+                contentItem: D.Label {
+                    text: seeAll.text
+                    color: seeAll.palette.highlight
+                }
                 onClicked: {
                     const apps = page.essentials ? page.essentials.apps : []
                     const cats = apps.length > 0 ? Store.app(apps[0]).categories : []

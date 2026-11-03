@@ -49,8 +49,12 @@ Control {
                 onPicked: function(m) { panel.mode = m }
             }
             D.ToolButton {
+                id: seeAll
                 text: qsTr("See all")
-                palette.buttonText: palette.highlight
+                contentItem: D.Label {
+                    text: seeAll.text
+                    color: seeAll.palette.highlight
+                }
                 onClicked: Router.openCategory(panel.categoryId)
             }
         }
