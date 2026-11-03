@@ -1,10 +1,13 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
+import os
 import subprocess
+import sys
 import types
 import unittest
 from unittest import mock
 
-from agino_store_sandbox import vm
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "server"))
+from agino_store_sandbox import vm  # noqa: E402
 
 
 class ProbeSandboxTests(unittest.TestCase):
