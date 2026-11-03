@@ -36,7 +36,7 @@ D.ApplicationWindow {
     }
 
     // Title bar after the deepin store: the left part is the rail's width (app icon and name), a
-    // separator continues the rail's edge, then back button, search and the downloads button.
+    // separator continues the rail's edge, then back button and search.
     header: D.TitleBar {
         id: titleBar
 
@@ -90,42 +90,6 @@ D.ApplicationWindow {
                     Layout.preferredWidth: Math.max(160, Math.min(340, titleBar.width - 560))
                     placeholder: qsTr("Search apps")
                     onTextChanged: debounce.restart()
-                }
-                // Downloads: accent circle with a badge while tasks are running.
-                Item {
-                    Layout.preferredWidth: 32
-                    Layout.preferredHeight: 32
-                    Rectangle {
-                        anchors.fill: parent
-                        radius: width / 2
-                        color: window.palette.highlight
-                        NavIcon {
-                            anchors.centerIn: parent
-                            key: "tasks"
-                            color: window.palette.highlightedText
-                        }
-                    }
-                    Rectangle {
-                        visible: Store.activeTasks > 0
-                        x: parent.width - 10
-                        y: -4
-                        width: Math.max(16, badgeText.implicitWidth + 8)
-                        height: 16
-                        radius: 8
-                        color: "#e5484d"
-                        Text {
-                            id: badgeText
-                            anchors.centerIn: parent
-                            text: Store.activeTasks
-                            color: "#ffffff"
-                            font.pixelSize: 11
-                        }
-                    }
-                    MouseArea {
-                        anchors.fill: parent
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: Router.go("tasks")
-                    }
                 }
             }
             Timer {
