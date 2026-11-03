@@ -117,10 +117,7 @@ D.ApplicationWindow {
             }
         }
 
-        // A separate popup window, like the menus of other DTK applications (the default is a
-        // popup clipped to this window).
         menu: D.Menu {
-            popupType: Popup.Window
             D.Action {
                 text: qsTr("Settings")
                 onTriggered: Router.go("settings")
