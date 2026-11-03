@@ -3,6 +3,6 @@ import QtQuick
 import org.deepin.dtk 1.0 as D
 
 D.Label {
-    font: Qt.font({ family: D.DTK.fontManager.t5.family, pixelSize: 17, weight: Font.Bold })
+    font: Qt.font({ family: D.DTK.fontManager.t5.family, pixelSize: 17, weight: Font.DemiBold })
     elide: Text.ElideRight
 }

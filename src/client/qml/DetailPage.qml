@@ -44,7 +44,7 @@ PageBase {
         add(qsTr("Updated"), info.updated)
         if (info.source !== "system" && info.checksum)
             add(qsTr("Package checksum"),
-                "sha256 " + info.checksum.slice(0, 12) + "…" + info.checksum.slice(-8), true)
+                "sha256 " + info.checksum.slice(0, 8) + "…" + info.checksum.slice(-8), true)
         return out
     }
 
