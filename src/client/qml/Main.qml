@@ -43,7 +43,16 @@ D.ApplicationWindow {
 
         content: Item {
             id: bar
-            readonly property real originX: -mapToItem(titleBar, 0, 0).x
+            // Offset of the title bar's left edge inside this item (kept in step with layout changes).
+            property real originX: 0
+            function syncOrigin() { originX = -mapToItem(titleBar, 0, 0).x }
+            Component.onCompleted: syncOrigin()
+            onXChanged: syncOrigin()
+            onWidthChanged: syncOrigin()
+            Connections {
+                target: titleBar
+                function onWidthChanged() { bar.syncOrigin() }
+            }
 
             Rectangle {
                 x: bar.originX
@@ -60,8 +69,10 @@ D.ApplicationWindow {
                     sourceSize: Qt.size(24, 24)
                     Layout.preferredWidth: 24
                     Layout.preferredHeight: 24
+                    Layout.alignment: Qt.AlignVCenter
                 }
                 D.Label {
+                    Layout.alignment: Qt.AlignVCenter
                     text: window.title
                     font: D.DTK.fontManager.t6
                 }
