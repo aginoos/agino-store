@@ -77,14 +77,6 @@ D.ApplicationWindow {
                     font: D.DTK.fontManager.t6
                 }
             }
-            Rectangle {
-                x: bar.originX + 199
-                z: 10
-                width: 1
-                anchors.verticalCenter: parent.verticalCenter
-                height: parent.height
-                color: Qt.alpha(window.palette.windowText, 0.22)
-            }
             D.IconButton {
                 id: backButton
                 x: bar.originX + 200 + 14
@@ -159,6 +151,16 @@ D.ApplicationWindow {
             Layout.fillHeight: true
             sourceComponent: window.pageComponent
         }
+    }
+
+    // The rail's separator continues up through the title bar.
+    Rectangle {
+        x: 199
+        y: -titleBar.height
+        z: 100
+        width: 1
+        height: titleBar.height
+        color: Qt.alpha(window.palette.windowText, 0.1)
     }
 
     ConfirmDialog {
