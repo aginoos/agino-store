@@ -41,6 +41,22 @@ D.ApplicationWindow {
     header: D.TitleBar {
         id: titleBar
 
+        // Over the rail the bar is tinted like the rail, and the rail's separator continues up.
+        background: Rectangle {
+            color: window.palette.window
+            Rectangle {
+                width: 199
+                height: parent.height
+                color: Qt.darker(window.palette.window, 1.04)
+            }
+            Rectangle {
+                x: 199
+                width: 1
+                height: parent.height
+                color: Qt.alpha(window.palette.windowText, 0.1)
+            }
+        }
+
         content: Item {
             id: bar
             // Offset of the title bar's left edge inside this item (kept in step with layout changes).
@@ -54,12 +70,6 @@ D.ApplicationWindow {
                 function onWidthChanged() { bar.syncOrigin() }
             }
 
-            Rectangle {
-                x: bar.originX
-                width: 199
-                height: parent.height
-                color: Qt.darker(window.palette.window, 1.04)
-            }
             RowLayout {
                 x: bar.originX + 10
                 anchors.verticalCenter: parent.verticalCenter
@@ -151,16 +161,6 @@ D.ApplicationWindow {
             Layout.fillHeight: true
             sourceComponent: window.pageComponent
         }
-    }
-
-    // The rail's separator continues up through the title bar.
-    Rectangle {
-        x: 199
-        y: -titleBar.height
-        z: 100
-        width: 1
-        height: titleBar.height
-        color: Qt.alpha(window.palette.windowText, 0.1)
     }
 
     ConfirmDialog {

@@ -23,11 +23,15 @@ Control {
         }
     }
 
-    component GroupLabel: Muted {
+    // Thin line between the groups of the rail (home, categories, mine).
+    component GroupSeparator: Rectangle {
         Layout.fillWidth: true
-        Layout.topMargin: 10
+        Layout.topMargin: 8
+        Layout.bottomMargin: 8
         Layout.leftMargin: 10
-        font: D.DTK.fontManager.t10
+        Layout.rightMargin: 10
+        implicitHeight: 1
+        color: Qt.alpha(nav.palette.windowText, 0.1)
     }
 
     contentItem: ColumnLayout {
@@ -53,7 +57,7 @@ Control {
                     onClicked: Router.go("home")
                 }
 
-                GroupLabel { text: qsTr("Categories") }
+                GroupSeparator {}
                 Repeater {
                     model: Store.categories
                     NavButton {
@@ -66,7 +70,7 @@ Control {
                     }
                 }
 
-                GroupLabel { text: qsTr("Mine") }
+                GroupSeparator {}
                 NavButton {
                     Layout.fillWidth: true
                     label: qsTr("Updates")
