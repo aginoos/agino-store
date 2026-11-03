@@ -36,6 +36,7 @@ PageBase {
             onPicked: function(i) { page.tab = i }
         }
         D.Button {
+            Layout.alignment: Qt.AlignBottom
             text: qsTr("System updates")
             onClicked: Store.openSystemUpdates()
         }
@@ -63,7 +64,8 @@ PageBase {
         delegate: ListItem {
             appId: model.appId
             separator: model.index > 0
-            sub: "%1 → %2".arg(model.installedVersion).arg(model.version)
+            // Old version muted (the label's own colour), new one in the normal text colour.
+            sub: "%1 → <font color=\"%2\">%3</font>".arg(model.installedVersion).arg(palette.windowText).arg(model.version)
                  + (model.downloadSize > 0 ? " · " + Store.formatBytes(model.downloadSize) : "")
             ActionButtons { appId: model.appId }
         }
@@ -78,10 +80,10 @@ PageBase {
             appId: model.appId
             separator: model.index > 0
             sub: model.installedVersion + (model.installedSize > 0 ? " · " + Store.formatBytes(model.installedSize) : "")
-            Chip {
-                tone: "accent"
+            Muted {
                 text: model.source === "system" ? qsTr("Updates with system") : qsTr("Store update")
             }
+            SourceChips { appId: model.appId }
             D.Button {
                 visible: model.state !== "busy"
                 text: qsTr("Uninstall")

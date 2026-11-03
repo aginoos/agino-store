@@ -54,6 +54,7 @@ Control {
             Muted {
                 Layout.fillWidth: true
                 text: item.sub
+                textFormat: Text.StyledText
             }
         }
         RowLayout {
