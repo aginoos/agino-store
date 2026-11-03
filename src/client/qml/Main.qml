@@ -117,7 +117,15 @@ D.ApplicationWindow {
             }
         }
 
+        // The popup stays inside the window, so it carries the edge line that popup windows get
+        // from the window border in the current themes.
         menu: D.Menu {
+            background: Rectangle {
+                radius: 10
+                color: Qt.lighter(window.palette.window, 1.12)
+                border.width: 1
+                border.color: Qt.alpha(window.palette.windowText, 0.18)
+            }
             D.Action {
                 text: qsTr("Settings")
                 onTriggered: Router.go("settings")
