@@ -18,6 +18,7 @@ from .shots_scene import LANGS
 from .util import SandboxError, log
 
 FAILED_LINGER = 60
+CLOSE_GRACE = 0.5  # lets the reply to `end` reach the platform before the sockets are shut
 STATUS_FILE = "status.json"
 STATUS_EVERY = 5.0
 STALE_NAMES = ("web.sock", "token.once", "session.id")
@@ -129,8 +130,9 @@ def serve(cfg, app, lang="zh_CN", deps=None, linger=FAILED_LINGER):
         holder["web"] = web
         web.bind()
         threading.Thread(target=web.serve, daemon=True).start()
-        for sig in (signal.SIGTERM, signal.SIGINT):
-            signal.signal(sig, lambda *_: session.request_end("stopped"))
+        if threading.current_thread() is threading.main_thread():
+            for sig in (signal.SIGTERM, signal.SIGINT):
+                signal.signal(sig, lambda *_: session.request_end("stopped"))
         _write(os.path.join(app_dir, "session.id"), (session_id + "\n").encode("ascii"), 0o640, gid=gid)
         _write(os.path.join(app_dir, "token.once"), token.hex().encode("ascii") + b"\n", 0o600, exclusive=True)
         publisher(session)
@@ -143,6 +145,7 @@ def serve(cfg, app, lang="zh_CN", deps=None, linger=FAILED_LINGER):
     finally:
         session.request_end("")
         session.finished.set()
+        time.sleep(CLOSE_GRACE)
         if "web" in holder:
             holder["web"].close()
         remove_runtime(app_dir, private)
