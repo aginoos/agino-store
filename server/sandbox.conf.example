@@ -19,3 +19,19 @@ qemu_sandbox = auto                       # auto | on | off (qemu -sandbox)
 slots = 4                                 # 1..4, tap devices agsbx-t0..t3
 memory_mb = 4096
 cpus = 4
+
+# Interactive screenshot sessions (docs/sandbox.md section 9). Optional; these are the defaults.
+[session]
+runtime_dir = /run/agino-session          # <app>/web.sock (group-visible) and <app>/private/ (sockets, 0700)
+captures = /srv/store/sandbox/captures    # <session id>/NN-<kind>-<lang>.png + captures.json
+web_group = agino-admin                   # group of web.sock (the platform's group)
+max_sessions = 2                          # also enforced by agino-session-ctl
+run_minutes = 30                          # from the start of the running phase; one extension of 15 minutes
+idle_minutes = 10                         # without a key or pointer event
+total_minutes = 60                        # hard limit including queueing and install
+install_minutes = 15                      # start + install limit
+overlay_cap_gib = 8                       # both overlay layers together
+min_free_gib = 20                         # free space in [sandbox] run below this refuses to start
+max_captures = 40
+retention_hours = 24                      # `session cleanup` removes older captures directories
+traffic_cap_gib = 2                       # tap rx+tx per session

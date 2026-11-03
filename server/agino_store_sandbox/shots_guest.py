@@ -93,13 +93,14 @@ class ShotsGuest:
             new = sorted(self.tester_pids() & set(new))
         return 1
 
-    def start_app(self, argv, lang):
+    def start_app(self, argv, lang, timeout=600, discard_stdout=False):
         env = ["LANG=" + shots_scene.LOCALES[lang], "LANGUAGE=" + shots_scene.LANGUAGE_VARS[lang],
                "LC_ALL=" + shots_scene.LOCALES[lang], "HOME=" + shots_scene.HOME]
         session = ["%s=%s" % kv for kv in sorted(self.guest.env.items())]
-        return self.qga.start(["/usr/bin/timeout", "-k", "5", "600", "/usr/sbin/runuser", "-u", USER, "--",
+        redirect = ">/dev/null 2>" if discard_stdout else "2>"  # a long interactive run must not fill qga's buffer
+        return self.qga.start(["/usr/bin/timeout", "-k", "5", str(int(timeout)), "/usr/sbin/runuser", "-u", USER, "--",
                                "/usr/bin/env", *session, *env,
-                               "/bin/sh", "-c", 'exec "$@" 2>' + APP_ERR, "sh", *argv])
+                               "/bin/sh", "-c", 'exec "$@" ' + redirect + APP_ERR, "sh", *argv])
 
     def diagnose(self, base_pids):
         """What the app left behind when no window appeared: what still runs, then its stderr tail

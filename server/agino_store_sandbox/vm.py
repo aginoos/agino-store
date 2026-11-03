@@ -10,7 +10,8 @@ from .qga import Qga
 from .qmp import Qmp
 from .util import InfraError, log
 
-RUN_FILE_NAMES = ("overlay.qcow2", "vars.fd", "qmp.sock", "qga.sock", "shot.png", "shot.ppm", "qemu.log")
+RUN_FILE_NAMES = ("overlay.qcow2", "overlay2.qcow2", "vars.fd", "vars2.fd", "qmp.sock", "qga.sock", "vnc.sock",
+                  "shot.png", "shot.ppm", "qemu.log")
 
 
 class RunFiles:
@@ -20,12 +21,16 @@ class RunFiles:
         self.directory = directory
         self.created = []
 
+    def where(self, name):
+        """Directory that holds run file `name` (a subclass may split them over two directories)."""
+        return self.directory
+
     def path(self, name):
         if name not in RUN_FILE_NAMES:
             raise ValueError("not a run file: %s" % name)
         if name not in self.created:
             self.created.append(name)
-        return os.path.join(self.directory, name)
+        return os.path.join(self.where(name), name)
 
     def prepare(self):
         os.makedirs(self.directory, mode=0o700, exist_ok=True)
@@ -34,7 +39,7 @@ class RunFiles:
 
     def _unlink(self, name):
         try:
-            os.unlink(os.path.join(self.directory, name))
+            os.unlink(os.path.join(self.where(name), name))
         except FileNotFoundError:
             pass
 
@@ -55,13 +60,14 @@ def mac_address(slot):
     return "52:54:00:5b:00:%02x" % slot
 
 
-def build_argv(cfg, slot, files, deb_path, sandbox, demo_path=None):
+def build_argv(cfg, slot, files, deb_path, sandbox, demo_path=None, *, drive="overlay.qcow2", vars_name="vars.fd",
+               drive_opts="", extra=()):
     argv = [cfg.qemu, "-name", "agsbx-%d" % slot, "-enable-kvm", "-machine", "q35,accel=kvm", "-cpu", "host",
             "-m", str(cfg.memory_mb), "-smp", str(cfg.cpus), "-display", "none", "-no-user-config", "-nodefaults",
             "-device", "virtio-vga,xres=%d,yres=%d" % tuple(cfg.screen), "-rtc", "base=utc", "-no-reboot",
             "-drive", "if=pflash,format=raw,readonly=on,file=%s" % cfg.ovmf_code,
-            "-drive", "if=pflash,format=raw,file=%s" % files.path("vars.fd"),
-            "-drive", "file=%s,format=qcow2,if=none,id=sys,discard=unmap" % files.path("overlay.qcow2"),
+            "-drive", "if=pflash,format=raw,file=%s" % files.path(vars_name),
+            "-drive", "file=%s,format=qcow2,if=none,id=sys,discard=unmap%s" % (files.path(drive), drive_opts),
             "-device", "virtio-blk-pci,drive=sys,bootindex=0"]
     if deb_path is not None:
         argv += ["-drive", "file=%s,format=raw,if=none,readonly=on,id=deb" % deb_path,
@@ -75,6 +81,7 @@ def build_argv(cfg, slot, files, deb_path, sandbox, demo_path=None):
              "-chardev", "socket,id=qga,path=%s,server=on,wait=off" % files.path("qga.sock"),
              "-device", "virtserialport,chardev=qga,name=org.qemu.guest_agent.0",
              "-qmp", "unix:%s,server=on,wait=off" % files.path("qmp.sock")]
+    argv += list(extra)
     if sandbox:
         argv += ["-sandbox", "on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny"]
     return argv
@@ -114,8 +121,11 @@ class Vm:
             shutil.copyfile(cfg.base_vars, files.path("vars.fd"))
         except OSError as e:
             raise InfraError("cannot copy OVMF vars: %s" % e.strerror) from None
-        argv = build_argv(cfg, self.slot, files, self.deb_path, self.use_sandbox, self.demo_path)
-        logf = open(files.path("qemu.log"), "wb")
+        self._spawn(build_argv(cfg, self.slot, files, self.deb_path, self.use_sandbox, self.demo_path))
+
+    def _spawn(self, argv):
+        """Start qemu with argv and connect QMP and the guest agent."""
+        logf = open(self.files.path("qemu.log"), "wb")
         try:
             self.proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=logf, stderr=logf)
         except OSError as e:
@@ -154,19 +164,24 @@ class Vm:
     def alive(self):
         return self.proc is not None and self.proc.poll() is None
 
+    def halt(self):
+        """Quit through QMP, then make sure the exact qemu process we started is gone (run files stay)."""
+        if self.qmp is not None:
+            self.qmp.quit()
+        for client in (self.qga, self.qmp):
+            if client is not None:
+                client.close()
+        self.qga = self.qmp = None
+        if self.proc is not None and self.proc.poll() is None:
+            try:
+                self.proc.wait(10)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+                self.proc.wait()
+
     def stop(self):
-        """Quit through QMP, then make sure the exact qemu process we started is gone; remove our run files."""
+        """halt() and remove our run files."""
         try:
-            if self.qmp is not None:
-                self.qmp.quit()
-            for client in (self.qga, self.qmp):
-                if client is not None:
-                    client.close()
-            if self.proc is not None and self.proc.poll() is None:
-                try:
-                    self.proc.wait(10)
-                except subprocess.TimeoutExpired:
-                    self.proc.kill()
-                    self.proc.wait()
+            self.halt()
         finally:
             self.files.cleanup()

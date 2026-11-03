@@ -13,7 +13,7 @@ class ImageError(Exception):
     pass
 
 
-def parse_ppm(data):
+def parse_ppm(data, max_side=MAX_SIDE):
     """(width, height, rgb bytes) from a binary P6 PPM; ImageError for anything else."""
     pos = 0
     tokens = []
@@ -35,7 +35,7 @@ def parse_ppm(data):
         width, height, maxval = int(tokens[1]), int(tokens[2]), int(tokens[3])
     except ValueError:
         raise ImageError("bad PPM header") from None
-    if tokens[0] != b"P6" or maxval != 255 or not (0 < width <= MAX_SIDE and 0 < height <= MAX_SIDE):
+    if tokens[0] != b"P6" or maxval != 255 or not (0 < width <= max_side and 0 < height <= max_side):
         raise ImageError("unsupported PPM")
     pixels = data[pos:pos + width * height * 3]
     if len(pixels) != width * height * 3:

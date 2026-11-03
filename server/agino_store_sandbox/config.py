@@ -33,6 +33,67 @@ DEFAULTS = {
 }
 
 
+SESSION_DEFAULTS = {
+    "runtime_dir": "/run/agino-session",
+    "captures": "/srv/store/sandbox/captures",
+    "web_group": "agino-admin",
+    "max_sessions": "2",
+    "run_minutes": "30",
+    "idle_minutes": "10",
+    "total_minutes": "60",
+    "install_minutes": "15",
+    "overlay_cap_gib": "8",
+    "min_free_gib": "20",
+    "max_captures": "40",
+    "retention_hours": "24",
+    "traffic_cap_gib": "2",
+}
+
+
+@dataclasses.dataclass(frozen=True)
+class SessionConfig:
+    """The [session] section (interactive screenshot sessions, docs/sandbox.md section 9)."""
+    runtime_dir: str = SESSION_DEFAULTS["runtime_dir"]
+    captures: str = SESSION_DEFAULTS["captures"]
+    web_group: str = SESSION_DEFAULTS["web_group"]
+    max_sessions: int = 2
+    run_minutes: int = 30
+    idle_minutes: int = 10
+    total_minutes: int = 60
+    install_minutes: int = 15
+    overlay_cap_gib: int = 8
+    min_free_gib: int = 20
+    max_captures: int = 40
+    retention_hours: int = 24
+    traffic_cap_gib: int = 2
+
+
+SESSION_INT_RANGES = {"max_sessions": (1, 4), "run_minutes": (1, 120), "idle_minutes": (1, 120),
+                      "total_minutes": (1, 240), "install_minutes": (1, 120), "overlay_cap_gib": (1, 512),
+                      "min_free_gib": (0, 4096), "max_captures": (1, 99), "retention_hours": (1, 24 * 30),
+                      "traffic_cap_gib": (1, 1024)}
+
+
+def session_from_dict(values):
+    merged = dict(SESSION_DEFAULTS, **values)
+    unknown = set(merged) - set(SESSION_DEFAULTS)
+    if unknown:
+        raise SandboxError("unknown [session] keys: %s" % ", ".join(sorted(unknown)))
+    out = {k: merged[k] for k in ("runtime_dir", "captures", "web_group")}
+    for key, (low, high) in SESSION_INT_RANGES.items():
+        try:
+            n = int(merged[key])
+        except ValueError:
+            raise SandboxError("config [session] %s must be an integer" % key) from None
+        if not low <= n <= high:
+            raise SandboxError("config [session] %s must be between %d and %d" % (key, low, high))
+        out[key] = n
+    for key in ("runtime_dir", "captures"):
+        if not out[key].startswith("/"):
+            raise SandboxError("config [session] %s must be an absolute path" % key)
+    return SessionConfig(**out)
+
+
 @dataclasses.dataclass(frozen=True)
 class Config:
     queue: str
@@ -54,6 +115,7 @@ class Config:
     slots: int
     memory_mb: int
     cpus: int
+    session: SessionConfig = SessionConfig()
 
 
 def _int(values, key, low, high):
@@ -73,7 +135,7 @@ def _screen(text):
     return int(m.group(1)), int(m.group(2))
 
 
-def from_dict(values):
+def from_dict(values, session=None):
     merged = dict(DEFAULTS, **values)
     if merged["shots"].startswith("/"):  # older configs used `shots` for the check screenshot directory
         merged["shot_dir"] = merged["shots"]
@@ -90,7 +152,7 @@ def from_dict(values):
     unknown = set(strs) - {f.name for f in dataclasses.fields(Config)}
     if unknown:
         raise SandboxError("unknown config keys: %s" % ", ".join(sorted(unknown)))
-    return Config(**strs, **ints)
+    return Config(**strs, **ints, session=session_from_dict(session or {}))
 
 
 def load(path=DEFAULT_PATH):
@@ -100,4 +162,5 @@ def load(path=DEFAULT_PATH):
             parser.read_file(f)
     except OSError as e:
         raise SandboxError("cannot read config %s: %s" % (path, e.strerror)) from None
-    return from_dict(dict(parser["sandbox"]) if parser.has_section("sandbox") else {})
+    return from_dict(dict(parser["sandbox"]) if parser.has_section("sandbox") else {},
+                     dict(parser["session"]) if parser.has_section("session") else None)
