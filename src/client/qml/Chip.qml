@@ -8,7 +8,13 @@ Control {
     id: chip
 
     property string text
-    property bool accent: false
+    // "", "accent", "ok", "warn" or "closed"; empty is the neutral grey.
+    property string tone: ""
+    readonly property color toneColor: tone === "ok" ? Surface.ok(palette)
+                                       : tone === "warn" ? Surface.warn(palette)
+                                       : tone === "closed" ? Surface.closed(palette)
+                                       : tone === "accent" ? palette.highlight
+                                       : Qt.alpha(palette.windowText, 0.62)
 
     leftPadding: 6
     rightPadding: 6
@@ -17,13 +23,13 @@ Control {
 
     contentItem: D.Label {
         text: chip.text
-        font: D.DTK.fontManager.t10
-        color: chip.accent ? chip.palette.highlight : Qt.alpha(chip.palette.windowText, 0.66)
+        font.pixelSize: 11
+        color: chip.toneColor
     }
     background: Rectangle {
         radius: 5
         color: "transparent"
         border.width: 1
-        border.color: chip.accent ? Qt.alpha(chip.palette.highlight, 0.45) : Qt.alpha(chip.palette.windowText, 0.2)
+        border.color: chip.tone !== "" ? Qt.alpha(chip.toneColor, 0.4) : Qt.alpha(chip.palette.windowText, 0.2)
     }
 }

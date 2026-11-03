@@ -11,12 +11,13 @@ Row {
     spacing: 6
 
     Chip {
-        accent: root.info.source !== "personal"
+        tone: root.info.source === "official" ? "ok" : root.info.source === "personal" ? "warn" : "accent"
         text: root.info.source === "system" ? qsTr("System repo")
               : root.info.source === "official" ? qsTr("Official") : qsTr("Community")
     }
     Chip {
         visible: root.info.proprietary === true
+        tone: "closed"
         text: qsTr("Proprietary")
     }
 }

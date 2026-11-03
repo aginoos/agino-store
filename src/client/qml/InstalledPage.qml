@@ -79,7 +79,7 @@ PageBase {
             separator: model.index > 0
             sub: model.installedVersion + (model.installedSize > 0 ? " · " + Store.formatBytes(model.installedSize) : "")
             Chip {
-                accent: model.source !== "personal"
+                tone: "accent"
                 text: model.source === "system" ? qsTr("Updates with system") : qsTr("Store update")
             }
             D.Button {
