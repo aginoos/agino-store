@@ -8,6 +8,9 @@
 agino-store-sandbox [--config /etc/agino-store-sandbox/sandbox.conf] run [--only NAME] [--slots N]
 agino-store-sandbox [--config …] shots-reset NAME
 agino-store-sandbox [--config …] check-base
+agino-store-sandbox [--config …] session serve APP [--lang zh_CN|en_US]   # 交互式截图会话守护进程（第 9 节）
+agino-store-sandbox [--config …] session status APP
+agino-store-sandbox [--config …] session cleanup
 ```
 
 - `run`：处理队列里还没有结果的任务，最多 `slots` 个并行（每个槽一个 flock，一台 VM）。`--only NAME`（`<app>_<sha12>`，可带 `.json`）强制重跑这一个，忽略已有状态。退出码：0 正常，1 有任务落在 `error` 状态，2 配置或用法错误。
@@ -91,3 +94,55 @@ milkyway 里的应用不进沙箱队列，已通过的候选也不会再排队�
 - **日志**：每行带任务名：`waiting for the session`、`installing (deb|milkyway)`，随后是截图阶段的 `scene …` 行；最后一行为 `<名>: done|error`。
 - 代码：`jobs.py`（解析）、`shots_job.py`（运行路径）、`runner.py`（`_run_shots`，状态）。
 - **重拍**：仅截图任务的名字只取决于 deb 或包版本，改了 `shots.yaml` 名字不变。`shots-reset NAME` 把 `<shots_out>/NAME` 改名为 `NAME.prev`（覆盖更旧的一份，便于对比），删掉状态 `<state>/NAME.shots.json`；之后在服务端重新 `shots-request APP`，下一次队列导出和运行就会重拍。
+
+## 9. 交互式截图会话（`session`）
+
+设计和安全评审见 agino-store-admin `docs/interactive-shots.md`（D-203）；本节是沙箱侧的实现。守护进程 `session serve APP` 由 systemd 模板单元 `agino-store-session@APP.service`（用户 `agino-sandbox`）启动，每个会话一个进程、一台 KVM 虚拟机、一个槽位。平台（Go）通过 `agino-session-ctl` 启停，通过 `web.sock` 使用；部署件在 `deploy/session/`（单元、助手、sudoers、tmpfiles、清理定时器、`nft-egress.md`）。
+
+### 9.1 配置（`[session]` 段，全部可省略）
+
+| 键 | 默认 | 说明 |
+|---|---|---|
+| `runtime_dir` | `/run/agino-session` | `<app>/web.sock`（0660，组 `web_group`）、`<app>/session.id`、`<app>/token.once`（0600）；`<app>/private/`（0700）放 `qmp.sock`、`qga.sock`、`vnc.sock`、`shot.ppm`、`status.json` |
+| `captures` | `/srv/store/sandbox/captures` | `<会话 id>/NN-<kind>-<lang>.png` 和 `captures.json`；目录 0750，文件 0640 |
+| `web_group` | `agino-admin` | `web.sock` 和应用目录的组；组不存在时记日志，保持进程的组 |
+| `max_sessions` | 2 | 全站并发上限（助手里另有同值常量） |
+| `run_minutes` / `idle_minutes` / `total_minutes` / `install_minutes` | 30 / 10 / 60 / 15 | 运行阶段、无输入空闲、含排队和安装的总时长、启动加安装 |
+| `overlay_cap_gib` / `min_free_gib` | 8 / 20 | 两层 overlay 总大小上限（每 10 秒检查）；`[sandbox] run` 所在文件系统剩余空间低于此值拒绝开始 |
+| `max_captures` / `retention_hours` | 40 / 24 | 每会话截图数；`session cleanup` 保留时长 |
+| `traffic_cap_gib` | 2 | 会话期间槽位 tap 的 rx+tx 上限（读 `/sys/class/net/agsbx-tN/statistics/`） |
+
+### 9.2 生命周期和状态机
+
+状态 `queued → starting → installing → starting → running → ending`，任何阶段都可到 `failed`（回滚时 `running → starting → running`）。全部转换在一把锁下，不合法的转换被忽略。
+
+1. 启动时创建运行目录、会话 id（`secrets.token_hex(8)`）、token（`secrets.token_bytes(32)`），在 `umask 0177` 下绑定 `web.sock`，再 `chmod 0660` 并改组；先写 `session.id` 再把 token 的 hex 写入 `token.once`（0600，`O_EXCL`，不进日志）。此后状态 `queued` 已可经 `web.sock` 查询。
+2. 找任务：队列里该应用最新的有效任务（`<app>_<12 位十六进制>.json`，重新校验并核对 deb；`deb` 或 `milkyway`，`shots` 字段不要求）。没有则 `failed`。**平台必须保证队列里有这样的任务**（例如先 `shots-request` 再 `sandbox-queue`）。
+3. 排队：`slot_lock` 每 2 秒重试，最多 60 秒，否则 `failed`，错误 `sandbox busy`；`[sandbox] run` 所在文件系统剩余空间 < `min_free_gib` 时 `failed`。
+4. 启动加安装（总共 `install_minutes`，超时 `failed`，错误 `install timed out`）：第一层 overlay（`overlay.qcow2` 叠在只读基础镜像上），挂 deb 盘；等 qga 和 tester 会话；`shots_job.install`（milkyway：`apt-get update`、`install <包> + l10n`；deb：装候选 deb）；生成 zh_CN/en_US 语言环境；`sync`；QMP `quit`；第二层 overlay（`overlay2.qcow2` 叠在第一层上，UEFI 变量另存 `vars2.fd`）并重启，这是回滚点。
+5. 运行：以 tester 身份、所选语言启动应用（桌面文件的 `Exec`，字段码丢弃，`timeout` 为总时长加 5 分钟，stdout 丢弃）。
+6. 结束：QMP `quit`，10 秒后只对自己的 PID `kill`；只删本次登记的运行文件；`web.sock`、运行目录删除；截图保留。`failed` 之后守护进程再服务 60 秒（让平台读到 `error`）才退出。`SIGTERM`（`RuntimeMaxSec=3900` 也会发）等于 `end`。
+
+限制（后台线程每秒检查，只置状态并杀本会话的 qemu，清理由主线程做）：运行 `run_minutes`（`extend` 一次 +15 分钟，永远不超过总时长）；空闲 `idle_minutes` **只数 VNC 过滤器放行的 Key 和 Pointer 事件**（更新请求不算）；总时长 `total_minutes`；overlay 超过 `overlay_cap_gib`、tap 流量超过 `traffic_cap_gib`、qemu 意外退出都是 `failed`。qemu 的系统盘有 `throttling.bps-write=50 MiB/s`、`iops-write=3000`。
+
+并发：VNC 转发、控制命令、qga、回滚、QMP 退出互斥；长操作（`capture`、`lang`、`restart`、`rollback`）同一时刻只有一个，另一个得到 `busy`，`status` 永远不阻塞。qga 和 QMP 调用都在操作线程或主线程里，不在 VNC 转发线程里，每个调用有超时；窗口截图的 guest 查询另有总预算 40 秒；qga 超时后关闭旧通道，重新连接并用 `guest-sync` 同步。
+
+### 9.3 web.sock 协议
+
+`CHALLENGE <32 hex>` → `AUTH <VNC|CTL> <hex>`（`HMAC-SHA256(token, 挑战 ‖ 模式)`，`hmac.compare_digest`）→ `OK`。首行 <= 128 字节、5 秒内到达，否则断开；同时最多 16 个连接。`VNC` 模式不在运行状态时回 `ERR not_running`（qemu 的 VNC 套接字连不上回 `ERR vnc_unavailable`）后关闭；同一时刻只有一个 VNC 连接，新的顶掉旧的；回滚主动断开它。`CTL`：每行一个 JSON，<= 4096 字节（更长回 `bad_request` 并断开），每连接每秒 5 个请求（超出回 `rate_limited`，连接保留）。未知 `op`、多余字段、类型不对：`{"ok":false,"error":"bad_request"}`。其他错误串：`not_running`、`busy`、`too_many`（已达 `max_captures`）、`too_big`（编码后 > 3 MiB）、`bad_image`、`capture_failed`、`guest_failed`、`no_xdotool`、`no_window`、`no_such_capture`、`already_extended`、`rollback_failed`、`internal`。
+
+### 9.4 VNC 过滤器（`rfb_filter.py`）
+
+浏览器到 qemu 方向是 qemu 内置 VNC 服务（C 代码）会解析的字节，所以只放行白名单，每条消息按解析出的字段重新组装（填充清零）：握手 `RFB 003.008\n`、安全类型 1（None）、`ClientInit`（0 或 1）；之后 `SetPixelFormat`（20 字节，bpp ∈ {8,16,32}、depth <= bpp、颜色最大值为 2^n-1 且不超 bpp、非真彩色只允许 8 位）、`SetEncodings`（个数 <= 20，只保留 Raw、CopyRect、Tight、ZRLE、Cursor、DesktopSize、ExtendedDesktopSize、LastRect 和 Tight 的质量/压缩级别伪编码 -32..-23、-256..-247，其余包括 QEMU 扩展键盘 -258 和音频 -259 被剔除，个数重写）、`FramebufferUpdateRequest`（10 字节）、`KeyEvent`（8 字节）、`PointerEvent`（6 字节）。其他任何类型（含 `ClientCutText`、类型 255）：记日志并断开。qemu 到浏览器方向不解析，只统计字节。测试：`tests/sandbox/test_rfb_filter.py`（逐条合法、各种畸形、分片、逐字节、固定种子的模糊测试）。
+
+### 9.5 截图（`session_capture.py`）
+
+QMP `screendump` 写 PPM 到 `private/shot.ppm`：先 `stat`（普通文件且 <= 128 MiB，否则不读直接删除），读头部校验宽 640..4096、高 480..4096 且文件大小恰好等于头加 `宽*高*3`，再用 `shots_img.parse_ppm(max_side=4096)` 解码；用后一定删除。输出是纯 RGB PNG（只有 IHDR/IDAT/IEND，不带 alpha）。窗口截图：qga 里 `xdotool getactivewindow`（须在 `_NET_CLIENT_LIST` 里，类型为普通或对话框），否则面积最大的普通窗口；几何和边框只收整数，经 `frame_rect` 和 `clamp_rect` 夹进屏幕；标题去控制字符、<= 120 字符，只用于显示。单张编码后 > 3 MiB：拒绝（`too_big`），不落盘。`problems`：宽 < 900 为 `too_narrow`，高 < 300 为 `too_short`（仍保存）。文件名 `NN-<kind>-<lang>.png`（`lang` 是截图当时应用运行的语言），`captures.json` 原子写入。目录/文件权限见 9.1。
+
+### 9.6 命令和部署
+
+- `session status APP`：打印守护进程每 5 秒（和状态变化时）写到 `private/status.json` 的状态（剩余秒数、空闲秒数按文件年龄推算），供调试。
+- `session cleanup`：删除 `captures` 下早于 `retention_hours` 的 `^[0-9a-f]{16}$` 目录；只删显式的文件名（`NN-<kind>-<lang>.png`、`captures.json`、`.*.tmp`），目录里有别的东西就不删目录；不跟随符号链接。
+- `deploy/session/agino-session-ctl start|stop APP`（root，`/usr/local/sbin`）：严格校验 APP，不读环境（测试模式除外），`flock` 之后数活动单元（>= `max_sessions` 或同一应用已在运行就拒绝），先删旧的 `token.once`/`session.id`，`systemctl start agino-store-session@APP.service`，最多等 20 秒读 `token.once`（`O_NOFOLLOW`、普通文件、属主 `agino-sandbox`、内容必须是 64 位小写 hex）并删除，输出 `SESSION <id>` 和 `TOKEN <hex>`；超时则停止单元并以 1 退出（3：并发上限或已存在；2：用法）。
+- 导入：`agino-store-server shots-session-import`（agino-store `docs/server.md` 第 12 节）。
+- 测试：`tests/sandbox/test_session*.py`、`test_rfb_filter.py`、`test_session_ctl.py`（假 `systemctl`，`AGINO_SESSION_CTL_TEST=1` 才允许 `--runtime-dir`）、`tests/server/test_shots_session.py`。

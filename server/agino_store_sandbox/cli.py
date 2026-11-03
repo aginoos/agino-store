@@ -54,6 +54,6 @@ def main(argv=None):
         ok, message = runner.check_base(cfg)
         print(("OK: " if ok else "FAIL: ") + message)
         return 0 if ok else 1
-    except SandboxError as e:
-        print("error: %s" % e, file=sys.stderr)
+    except (SandboxError, OSError) as e:
+        print("error: %s" % (e.strerror or e if isinstance(e, OSError) else e), file=sys.stderr)
         return 2

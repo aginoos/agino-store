@@ -40,6 +40,7 @@ sandbox_queue = /srv/store/sandbox/queue   # 可选（默认值即此）；交�
 shots_out = /srv/store/sandbox/shots-out   # 可选（默认值即此）；沙箱主机写的截图，只读它来关闭截图请求，见第 10 节
 metrics = /var/lib/prometheus/node-exporter
 sandbox_state = /srv/store/sandbox/state   # 可选（默认值即此）；只有 status 读：沙箱主机每个任务的状态文件
+captures = /srv/store/sandbox/captures   # 可选（默认值即此）；交互式截图会话的截图，只由 shots-session-import 读取，见第 12 节
 screenshots = /srv/store/screenshots       # 可选（默认值即此）；服务端管理的截图目录和 meta.json，见第 12 节
 shots_staging = /var/lib/agino-admin/shots-staging   # 可选（默认值即此）；管理后台放上传文件的暂存目录，shots-ingest 读完即删
 
@@ -297,6 +298,7 @@ class State:
 | `sandbox-queue` | 把等沙箱结果的候选交给沙箱主机（见第 10 节） | `sandboxqueue.run(cfg, st, content) -> list[str]` |
 | `shots-request APP \| --cancel APP` | 请沙箱主机为 APP 截图：写 `state/shots-requests/<app>.json`（`app`、`requested`、`by`）；APP 必须有有效的 `shots.yaml`。`--cancel` 撤回请求。已有请求再请求不重复（见第 10 节） | cli、`state.shots_requests()` |
 | `shots-import APP` | 把沙箱主机为 APP 拍的最新一组截图（`paths.shots_out/<APP>_<sha12>/` 里带 `shots.json` 的最新目录）导入截图目录，状态 `draft`、来源 `sandbox`、`origin` 为任务目录名；不改动 approved 的图，sha256 相同的跳过，超出每语言上限的报告并跳过。退出码 1 表示有图没能导入（见第 12 节） | `shots_import.cmd_import` |
+| `shots-session-import APP --session ID --reviewer NAME --pick NN[,NN…]` | 把交互式截图会话（`paths.captures/<ID>/`，ID 为 16 位十六进制）里选中的图导入截图目录：状态 `draft`、来源 `manual`、`origin` 为 `session:<ID>`、场景 `session-NN`、语言取自文件名（`NN-<window\|screen>-<zh_CN\|en_US>.png`）。按不可信数据读取（见第 12 节）；至多 40 个 `NN`，每个 `^[0-9]{2}$` 且不重复；会话截图体积上限 3 MiB（其他仍 1.5 MiB）；同语言已有 `max_per_lang` 张未拒绝的图时跳过并报告。退出码同 `shots-import`，用法错误为 2 | `shots_session.cmd_session_import` |
 | `shots-ingest APP --lang L --scene S --file STAGED --source upload\|manual --status draft\|approved --reviewer NAME [--replace NN-scene.png]` | 取 `paths.shots_staging/STAGED` 的 PNG，校验、去掉附加块后存为 `<L>/NN-<S>.png`（或顶替 `--replace` 指定的图，旧图进 `.prev`），读完删除暂存文件 | `shots_cmds.cmd_ingest` |
 | `shots-review APP --lang L --file NN-scene.png --status approved\|rejected\|draft --reviewer NAME [--note 文字]` | 改一张图的状态；approved 要重新校验文件并受每语言上限限制 | `shots_cmds.cmd_review` |
 | `shots-remove APP --lang L --file NN-scene.png --reviewer NAME` | 把图移到 `.prev`，从 `meta.json` 去掉 | `shots_cmds.cmd_remove` |
@@ -462,6 +464,7 @@ milkyway 里的应用不进沙箱队列，已通过沙箱的候选也不会再�
 - 锁：写命令只拿 `<root>/<app>/.lock`（`flock`，不等待，被占用退出码 3），不拿全局的 `state/.lock`，也不碰候选和放行记录；`status` 和 `build` 不加锁（`meta.json` 是原子替换的）。截图目录不存在时写命令报错退出（码 1），不会自己创建。`meta.json` 不合 schema 时写命令拒绝执行（不会覆盖），`status`/`build` 把它当警告。
 - 参数全部严格校验，错误退出码 2：应用 id `^[a-z0-9][a-z0-9-]{0,63}$` 且内容仓库里有 `apps/<id>/app.yaml`；语言 `zh_CN`/`en_US`；场景、文件名、审核人同上；备注不超过 200 个字符、无控制字符、合法 UTF-8、不以 `-` 开头（用 `--note=…` 传）。
 - `shots-import`：目录名 `<app>_<12 位十六进制>` 且含普通文件 `shots.json` 的最新一个（按 `shots.json` 的 mtime）。每个场景每种语言取 `<n>-<scene>.png`（按 `shots.json` 的 `n`、`id` 核对文件名和声明的 sha256，`O_NOFOLLOW` 读取），重新校验并清理。同场景已有 approved 或非 sandbox 来源的图则跳过；已有 sandbox 草稿则顶替（旧图进 `.prev`）。输出每张图一行（`imported`/`skipped`/`problem`）和 `job …: imported N, skipped N, problems N`；有 problem（坏图、太小、读不到、sha256 不符）时退出码 1，其余的图照常导入。
+- `shots-session-import`：交互式会话（agino-store `docs/sandbox.md` 第 9 节）的截图由沙箱主机上的 `agino-sandbox` 写入，里面的内容最终来自 guest，所以比 `shots-ingest` 的暂存文件更不可信：`paths.captures` 经文件描述符打开，会话目录用 `O_DIRECTORY|O_NOFOLLOW`（符号链接、非目录都拒绝）；只认文件名恰为 `NN-window|screen-zh_CN|en_US.png` 的项（列目录得到，同一个 `NN` 必须恰有一个文件），以 `O_NOFOLLOW|O_NONBLOCK` 打开，必须是普通文件且 <= 4 MiB；**不读取 `captures.json`**（种类和语言来自文件名，宽、高、sha256 全部由解码后的图重新计算）；PNG 头必须是 8 位 RGB、非隔行（守护进程只写这种，也把解码内存限在 3 字节/像素以内），再经 `pngclean` 去掉附加块（宽高 <= 4096，数据长度必须与头一致），然后按 `check_png` 校验（宽 >= `min_width`、高 >= 300、去块后 <= 3 MiB）。体积上限 3 MiB 只对 `source` 为 `manual` 且 `origin` 以 `session:` 开头的图生效，`shots-review --status approved` 的重新校验同样按这个上限。sha256 与任何同语言已有图（含 rejected）相同的跳过；每个坏项只记 `problem` 行，其余照常导入。输出同 `shots-import`，末行 `session ID: imported N, skipped N, problems N`。
 - `shots-ingest`：暂存文件名 `^[A-Za-z0-9_-]{8,64}\.png$`，以 `O_NOFOLLOW` 打开，必须是普通文件，<= 4 MiB；成功后才删除暂存文件（失败时留着）。`--status approved` 同时写入审核人和时间；draft 两者为 null。`--replace` 的旧图进 `.prev`，新图沿用其 NN（场景不同则文件名里的场景也换）。
 - `shots-review`：approved 要求文件仍然通过全部校验（含 sha256 与记录相符、不含不允许的块）且不超每语言上限；改回 draft 清空审核人和时间；`--note` 缺省时保留原备注。rejected 的图留在磁盘上，不删除。
 - `shots-remove`：图移到 `.prev`，从 `meta.json` 去掉；`--reviewer` 只用于校验和输出。
