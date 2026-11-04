@@ -101,7 +101,7 @@ class TestOpening(AutoCase):
 
     def test_an_open_manual_repair_is_enough(self):
         self.seed_seen()
-        self.assertEqual(self.run_cli("intake-repair", "tool", "--version", "1.0.0", "--by", "alice")[0], 0)
+        r = self.run_cli("intake-repair", "tool", "--version", "1.0.0", "--by", "alice"); self.assertEqual(r[0], 0, r)
         self.failing_build()
         out = self.build_step()
         self.assertEqual(len(self.repairs()), 1)
@@ -131,7 +131,7 @@ class TestLimit(AutoCase):
             repair = self.repairs()[-1]
             self.st.save_intake(dict(repair, status="failed", finished="2026-11-04T11:00:00Z"))
             self.set_status(build_id, status="failed")
-        self.assertEqual(self.run_cli("intake-repair", "tool", "--version", "1.0.0", "--by", "alice")[0], 0)
+        r = self.run_cli("intake-repair", "tool", "--version", "1.0.0", "--by", "alice"); self.assertEqual(r[0], 0, r)
         self.assertEqual(len(self.repairs()), 3)
 
     def test_the_limit_is_configurable(self):

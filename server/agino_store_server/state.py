@@ -174,7 +174,7 @@ class State:
         return read_json(self._path("intake", intake_id + ".json"), None)
 
     def intakes(self):
-        """All intake records, oldest first (by created, then id); damaged files raise StateError."""
+        """All intake records, oldest first (by created, then created_ns, then id); damaged files raise StateError."""
         base = self._path("intake")
         out = []
         for name in sorted(os.listdir(base)) if os.path.isdir(base) else []:
@@ -183,7 +183,11 @@ class State:
             rec = read_json(os.path.join(base, name), None)
             if isinstance(rec, dict):
                 out.append(rec)
-        return sorted(out, key=lambda r: (str(r.get("created") or ""), str(r.get("id"))))
+        def nanos(r):
+            n = r.get("created_ns")
+            return n if isinstance(n, int) and not isinstance(n, bool) else 0
+        # Records created within one second share `created`: the creation time in nanoseconds orders them.
+        return sorted(out, key=lambda r: (str(r.get("created") or ""), nanos(r), str(r.get("id"))))
 
     def save_intake(self, record):
         intake_id = record.get("id")

@@ -309,7 +309,7 @@ def _write_inputs(directory, texts, repo_tar, budget):
         with tarfile.open(tmp, "w", format=tarfile.PAX_FORMAT) as out:
             _dir_member(out, INPUTS)
             for name, text in sorted(texts.items()):
-                _text_member(out, "%s/%s" % (INPUTS, name), clean_block(text) if name != "links.txt" else text)
+                _text_member(out, "%s/%s" % (INPUTS, name), clean_block(text) if name not in ("links.txt", "categories.txt") else text)
             if repo_tar:
                 _dir_member(out, INPUTS + "/repo")
                 _copy_tar(out, repo_tar, INPUTS + "/repo")

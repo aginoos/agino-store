@@ -65,7 +65,7 @@ def update(cfg, st, rep):
     for value in dropped:
         rep.add("proxy allow list: dropped an invalid host name: %s" % debinfo.clean_text(repr(value))[:100])
     try:
-        if write_atomic(cfg.intake_proxy_allow_file, render(hosts)):
+        if write_atomic(cfg.intake_proxy_allow_file, render(hosts)) and hosts:  # an empty list is not news
             rep.add("proxy allow list: %d extra host(s)" % len(hosts))
     except OSError as e:
         rep.fail("cannot write %s: %s" % (cfg.intake_proxy_allow_file, e.strerror))

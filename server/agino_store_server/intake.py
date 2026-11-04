@@ -8,6 +8,7 @@ intake-submit / intake-cancel / intake-repair. Callers hold the state lock.
 """
 
 import re
+import time
 import urllib.parse
 
 from . import buildcfg, builds, debinfo, fetch
@@ -118,7 +119,7 @@ def new_record(st, kind, address, hint, agent, allow_hosts, by, now, repair_of=N
         "id": st.new_intake_id(), "kind": kind, "app": (repair_of or {}).get("app"), "address": address,
         "hint": hint, "agent": agent, "allow_hosts": list(allow_hosts), "status": "submitted", "by": by,
         "created": now, "started": None, "finished": None, "error": "", "ai_task": None, "verify_task": None,
-        "repair_of": repair_of, "attempt": 0,
+        "repair_of": repair_of, "attempt": 0, "created_ns": time.time_ns(),   # orders records of one second
         "rounds": 0, "retries": 0, "next_retry": None, "agents_tried": [], "version": None, "candidate": None,
     }
 

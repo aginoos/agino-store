@@ -296,8 +296,10 @@ def _load_yaml(chk, root, rel):
     except OSError:
         chk.fail(rel, "file not found")
         return None
-    if not stat.S_ISREG(st.st_mode) or st.st_size > MAX_YAML_BYTES:
-        chk.fail(rel, "must be a regular file of at most 1 MiB")
+    # A recipe may carry up to 20 helper files of 64 KiB each (docs/ai-intake.md 10.1): 2 MiB for build.yaml.
+    limit = 2 * MAX_YAML_BYTES if rel.endswith("/build.yaml") else MAX_YAML_BYTES
+    if not stat.S_ISREG(st.st_mode) or st.st_size > limit:
+        chk.fail(rel, "must be a regular file of at most %d MiB" % (limit >> 20))
         return None
     try:
         with open(path, "rb") as f:

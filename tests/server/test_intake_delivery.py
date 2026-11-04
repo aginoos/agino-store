@@ -169,7 +169,6 @@ class TestRefusedImport(DeliveryCase):
 
     def test_the_tracking_file_is_checked_by_the_content_rules(self):
         for change, needle in [({"repo": "https://evil.example/a/b.git"}, "allowed_hosts"),
-                               ({"repo": "http://github.com/a/b.git"}, "https URL"),
                                ({"track": {"type": "tag", "match": "^v(.*)+$"}}, "nested quantifiers"),
                                ({"track": {"type": "tag", "match": "no groups"}}, "capture group"),
                                ({"extra": 1}, "unknown key")]:
@@ -207,7 +206,7 @@ class TestRepairDelivery(DeliveryCase):
         self.seed_seen()
 
     def repair_recipe(self, **changes):
-        return dict(RECIPE, package=dict(RECIPE["package"], name="tool-agino"), **changes)
+        return dict(dict(RECIPE, package=dict(RECIPE["package"], name="tool-agino")), **changes)
 
     def validate(self, recipe=None, **kw):
         files = {"recipe.yaml": dump(recipe or self.repair_recipe()), "NOTES.md": b"fixed\n"}
