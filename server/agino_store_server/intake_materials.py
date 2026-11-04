@@ -12,7 +12,8 @@ redirect to another host) and never executes any of it:
   inputs/categories.txt the store categories the agent may use in app.yaml
   inputs/MATERIALS.txt  what was and was not fetched
 
-A repair task adds inputs/previous-recipe.yaml, inputs/failure.log (the tail of the failed build's log) and
+A repair task adds inputs/previous-recipe.yaml, inputs/current-app.yaml (the store entry, which the agent copies back
+because the VM runner requires an app.yaml), inputs/failure.log (the tail of the failed build's log) and
 inputs/upstream-diff.txt (`git diff --stat` between the last built tag and the failing one), and
 inputs/repo/ holds the failing version. The result is one tar, state/intake/<id>/inputs.tar, from which every
 workspace of the task is made (intake_workspace).
@@ -230,6 +231,8 @@ def _repair_parts(cfg, st, loaded, record, work, notes):
     texts = {}
     recipe_path = os.path.join(loaded.root, "apps", app, "build.yaml")
     texts["previous-recipe.yaml"] = _read_regular(recipe_path, 1 << 20).decode("utf-8", "replace")
+    texts["current-app.yaml"] = _read_regular(os.path.join(loaded.root, "apps", app, "app.yaml"),
+                                              1 << 20).decode("utf-8", "replace")
     failed = st.build(of["failed_task"]) if of.get("failed_task") else None
     log = _tail(os.path.join(builds.out_dir(cfg, failed["id"]), "build.log"), FAILURE_LOG_BYTES) if failed else ""
     texts["failure.log"] = log or "(no build log was kept)\n"

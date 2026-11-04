@@ -33,7 +33,7 @@ Put these files, and only these, in `/work/out/` (anything else is dropped):
 | file | content |
 |---|---|
 | `recipe.yaml` | the recipe (section 3). Always. |
-| `app.yaml` | the store entry (section 4). For an import. |
+| `app.yaml` | the store entry (section 4). For an import. For a repair: a plain copy of `/work/inputs/current-app.yaml` (the runner requires the file, the server ignores it). |
 | `upstream.yaml` | how new versions are found (section 5). For an import with tagged git releases. |
 | `vendor.yaml` | reserved; do not write it. |
 | `NOTES.md` | your evidence and the risks (section 7). Always. |

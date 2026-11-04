@@ -186,6 +186,7 @@ class TestInputs(IntakeCase):
         self.step()
         files = self.inputs(intake_id)
         self.assertIn("steps:", files["inputs/previous-recipe.yaml"])
+        self.assertIn("package:", files["inputs/current-app.yaml"])
         self.assertIn("missing header", files["inputs/failure.log"])
         self.assertIn("build step 2 exited with 2", files["inputs/failure.log"])
         self.assertNotIn("\x1b", files["inputs/failure.log"])

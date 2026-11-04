@@ -234,7 +234,8 @@ class TestAdoptRepair(AdoptCase):
         self.repair_id = self.run_cli("intake-repair", "tool", "--version", "1.0.0", "--by", "alice")[1].strip()
         self.step()
         self.run_ai(self.repair_id, {"recipe.yaml": dump(dict(RECIPE, package=dict(RECIPE["package"], name="tool-agino"))),
-                                     "NOTES.md": b"fixed the build\n"})
+                                     "NOTES.md": b"fixed the build\n",
+                                     "app.yaml": slurp(os.path.join(self.cfg.content, "apps", "tool", "app.yaml"))})
         self.step()
         self.assertEqual(self.istatus(self.repair_id), "verifying")
         self.run_verify(self.repair_id, package="tool-agino")
