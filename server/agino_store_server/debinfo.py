@@ -48,9 +48,9 @@ def clean_text(value):
     return _CONTROL_CHARS.sub("", str(value))
 
 
-def _limit_resources():
+def _limit_resources(fsize=LIMIT_FSIZE):
     resource.setrlimit(resource.RLIMIT_AS, (LIMIT_AS, LIMIT_AS))
-    resource.setrlimit(resource.RLIMIT_FSIZE, (LIMIT_FSIZE, LIMIT_FSIZE))
+    resource.setrlimit(resource.RLIMIT_FSIZE, (fsize, fsize))
     resource.setrlimit(resource.RLIMIT_CPU, (LIMIT_CPU, LIMIT_CPU))
 
 
@@ -93,15 +93,18 @@ def _feed(proc, data):
             pass
 
 
-def run_tool(args, timeout=TOOL_TIMEOUT, stdin=None, max_stdout=STDOUT_CAP):
+def run_tool(args, timeout=TOOL_TIMEOUT, stdin=None, max_stdout=STDOUT_CAP, env=None, cwd=None, fsize=LIMIT_FSIZE):
     """Run a tool (argument list, no shell, with timeout and resource limits).
+
+    `env` replaces the whole environment (None = inherit), `cwd` is the working directory and
+    `fsize` the largest single file the tool may write (RLIMIT_FSIZE).
 
     Returns CompletedProcess; never raises on rc. stdout beyond max_stdout is an error.
     """
     try:
         proc = subprocess.Popen(args, stdin=subprocess.PIPE if stdin is not None else subprocess.DEVNULL,
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                preexec_fn=_limit_resources)   # noqa: PLW1509 - limits must be set pre-exec
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, cwd=cwd,
+                                preexec_fn=functools.partial(_limit_resources, fsize))   # noqa: PLW1509 - limits pre-exec
     except OSError as e:
         raise DebError("cannot run %s: %s" % (args[0], e.strerror or e)) from e
     out, err = _Capture(proc.stdout, max_stdout, proc, True), _Capture(proc.stderr, STDERR_CAP, proc, False)

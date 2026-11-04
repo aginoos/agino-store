@@ -133,6 +133,18 @@ def _check_strict_target(host, parts):
         raise FetchError("port not allowed: %s" % port)
 
 
+def throttle(host, interval):
+    """Sleep until at least `interval` seconds have passed since the last request to `host` (any fetcher)."""
+    if not host or interval <= 0:
+        return
+    with _throttle_lock:
+        now = time.monotonic()
+        delay = max(0.0, _last_request.get(host, 0.0) + interval - now)
+        _last_request[host] = now + delay
+    if delay:
+        time.sleep(delay)
+
+
 class _Deadline:
     """Wall-clock budget for one request; a watchdog shuts the sockets down when it runs out."""
 
@@ -234,16 +246,7 @@ class Fetcher:
     # Low level
 
     def _wait(self, url):
-        host = urllib.parse.urlsplit(url).hostname
-        interval = self._cfg.min_interval_seconds
-        if not host or interval <= 0:
-            return
-        with _throttle_lock:
-            now = time.monotonic()
-            delay = max(0.0, _last_request.get(host, 0.0) + interval - now)
-            _last_request[host] = now + delay
-        if delay:
-            time.sleep(delay)
+        throttle(urllib.parse.urlsplit(url).hostname, self._cfg.min_interval_seconds)
 
     def _request(self, url, deadline, method="GET", etag=None, last_modified=None):
         """Return an open response, or None for 304. The caller closes it."""

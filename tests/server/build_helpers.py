@@ -57,15 +57,18 @@ def git(cwd, *args, env=None):
 def make_repo(path, files, tags=("v1.0.0",), annotated=()):
     """A git repository at `path` with one commit holding `files` ({name: bytes}) and the given tags.
 
-    Returns the commit id. Symlinks: pass a value of the form ("symlink", target).
+    Returns the commit id. A value ("symlink", target) makes a symlink, ("exec", bytes) an executable file.
     """
     os.makedirs(path, exist_ok=True)
     git(path, "init", "-q", "-b", "main")
     for name, data in files.items():
         full = os.path.join(path, name)
         os.makedirs(os.path.dirname(full), exist_ok=True)
-        if isinstance(data, tuple):
+        if isinstance(data, tuple) and data[0] == "symlink":
             os.symlink(data[1], full)
+        elif isinstance(data, tuple):   # ("exec", bytes)
+            H.write(full, data[1])
+            os.chmod(full, 0o755)
         else:
             H.write(full, data)
     git(path, "add", "-A")
