@@ -16,7 +16,7 @@ from urllib.parse import urlsplit
 
 import yaml
 
-from . import demo, shots
+from . import buildcfg, content_builds, demo, shots
 
 ID_RE = re.compile(r"\A[a-z0-9][a-z0-9.+-]*\Z")
 LANG_RE = re.compile(r"\A[a-z]{2,3}(_[A-Z]{2})?\Z")
@@ -130,6 +130,14 @@ class Content:
     featured: tuple
     apps: tuple             # sorted by id
     vendors: tuple          # sorted by id
+    upstreams: tuple = ()   # content_builds.Upstream, sorted by app id
+    recipes: tuple = ()     # content_builds.Recipe, sorted by app id
+
+    def upstream(self, app_id):
+        return next((u for u in self.upstreams if u.app == app_id), None)
+
+    def recipe(self, app_id):
+        return next((r for r in self.recipes if r.app == app_id), None)
 
     def app(self, app_id):
         return next((a for a in self.apps if a.id == app_id), None)
@@ -534,7 +542,7 @@ def _app_fields(chk, where, data, app_dir):
     }
 
 
-def _app_package(chk, where, data, vendors):
+def _app_package(chk, where, data, vendors, recipe=None):
     pkg = data["package"]
     if not chk.mapping(where + ".package", pkg, ("kind", "name"), ("vendor",)):
         return None
@@ -550,6 +558,8 @@ def _app_package(chk, where, data, vendors):
         chk.fail(where + ".source", "kind milkyway needs source system; kind deb needs official or personal")
         return None
     vendor = pkg.get("vendor")
+    if recipe is not None:
+        return _built_package(chk, where, kind, name, source, vendor, recipe)
     if kind == "milkyway":
         if vendor is not None:
             chk.fail(where + ".package.vendor", "only allowed for kind deb")
@@ -561,6 +571,20 @@ def _app_package(chk, where, data, vendors):
         chk.fail(where + ".package.name", "must equal the vendor package %r" % vendors[vendor].package)
         return None
     return (kind, name, vendor)
+
+
+def _built_package(chk, where, kind, name, source, vendor, recipe):
+    """package of an app that has apps/<id>/build.yaml: a personal deb without a vendor, named like the recipe."""
+    if kind != "deb" or source != "personal":
+        chk.fail(where + ".source", "an app with a build recipe needs kind deb and source personal")
+        return None
+    if vendor is not None:
+        chk.fail(where + ".package.vendor", "must not be set for an app built from source")
+        return None
+    if name and name != recipe.package["name"]:
+        chk.fail(where + ".package.name", "must equal the recipe package %r" % recipe.package["name"])
+        return None
+    return (kind, name, None) if name else None
 
 
 def _shots(chk, root, app_id, app_dir, demo_names):
@@ -590,7 +614,7 @@ def _promo_image(chk, path, base, rel):
     return rel
 
 
-def _app(chk, root, app_id, vendors, category_ids, demo_names=frozenset()):
+def _app(chk, root, app_id, vendors, category_ids, demo_names=frozenset(), recipe=None):
     rel = "apps/%s/app.yaml" % app_id
     app_dir = os.path.join(root, "apps", app_id)
     data = _load_yaml(chk, root, rel)
@@ -604,7 +628,7 @@ def _app(chk, root, app_id, vendors, category_ids, demo_names=frozenset()):
                         and (not isinstance(data, dict) or any(k not in data for k in required))):
         return None
     fields = _app_fields(chk, rel, data, app_dir)
-    package = _app_package(chk, rel, data, vendors)
+    package = _app_package(chk, rel, data, vendors, recipe)
     for i, cat in enumerate(fields["categories"]):
         if cat and cat not in category_ids:
             chk.fail("%s.categories[%d]" % (rel, i), "unknown category %r" % cat)
@@ -782,8 +806,13 @@ def _app_ids(chk, root):
     return out
 
 
-def load(root, allow_insecure=False):
-    """Validate the whole tree and return a Content, or raise ContentError."""
+def load(root, allow_insecure=False, policy=None):
+    """Validate the whole tree and return a Content, or raise ContentError.
+
+    `policy` (buildcfg.Policy, from Config.build_policy()) carries the allowed upstream hosts and the
+    global build limits; without it the defaults of server.conf.example apply.
+    """
+    policy = policy or buildcfg.Policy()
     root = os.path.abspath(root)
     if not os.path.isdir(root):
         raise ContentError(["%s: not a directory" % root])
@@ -793,18 +822,22 @@ def load(root, allow_insecure=False):
     categories = _categories(chk, root)
     category_ids = {c.id for c in categories}
     demo_names = demo.scan(chk, root)
-    apps = [_app(chk, root, i, vendors, category_ids, demo_names) for i in app_ids]
+    recipes = content_builds.load_recipes(chk, root, app_ids, policy, allow_insecure, _load_yaml)
+    upstreams = content_builds.load_upstreams(chk, root, app_ids, recipes, policy, allow_insecure, _load_yaml)
+    apps = [_app(chk, root, i, vendors, category_ids, demo_names, recipes.get(i)) for i in app_ids]
     featured = _featured(chk, root, set(app_ids))
     if chk.errors:
         raise ContentError(chk.errors)
     return Content(root=root, categories=categories, featured=featured, apps=tuple(apps),
-                   vendors=tuple(vendors[k] for k in sorted(vendors)))
+                   vendors=tuple(vendors[k] for k in sorted(vendors)),
+                   upstreams=tuple(upstreams[k] for k in sorted(upstreams)),
+                   recipes=tuple(recipes[k] for k in sorted(recipes)))
 
 
 def content_digest(root):
     """Hash over the sorted (path, sha256) of every relevant file; symlinks count by target.
 
-    shots.yaml, promo/ and demo/ are left out: they never change the built catalog.
+    shots.yaml, promo/, demo/ and build.yaml are left out: they never change the built catalog.
     """
     root = os.path.abspath(root)
     entries = []
@@ -823,9 +856,10 @@ def content_digest(root):
 
 
 def _screenshot_only(root, path):
-    """apps/<id>/shots.yaml and apps/<id>/promo/** do not feed the catalog (docs/server.md section 3)."""
+    """apps/<id>/shots.yaml, build.yaml and promo/** do not feed the catalog (docs/server.md sections 3 and 14)."""
     parts = os.path.relpath(path, root).split(os.sep)
-    return len(parts) >= 3 and parts[0] == "apps" and (parts[2] == "promo" or parts == [*parts[:2], "shots.yaml"])
+    return (len(parts) >= 3 and parts[0] == "apps"
+            and (parts[2] == "promo" or parts == [*parts[:2], "shots.yaml"] or parts == [*parts[:2], "build.yaml"]))
 
 
 def _digest_entry(root, path):

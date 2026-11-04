@@ -118,7 +118,7 @@ def _stamp():
 
 
 def _load_content(cfg):
-    return content.load(cfg.content, allow_insecure=cfg.allow_insecure)
+    return content.load(cfg.content, allow_insecure=cfg.allow_insecure, policy=cfg.build_policy())
 
 
 def _clean(value):

@@ -64,7 +64,7 @@ def _write_atomic(path, data):
 
 def _load_checked(cfg):
     try:
-        return content.load(cfg.content, allow_insecure=cfg.allow_insecure)
+        return content.load(cfg.content, allow_insecure=cfg.allow_insecure, policy=cfg.build_policy())
     except content.ContentError as e:
         raise EditError("store-content is invalid:\n%s" % e) from e
 

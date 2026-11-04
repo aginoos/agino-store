@@ -11,7 +11,7 @@ DEFAULT_SOURCE = "submitter"
 def load_content(cfg, errors):
     """The Content, or None with the problems recorded (the apps section is then empty)."""
     try:
-        return content_mod.load(cfg.content, allow_insecure=cfg.allow_insecure)
+        return content_mod.load(cfg.content, allow_insecure=cfg.allow_insecure, policy=cfg.build_policy())
     except content_mod.ContentError as e:
         for line in e.errors[:MAX_CONTENT_ERRORS]:
             errors.add("apps", "content: %s" % line)
