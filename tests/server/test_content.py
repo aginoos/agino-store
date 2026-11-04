@@ -229,6 +229,80 @@ class TestCatalogParts(ContentCase):
         self.assertRejected("version must be a quoted string")
 
 
+class TestPlainText(ContentCase):
+    """Every user-visible string is plain text: no markup, no invisible direction / zero-width characters."""
+
+    IMG = '<img src="https://t.example/p.png"> hi'
+
+    def reject(self, needle, path):
+        text = self.errors()
+        self.assertIn(needle, text)
+        self.assertIn(path, text)
+        return text
+
+    def test_markup_in_every_displayed_field(self):
+        bad = {"zh_CN": self.IMG, "en_US": "ok"}
+        cases = [
+            ("name", lambda d: dict(d, name=bad), "gimp/app.yaml.name.zh_CN"),
+            ("summary", lambda d: dict(d, summary=bad), "gimp/app.yaml.summary.zh_CN"),
+            ("developer", lambda d: dict(d, developer=bad), "gimp/app.yaml.developer.zh_CN"),
+            ("description", lambda d: dict(d, description={"zh_CN": ["ok", self.IMG], "en_US": ["ok"]}),
+             "gimp/app.yaml.description.zh_CN[1]"),
+        ]
+        for label, change, path in cases:
+            with self.subTest(label):
+                self.setUp()
+                self.edit_app("gimp", change)
+                self.reject("must not contain markup", path)
+
+    def test_markup_in_maintainer_and_release_notes(self):
+        self.edit_app("chrome", lambda d: dict(d, maintainer={"name": "<b>x</b>", "contact": "a@example.org"}))
+        self.reject("must not contain markup", "chrome/app.yaml.maintainer.name")
+        self.setUp()
+        self.edit_app("chrome", lambda d: dict(d, maintainer={"name": "x", "contact": "&lt;b&gt;"}))
+        self.reject("must not contain markup", "chrome/app.yaml.maintainer.contact")
+        self.setUp()
+        self.edit_app("chrome", lambda d: dict(d, release_notes={"1.0-1": {"zh_CN": [self.IMG], "en_US": ["b"]}}))
+        self.reject("must not contain markup", "release_notes[1.0-1].zh_CN[0]")
+
+    def test_markup_in_categories_and_featured(self):
+        H.edit_yaml(self.path("categories.yaml"),
+                    lambda d: [dict(d[0], name={"zh_CN": "<i>x", "en_US": "y"})] + d[1:])
+        self.reject("must not contain markup", "categories.yaml[0].name.zh_CN")
+        self.setUp()
+        H.edit_yaml(self.path("featured.yaml"),
+                    lambda d: [dict(d[0], title={"zh_CN": "a", "en_US": "<script>"})])
+        self.reject("must not contain markup", "featured.yaml[0].title.en_US")
+        self.setUp()
+        H.edit_yaml(self.path("featured.yaml"),
+                    lambda d: [dict(d[0], subtitle={"zh_CN": "a", "en_US": "<!-- x -->"})])
+        self.reject("must not contain markup", "featured.yaml[0].subtitle.en_US")
+
+    def test_entities_are_markup(self):
+        self.edit_app("gimp", lambda d: dict(d, summary={"zh_CN": "a &amp; b", "en_US": "x &#60;"}))
+        self.assertRejected("must not contain markup")
+
+    def test_invisible_characters_are_refused_without_echo(self):
+        for ch in ("\u200b", "\u200c", "\u200e", "\u200f", "\u202a", "\u202e", "\u2066", "\u2069",
+                   "\u061c", "\ufeff"):
+            with self.subTest(code=hex(ord(ch))):
+                self.setUp()
+                self.edit_app("gimp", lambda d: dict(d, summary={"zh_CN": "a" + ch + "b", "en_US": "x"}))
+                text = self.reject("invisible direction or zero-width", "gimp/app.yaml.summary.zh_CN")
+                self.assertNotIn(ch, text)
+
+    def test_normal_text_passes(self):
+        summary = {"zh_CN": "图像编辑器 日本語 한국어 \U0001F468\u200d\U0001F469 \U0001F600",
+                   "en_US": "Audio & Video, R&D, 1 < 2 > 0, C++ <3 x<5, AT&T"}
+        self.edit_app("gimp", lambda d: dict(d, summary=summary,
+                                             description={"zh_CN": ["a & b < c"], "en_US": ["Q&A"]}))
+        H.edit_yaml(self.path("categories.yaml"),
+                    lambda d: [dict(d[0], name={"zh_CN": "音频 & 视频", "en_US": "Audio & Video"})] + d[1:])
+        app = C.load(self.root).app("gimp")
+        self.assertEqual(app.summary["en_US"], summary["en_US"])
+        self.assertEqual(app.summary["zh_CN"], summary["zh_CN"])
+
+
 class TestVendor(ContentCase):
     def set_track(self, **changes):
         def change(data):

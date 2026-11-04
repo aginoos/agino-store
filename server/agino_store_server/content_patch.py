@@ -11,7 +11,6 @@ PATCH_NAME_RE = re.compile(r"\A[A-Za-z0-9_-]{8,64}\.json\Z")
 MAX_PATCH_BYTES = 64 << 10
 MAX_CATEGORIES = 2
 CONTROL_RE = re.compile("[\x00-\x1f\x7f-\x9f]")
-MARKUP_RE = re.compile(r"<[A-Za-z/]")
 SINGLE_LINE = {"name": 100, "summary": 300, "developer": 100}   # localized single-line texts: max length
 LOCALIZED = tuple(SINGLE_LINE) + ("description",)
 PATCH_KEYS = LOCALIZED + ("categories", "license", "proprietary", "homepage")
@@ -55,12 +54,11 @@ def _strings(path, value):
 
 
 def _plain_text(chk, key, value):
-    """No control characters and nothing that looks like markup in any string of a text field."""
+    """No C0/C1 control characters in any string of a text field (markup and invisible characters are
+    refused by the shared Check.display used for the field limits right after)."""
     for path, text in _strings("patch." + key, value):
         if CONTROL_RE.search(text):
             chk.fail(path, "contains control characters")
-        elif MARKUP_RE.search(text):
-            chk.fail(path, "must not contain markup ('<' followed by a letter or '/')")
 
 
 def _localized(chk, key, value):

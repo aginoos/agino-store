@@ -175,6 +175,7 @@ release_notes:                        # 可选，按版本号
 
 规则：
 - `name`、`summary`、`description` 必须同时有 `zh_CN` 和 `en_US`，其他语言可选。
+- 所有展示给用户的文字（`name`、`summary`、`description` 各段、`developer`、`maintainer.name/contact`、`release_notes`、`categories.yaml` 的名称、`featured.yaml` 的标题和副标题）在 `content.load` 里统一按纯文本校验：不得含像标记的内容（`<` 后接字母、`/`、`!`、`?`，或 `&名字;`、`&#…;` 形式的实体；`1 < 2`、`Audio & Video` 没问题），也不得含 Unicode 双向控制符和零宽字符（U+061C、U+200B/200C/200E/200F、U+202A–202E、U+2066–2069、U+FEFF；U+200D 表情连接符允许）。错误信息只给文件和键，不回显违规字符。
 - `kind: milkyway` 的 `source` 只能是 `system`；`kind: deb` 只能是 `official` 或 `personal`。
 - 截图的宽高由 build 从 PNG 头读出；PoC 不生成缩略图（`thumb` 与 `image` 相同）。`screenshots:` 仍然接受（向后兼容），但某个应用在截图目录里有 approved 的图时，以目录为准（D-203，见第 12 节）。
 - 未知字段报错（防止拼错的字段被静默忽略）。`description_source` 和 `description_confirmed` 是仅有的两个新增可选字段（D-203）。`description_source: ai` 的应用不能直接放行（第 5 节 `approve`）。
@@ -509,7 +510,7 @@ milkyway 里的应用不进沙箱队列，已通过沙箱的候选也不会再�
 **`content-edit APP --patch NAME.json --editor NAME`**
 - 参数全部严格校验，错误退出码 2：`APP` 同 `shots-*`（内容仓库里有 `apps/<id>/app.yaml`）；`NAME` 为 `^[A-Za-z0-9_-]{8,64}\.json$`；`--editor` 为 `^[A-Za-z0-9._-]{1,32}$`。
 - 补丁文件在 `paths.shots_staging`（和截图上传同一个暂存目录），以 `O_NOFOLLOW` 打开，必须是普通文件，<= 64 KiB，UTF-8 JSON 对象，不许重复键和 `NaN`。成功后删除，失败（包括补丁无效）时留着。
-- 允许的键，其他一律拒绝（退出码 1，补丁不能带 `description_source`）：`name`、`summary`、`developer`（`{zh_CN, en_US}`，上限 100/300/100 字符，单行）、`description`（`{zh_CN: [段落], en_US: [段落]}`，每种语言 1..50 段，每段 <= 4000 字符）、`categories`（1..2 个，必须在 `categories.yaml` 里，不重复）、`license`（`content.py` 的许可证格式）、`proprietary`（布尔）、`homepage`（https URL，无用户名密码）。本地化键必须同时给出 `zh_CN` 和 `en_US`，且只能有这两个；一个键出现就替换它的值（本地化键里补丁没提到的其他语言保留）。所有文字不得含控制字符（含换行、制表符），也不得含看起来像标记的 `<` 加字母或 `/`（`1 < 2` 没问题）。
+- 允许的键，其他一律拒绝（退出码 1，补丁不能带 `description_source`）：`name`、`summary`、`developer`（`{zh_CN, en_US}`，上限 100/300/100 字符，单行）、`description`（`{zh_CN: [段落], en_US: [段落]}`，每种语言 1..50 段，每段 <= 4000 字符）、`categories`（1..2 个，必须在 `categories.yaml` 里，不重复）、`license`（`content.py` 的许可证格式）、`proprietary`（布尔）、`homepage`（https URL，无用户名密码）。本地化键必须同时给出 `zh_CN` 和 `en_US`，且只能有这两个；一个键出现就替换它的值（本地化键里补丁没提到的其他语言保留）。所有文字不得含控制字符（含换行、制表符），也不得含像标记或不可见方向/零宽的字符（规则同上，由 `content.py` 统一校验；`1 < 2` 没问题）。
 - 语义：先校验当前内容仓库（本来就无效则退出码 1，不动文件），再应用补丁。补丁没改变任何值则输出 `no changes for APP`、退出码 0、只删补丁文件。只有 `description` 的值改变了、且原来的 `description_source` 是 `ai`（或已是 `confirmed`，此时换成当前审核人）才设为 `confirmed`、`description_confirmed` 设为 `{by: EDITOR, at: 现在(UTC)}`（人改过正文才算审阅过），两个键紧跟在 `description` 后面；`official` 和 `submitter`（含缺省）来源保持原值；只改 `summary` 或其他键则介绍来源不变（`ai` 仍是 `ai`，`approve` 照旧拦截）。
 - 写回用 `yaml.safe_dump(sort_keys=False, allow_unicode=True, default_flow_style=False, width=1000000)`（宽度取很大，长段落不会被折行）。现有 store-content 的 `app.yaml` 里只有一处与它不同：`l10n` 的行内列表 `[a]` 会被展开成块列表，含义相同；测试用样例文件验证其余文件逐字节一致。
 - 然后用 `content.load` 校验整个内容仓库；失败则恢复原文件，退出码 1，输出错误。

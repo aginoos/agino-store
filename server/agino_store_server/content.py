@@ -47,6 +47,11 @@ MAX_REGEX_LEN = 500
 # Heuristic: a repeat right before a group's closing paren and the group repeated again, e.g. (a+)+ (.*)* (a+)*.
 NESTED_QUANTIFIER_RE = re.compile(r"[+*}]\??\)[+*{]")
 MAX_TEXT_LEN = 4000
+# Shown to users as plain text, so nothing that reads as markup (an HTML tag, comment or entity; a bare '<' or
+# '&' as in "1 < 2" or "Audio & Video" is fine) and none of the invisible direction / zero-width characters
+# (U+200D, the emoji joiner, is allowed).
+MARKUP_RE = re.compile(r"<[A-Za-z/!?]|&[A-Za-z#][A-Za-z0-9]*;")
+INVISIBLE_RE = re.compile("[\u061c\u200b\u200c\u200e\u200f\u202a-\u202e\u2066-\u2069\ufeff]")
 DESCRIPTION_SOURCES = ("ai", "confirmed", "submitter", "official")
 DEFAULT_DESCRIPTION_SOURCE = "submitter"
 EDITOR_RE = re.compile(r"\A[A-Za-z0-9._-]{1,32}\Z")
@@ -205,6 +210,20 @@ class Check:
             return None
         return value
 
+    def display(self, path, value, max_len=MAX_TEXT_LEN):
+        """A string shown to users: like string(), but also no markup and no invisible characters. The
+        message names the key only, never the offending text."""
+        text = self.string(path, value, max_len=max_len)
+        if text is None:
+            return None
+        if MARKUP_RE.search(text):
+            self.fail(path, "must not contain markup (an HTML tag or entity)")
+            return None
+        if INVISIBLE_RE.search(text):
+            self.fail(path, "contains invisible direction or zero-width characters")
+            return None
+        return text
+
     def boolean(self, path, value):
         if not isinstance(value, bool):
             self.fail(path, "must be true or false")
@@ -223,7 +242,7 @@ class Check:
             return None
         out = {}
         for lang, line in value.items():
-            single = self.string("%s.%s" % (path, lang), line, max_len=max_len)
+            single = self.display("%s.%s" % (path, lang), line, max_len=max_len)
             if single is not None and "\n" in single:
                 self.fail("%s.%s" % (path, lang), "must be a single line")
                 single = None
@@ -238,7 +257,7 @@ class Check:
         for lang, items in value.items():
             where = "%s.%s" % (path, lang)
             items = self.sequence(where, items, 1, 50)
-            lines = [self.string("%s[%d]" % (where, i), s, max_len=max_len)
+            lines = [self.display("%s[%d]" % (where, i), s, max_len=max_len)
                      for i, s in enumerate(items or [])]
             out[lang] = tuple(lines) if items and None not in lines else None
         return out if None not in out.values() else None
@@ -457,8 +476,8 @@ def _screenshots(chk, path, base, value):
 def _maintainer(chk, path, value):
     if value is None or not chk.mapping(path, value, ("name", "contact")):
         return None
-    name = chk.string(path + ".name", value["name"], max_len=100)
-    contact = chk.string(path + ".contact", value["contact"], max_len=200)
+    name = chk.display(path + ".name", value["name"], max_len=100)
+    contact = chk.display(path + ".contact", value["contact"], max_len=200)
     return {"name": name, "contact": contact} if name and contact else None
 
 
