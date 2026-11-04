@@ -168,5 +168,30 @@ class TestCandidatesAndSchema(StatusBuildsCase):
         self.assertEqual(doc["sections"]["builds"][0]["created"], "2026-11-04T10:39:00Z")
 
 
+class TestMetrics(StatusBuildsCase):
+    def metrics(self):
+        self.assertEqual(self.run_cli("metrics")[0], 0)
+        with open(os.path.join(self.cfg.metrics, "agino_store_server.prom"), encoding="utf-8") as f:
+            return f.read()
+
+    def test_nothing_without_upstreams_or_builds(self):
+        text = self.metrics()
+        self.assertNotIn("agino_store_upstream", text)
+        self.assertNotIn("agino_store_builds", text)
+
+    def test_upstream_and_build_lines(self):
+        self.st.save_upstream_memo("tool", {"last_ok": "2026-11-04T08:00:00Z", "last_error": "boom",
+                                            "tag_moved": [{"version": "1.0.0"}]})
+        self.add_task(status="failed")
+        self.add_task(status="failed")
+        self.add_task(status="queued")
+        text = self.metrics()
+        for line in ('agino_store_upstream_last_ok_timestamp_seconds{app="tool"} 1793779200',
+                     'agino_store_upstream_last_error{app="tool"} 1', 'agino_store_upstream_tag_moved{app="tool"} 1',
+                     'agino_store_builds{status="failed"} 2', 'agino_store_builds{status="queued"} 1',
+                     'agino_store_builds{status="building"} 0'):
+            self.assertIn(line + "\n", text)
+
+
 if __name__ == "__main__":
     unittest.main()

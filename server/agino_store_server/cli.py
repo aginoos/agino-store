@@ -18,8 +18,8 @@ import sys
 import tempfile
 import time
 
-from . import (approve_rules, build_step, builds, catalog, catalogwriter, config, content, content_edit, reports,
-               sandboxqueue, shots_cmds, shots_import, shots_session, shots_store, shotsreq, status, upstreams)
+from . import (approve_rules, build_step, builds, catalog, catalogwriter, config, content, content_edit, metrics_builds,
+               reports, sandboxqueue, shots_cmds, shots_import, shots_session, shots_store, shotsreq, status, upstreams)
 from .state import ID_RE, VERSION_RE, State, StateError, StateLocked
 
 EXIT_OK, EXIT_PROBLEM, EXIT_USAGE, EXIT_LOCKED = 0, 1, 2, 3
@@ -568,6 +568,7 @@ def metrics_text(cfg, st):
         label = '{vendor="%s"}' % vendor
         lines.append(("agino_store_vendor_last_ok_timestamp_seconds", label, _epoch(memo.get("last_ok"))))
         lines.append(("agino_store_vendor_last_error", label, 1 if memo.get("last_error") else 0))
+    lines.extend(metrics_builds.lines(cfg, st, _epoch))
     return "".join("%s%s %s\n" % (name, label or "", "%.0f" % value if isinstance(value, float) else value)
                    for name, label, value in lines if value is not None)
 

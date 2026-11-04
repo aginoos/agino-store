@@ -331,7 +331,7 @@ class State:
 | `build-cancel ID --by NAME` | 取消未完成的任务。第 14 节 | `builds.cancel` |
 | `build-step` | 定时器每分钟：取源码、跟踪运行器状态、取回产物生成候选、超时、清理。第 14 节 | `build_step.step` |
 | `build [--if-changed]` | 生成并签名目录；`--if-changed`：输入没变且距上次不到 `renew_after_hours` 就什么都不做（输入没变但该续期了就只换 serial 和有效期） | `catalog.build(cfg, st, content, if_changed=False) -> dict` |
-| `metrics` | 写 `agino_store_server.prom` | cli |
+| `metrics` | 写 `agino_store_server.prom`；有上游或编译任务时多出 `agino_store_upstream_last_ok_timestamp_seconds{app}`、`agino_store_upstream_last_error{app}`、`agino_store_upstream_tag_moved{app}`（条数）和 `agino_store_builds{status}`（各状态的任务数） | cli、`metrics_builds.lines` |
 | `status --json [--section 名称 ...]` | 只读状态总览，给管理后台用（第 11 节）；不拿锁、不写、不联网 | cli、`status.build(cfg, sections, clean) -> str` |
 
 `allow_insecure = true` 时命令行直接退出（码 2），除非环境变量 `AGINO_STORE_SERVER_TESTS=1`（测试设置它）。`pending` 和各命令输出里，厂商或候选提供的字符串会去掉控制字符（制表符、换行除外）。
