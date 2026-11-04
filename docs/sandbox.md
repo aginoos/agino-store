@@ -146,6 +146,6 @@ QMP `screendump` 写 PPM 到 `private/shot.ppm`：先 `stat`（普通文件且 <
 
 - `session status SLOT`：打印守护进程每 5 秒（和状态变化时）写到 `private/status.json` 的状态（剩余秒数、空闲秒数按文件年龄推算），供调试。
 - `session cleanup`：删除 `captures` 下早于 `retention_hours` 的 `^[0-9a-f]{16}$` 目录；只删显式的文件名（`NN-<kind>-<lang>.png`、`captures.json`、`.*.tmp`），目录里有别的东西就不删目录；不跟随符号链接。
-- `deploy/session/agino-session-ctl start | stop SLOT`（root，`/usr/local/sbin`；接口见 interactive-shots.md 14.3，另有人维护）：`start` 无参数，加锁后选第一个没有活动单元的槽位并启动 `agino-store-session@<slot>.service`，读 `token.once` 后删除，输出 `SLOT <slot>`、`SESSION <id>`、`TOKEN <hex>`，全部槽位占用以 3 退出；`stop` 的参数须匹配 `vm[0-9]`。
+- `deploy/session/agino-session-ctl start | stop SLOT`（root，`/usr/local/sbin`；接口见 interactive-shots.md 14.3，另有人维护）：`start` 无参数，加锁（root 自有的 `/run/agino-session-ctl.lock`，0600，`O_NOFOLLOW`，属主不是 root 就拒绝；不放在 agino-sandbox 属主的 `/run/agino-session` 里，否则逃逸后的 qemu 可以先持锁拖住启停）后选第一个没有活动单元的槽位并启动 `agino-store-session@<slot>.service`，读 `token.once` 后删除，输出 `SLOT <slot>`、`SESSION <id>`、`TOKEN <hex>`，全部槽位占用以 3 退出；`stop` 的参数须匹配 `vm[0-9]`。
 - 导入：`agino-store-server shots-session-import APP --session ID --reviewer NAME --pick NN[,NN…]`（agino-store `docs/server.md` 第 12 节）。**只导入 `captures.json` 里 `app` 等于 `APP`（且文件名与记录一致）的截图**，其余拒绝并计入 problems；`captures.json` 读不了或格式不对则一张也不导入。该文件按敌对输入处理（`O_NOFOLLOW`、1 MiB 上限、只认格式正确的项，只用它的 `app`，其余字段仍从文件名和图片重新得出）。
 - 测试：`tests/sandbox/test_session*.py`（`test_session_vm.py` 覆盖快照 job 和 deb 热插拔的 QMP 流程）、`test_rfb_filter.py`、`test_session_ctl.py`（假 `systemctl`，`AGINO_SESSION_CTL_TEST=1` 才允许 `--runtime-dir`）、`tests/server/test_shots_session.py`。

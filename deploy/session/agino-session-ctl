@@ -8,7 +8,7 @@
 
 Called by `sudo` from the agino-store user. No shell, no environment input (a fixed PATH is used),
 SLOT is checked against a strict pattern (vm0..vm9) and only ever passed as the instance name of the
-fixed template. A lock serialises the choice of the slot and the start.
+fixed template. A lock (/run/agino-session-ctl.lock, root-owned) serialises the choice of the slot and the start.
 Test mode (AGINO_SESSION_CTL_TEST=1 in the environment, never used in production) allows
 --runtime-dir DIR, --max-sessions N (1..10) and --wait SECONDS before the command, and finds systemctl
 through PATH.
@@ -30,6 +30,8 @@ UNIT_RE = re.compile(r"\Aagino-store-session@(vm[0-9])\.service\Z")
 ID_RE = re.compile(rb"\A[0-9a-f]{16}\n?\Z")
 TOKEN_RE = re.compile(rb"\A[0-9a-f]{64}\n?\Z")
 RUNTIME_DIR = "/run/agino-session"
+LOCK_PATH = "/run/agino-session-ctl.lock"  # root-owned, outside the daemon's directory
+LOCK_OWNER_UID = 0
 SYSTEMCTL = "/usr/bin/systemctl"
 SANDBOX_USER = "agino-sandbox"
 MAX_SESSIONS = 2          # slots vm0..vm(N-1); keep equal to [session] max_sessions in sandbox.conf (at most 10)
@@ -101,12 +103,35 @@ def active_slots(test_mode):
 
 
 class Lock:
-    def __init__(self, runtime):
+    """flock that serialises start and stop.
+
+    Production: a root-owned file in /run (root's own directory): the daemon's user owns /run/agino-session,
+    and a lock there could be held by that user (or an escaped qemu) to stall every start and stop.
+    Test mode: .lock below --runtime-dir.
+    """
+
+    def __init__(self, runtime, test_mode=False, path=LOCK_PATH):
         try:
-            os.makedirs(runtime, mode=0o750, exist_ok=True)
-            self.fd = os.open(os.path.join(runtime, ".lock"), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+            if test_mode:
+                os.makedirs(runtime, mode=0o750, exist_ok=True)
+                path = os.path.join(runtime, ".lock")
+            self.fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
         except OSError as e:
             raise Refuse("cannot open the lock: %s" % e.strerror) from None
+        try:
+            if not test_mode:
+                self._check_owner()
+            self._wait()
+        except BaseException:
+            os.close(self.fd)
+            raise
+
+    def _check_owner(self):
+        info = os.fstat(self.fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != LOCK_OWNER_UID or info.st_mode & 0o077:
+            raise Refuse("the lock file is not a private regular file owned by root")
+
+    def _wait(self):
         end = time.monotonic() + LOCK_WAIT
         while True:
             try:
@@ -213,7 +238,7 @@ def collect(runtime, slot, test_mode, wait=WAIT_TOKEN):
 
 
 def start(runtime, limit, wait, test_mode):
-    lock = Lock(runtime)
+    lock = Lock(runtime, test_mode)
     try:
         active = active_slots(test_mode)
         slot = next(("vm%d" % n for n in range(limit) if "vm%d" % n not in active), None)
@@ -238,7 +263,7 @@ def start(runtime, limit, wait, test_mode):
 
 
 def stop(runtime, slot, test_mode):
-    lock = Lock(runtime)
+    lock = Lock(runtime, test_mode)
     try:
         done = run_systemctl(test_mode, "stop", "agino-store-session@%s.service" % slot)
         if done.returncode != 0:

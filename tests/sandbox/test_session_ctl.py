@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 CTL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "deploy", "session", "agino-session-ctl")
 TOKEN = "ab" * 32
@@ -270,6 +271,76 @@ class StartTests(CtlCase):
         self.run_ctl("start")
         mode = stat.S_IMODE(os.stat(os.path.join(self.fake, "rt", ".lock")).st_mode)
         self.assertEqual(mode, 0o600)
+
+
+def load_ctl():
+    from importlib import machinery, util
+    loader = machinery.SourceFileLoader("agino_session_ctl", CTL)
+    spec = util.spec_from_loader(loader.name, loader)
+    module = util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+class LockTests(unittest.TestCase):
+    """The production lock lives in a root-owned file outside /run/agino-session."""
+
+    def setUp(self):
+        self.ctl = load_ctl()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = os.path.join(self.tmp.name, "ctl.lock")
+        owner = mock.patch.object(self.ctl, "LOCK_OWNER_UID", os.getuid())  # the test user stands in for root
+        owner.start()
+        self.addCleanup(owner.stop)
+
+    def test_production_lock_is_not_in_the_daemons_directory(self):
+        self.assertEqual(self.ctl.LOCK_PATH, "/run/agino-session-ctl.lock")
+        self.assertFalse(self.ctl.LOCK_PATH.startswith(self.ctl.RUNTIME_DIR + "/"))
+        self.assertEqual(self.ctl.LOCK_OWNER_UID, 0)
+
+    def test_creates_a_private_file_and_never_touches_the_runtime_dir(self):
+        runtime = os.path.join(self.tmp.name, "rt")  # does not exist: production never creates it here
+        lock = self.ctl.Lock(runtime, False, path=self.path)
+        os.close(lock.fd)
+        self.assertEqual(stat.S_IMODE(os.stat(self.path).st_mode), 0o600)
+        self.assertFalse(os.path.exists(runtime))
+
+    def test_refuses_a_lock_file_of_another_owner(self):
+        with open(self.path, "w"):
+            pass
+        os.chmod(self.path, 0o600)
+        with mock.patch.object(self.ctl, "LOCK_OWNER_UID", os.getuid() + 1):
+            with self.assertRaises(self.ctl.Refuse):
+                self.ctl.Lock(self.tmp.name, False, path=self.path)
+
+    def test_refuses_a_group_writable_lock_file(self):
+        with open(self.path, "w"):
+            pass
+        os.chmod(self.path, 0o660)
+        with self.assertRaises(self.ctl.Refuse):
+            self.ctl.Lock(self.tmp.name, False, path=self.path)
+
+    def test_refuses_a_symlink(self):
+        target = os.path.join(self.tmp.name, "target")
+        with open(target, "w"):
+            pass
+        os.symlink(target, self.path)
+        with self.assertRaises(self.ctl.Refuse):
+            self.ctl.Lock(self.tmp.name, False, path=self.path)
+
+    def test_second_holder_is_turned_away(self):
+        first = self.ctl.Lock(self.tmp.name, False, path=self.path)
+        self.addCleanup(os.close, first.fd)
+        with mock.patch.object(self.ctl, "LOCK_WAIT", 0.0):
+            with self.assertRaises(self.ctl.Refuse) as caught:
+                self.ctl.Lock(self.tmp.name, False, path=self.path)
+        self.assertEqual(caught.exception.code, 3)
+
+    def test_test_mode_keeps_the_lock_below_the_runtime_dir(self):
+        lock = self.ctl.Lock(self.tmp.name, True, path="/nonexistent/never-used")
+        os.close(lock.fd)
+        self.assertTrue(os.path.exists(os.path.join(self.tmp.name, ".lock")))
 
 
 class StopTests(CtlCase):
