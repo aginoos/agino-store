@@ -157,6 +157,11 @@ class GuestPreparationTests(AiCase):
         self.assertNotIn(G.CONTROL, qga.files)
         self.assertNotIn(G.SRC_TAR, qga.files)
 
+    def test_builder_gets_sudo_only_in_the_ai_guest(self):
+        qga = self.prepared()
+        self.assertEqual(qga.files[AG.SUDOERS_AI], b"builder ALL=(root) NOPASSWD: ALL\n")
+        self.assertEqual(qga.modes[AG.SUDOERS_AI], "440")
+
     def test_environment_for_claude(self):
         qga = self.prepared()
         lines = qga.files[AG.ENVIRONMENT_FILE].decode().splitlines()

@@ -21,6 +21,10 @@ AGENT_LOG = USER_LOGS + "/agent.log"
 ENVIRONMENT_FILE = "/etc/environment"
 APT_CONF = "/etc/apt/apt.conf.d/99agino-build"
 CODEX_CONFIG = "/home/builder/.codex/config.toml"
+# The AI session installs build dependencies and its own deb with apt-get and dpkg. Only this guest gets the rule
+# (the image has the sudo program but no rule): the replay guests, whose steps come from a recipe, stay unprivileged.
+SUDOERS_AI = "/etc/sudoers.d/agino-ai"
+SUDOERS_AI_TEXT = "builder ALL=(root) NOPASSWD: ALL\n"
 
 TEXT_FILES = ("recipe.yaml", "app.yaml", "upstream.yaml", "vendor.yaml", "NOTES.md")
 DEB_NAME_RE = re.compile(r"\A[a-z0-9][a-z0-9+.~_-]{0,150}\.deb\Z")
@@ -101,6 +105,7 @@ class AiGuest(GuestBuild):
             raise InfraError("cannot prepare the AI guest (exit %d)" % res.exitcode)
         for path, text in AI_SCRIPTS:
             self.qga.write_file(path, text.encode("utf-8"), "755")
+        self.qga.write_file(SUDOERS_AI, SUDOERS_AI_TEXT.encode("utf-8"), "440")
         self.qga.write_file(APT_LIST, ("deb " + apt_source + "\n").encode("utf-8"), "644")
         self.qga.write_file(APT_CONF, APT_CONF_TEXT.encode("utf-8"), "644")
         self.qga.write_file(ENVIRONMENT_FILE, ("\n".join(env_items) + "\n").encode("utf-8"), "644")

@@ -6,8 +6,8 @@ before that. Be exact, be minimal, and write down what you are unsure about.
 
 ## 1. The environment (facts)
 
-- You run as the unprivileged user `builder` in a disposable VM with a fresh disk. If `sudo` is available, use it
-  for `apt-get` and `dpkg`; the VM is thrown away afterwards. Your working directory is `/work`.
+- You run as the unprivileged user `builder` in a disposable VM with a fresh disk. Use `sudo` (passwordless, root) for
+  `apt-get` and `dpkg`; the VM is thrown away afterwards. Your working directory is `/work`.
 - **The VM has no direct internet access.** What works:
   - the apt mirror (Debian trixie + the agino `milkyway` repository) through the configured apt sources;
   - HTTPS through the forwarding proxy in `HTTPS_PROXY` / `HTTP_PROXY` (already set in your environment). It
