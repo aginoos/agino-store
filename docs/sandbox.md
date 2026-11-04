@@ -11,6 +11,7 @@ agino-store-sandbox [--config …] check-base
 agino-store-sandbox [--config …] session serve SLOT     # 交互式截图会话守护进程，SLOT = vm0、vm1…（第 9 节）
 agino-store-sandbox [--config …] session status SLOT
 agino-store-sandbox [--config …] session cleanup
+agino-store-sandbox [--config …] build-run [--once]        # 构建虚拟机运行器（第 10 节）
 ```
 
 - `run`：处理队列里还没有结果的任务，最多 `slots` 个并行（每个槽一个 flock，一台 VM）。`--only NAME`（`<app>_<sha12>`，可带 `.json`）强制重跑这一个，忽略已有状态。退出码：0 正常，1 有任务落在 `error` 状态，2 配置或用法错误。
@@ -149,3 +150,72 @@ QMP `screendump` 写 PPM 到 `private/shot.ppm`：先 `stat`（普通文件且 <
 - `deploy/session/agino-session-ctl start | stop SLOT`（root，`/usr/local/sbin`；接口见 interactive-shots.md 14.3，另有人维护）：`start` 无参数，加锁（root 自有的 `/run/agino-session-ctl.lock`，0600，`O_NOFOLLOW`，属主不是 root 就拒绝；不放在 agino-sandbox 属主的 `/run/agino-session` 里，否则逃逸后的 qemu 可以先持锁拖住启停）后选第一个没有活动单元的槽位并启动 `agino-store-session@<slot>.service`，读 `token.once` 后删除，输出 `SLOT <slot>`、`SESSION <id>`、`TOKEN <hex>`，全部槽位占用以 3 退出；`stop` 的参数须匹配 `vm[0-9]`。
 - 导入：`agino-store-server shots-session-import APP --session ID --reviewer NAME --pick NN[,NN…]`（agino-store `docs/server.md` 第 12 节）。**只导入 `captures.json` 里 `app` 等于 `APP`（且文件名与记录一致）的截图**，其余拒绝并计入 problems；`captures.json` 读不了或格式不对则一张也不导入。该文件按敌对输入处理（`O_NOFOLLOW`、1 MiB 上限、只认格式正确的项，只用它的 `app`，其余字段仍从文件名和图片重新得出）。
 - 测试：`tests/sandbox/test_session*.py`（`test_session_vm.py` 覆盖快照 job 和 deb 热插拔的 QMP 流程）、`test_rfb_filter.py`、`test_session_ctl.py`（假 `systemctl`，`AGINO_SESSION_CTL_TEST=1` 才允许 `--runtime-dir`）、`tests/server/test_shots_session.py`。
+
+## 10. 构建虚拟机（`build-run`）
+
+编译任务（`docs/build-tasks.md`）的运行器：把开源项目的源码在一次性的 KVM 虚拟机里编成 deb。上游源码、构建脚本、依赖、构建日志全部不可信：只在虚拟机里运行，主机侧只当数据处理。代码：`server/agino_store_sandbox/build_*.py`；测试：`tests/sandbox/test_build_*.py`（假 qga/VM，不起真 qemu）。
+
+### 10.1 命令和配置（`[builder]` 段，全部可省略）
+
+```
+agino-store-sandbox [--config …] build-run [--once]
+```
+
+`build-run` 常驻（`agino-store-sandbox-build.service`），每 5 秒扫描队列；`--once` 处理完当前队列后退出（退出码 1 表示有任务失败）。同一时间只允许一个 `build-run`（`<run>/build-run.lock` 的 flock）。进程启动时 `umask 027`，输出目录 0750、文件 0640，组来自 setgid 的父目录 `out`（进程自己不设 setgid 位，不调 chmod 改目录）。
+
+| 键 | 默认 | 说明 |
+|---|---|---|
+| `base` | `/srv/store/sandbox/base/builder.qcow2` | 只读构建基础镜像（Debian trixie + 构建工具链，`builder` 用户，qga） |
+| `base_vars` | `/srv/store/sandbox/base/builder.vars` | 它自己的 UEFI NVRAM，每次复制成 `vars.fd` |
+| `apt_source` | `http://51.38.63.36:8080/ milkyway main` | `deb ` 后面的整行：`[选项] URL 套件 组件…`；客户机的 apt 只用这一个源（`-o Dir::Etc::sourcelist=/etc/apt/agino-build.list -o Dir::Etc::sourceparts=-`）。出站放行由基础设施按它的 IP:端口做 |
+| `queue` | `/srv/store/build-queue` | agino-store 写，`<id>/{task.json,source.tar[,cancel]}` |
+| `out` | `/srv/store/build-out` | 本进程写，`<id>/{status.json,result.json,build.log,<包名>_<版本>_amd64.deb}` |
+| `max_concurrent` | 1 | 1..4，槽位 0..N-1，tap `agsbx-b<槽>`、MAC `52:54:00:5b:01:0N` |
+| `limits` | `cpu_minutes=90 memory_gib=8 disk_gib=20` | 上限；任务只能下调，超过的任务判为无效 |
+| `max_source_mib` / `max_artifact_mib` / `max_log_mib` | 512 / 1024 / 8 | 源码、deb、日志的大小上限 |
+
+### 10.2 task.json（严格解析，未知键拒绝）
+
+```json
+{"id": "<16 hex，可省，必须等于目录名>", "app": "demo", "version": "1.0+agino1",
+ "source": {"sha256": "…", "size": 123, "file": "source.tar（可省）"},
+ "recipe": {"base": "debian-trixie", "source": {"kind": "git", "checksum": "required"},
+            "build_depends": ["build-essential"], "steps": ["…"],
+            "package": {"name": "demo-agino", "section": "utils", "depends": ["libfoo1 (>= 1.2)"],
+                        "maintainer": "agino app store <store@aginoos.com>"}},
+ "limits": {"cpu_minutes": 90, "memory_gib": 8, "disk_gib": 20}}
+```
+
+`limits` 可省（取 `recipe.limits`，再取配置上限）。另可带信息性键 `upstream_version tag commit attempt by created`（忽略）。目录名必须是 16 位十六进制；`version` 匹配 `^[0-9][A-Za-z0-9.+~-]{0,63}$`（不含 epoch）；`steps` ≤ 40 条、每条 ≤ 512 字符、无控制字符（制表符和换行除外）；包名、依赖、section、maintainer 都按固定正则再校验。不合格的任务不起虚拟机，直接 `failed`，`result.json` 的 `error` 为 `invalid task: …`。
+
+### 10.3 状态机
+
+`starting → installing_deps → building → packaging → collecting → done | failed | cancelled`，每次转移写 `status.json`（`{id,state,started,updated,step,steps_total,error}`）；结束时先写 `result.json` 再写最终 `status.json`。任何异常（步骤失败、qga 超时、VM 退出、磁盘或时间超限、代码 bug）都落到 `failed` 并留下原因；运行器重启时 out 里状态不是终态且没人在跑的任务一律置 `failed`（`the build runner stopped while this task was running`），不会停在 `building`。有 `status.json` 的任务不会再被启动。
+
+时间：`cpu_minutes` 约束「启动 + 装依赖 + 全部步骤」的总时长（单一截止时间，每步的 `timeout` 取剩余时间）；打包另给 10 分钟，取回另给 15 分钟。所以一个任务最多跑 `cpu_minutes + 25` 分钟加启动等待（≤3 分钟）；服务端的「超时无结果」余量应不小于 30 分钟。磁盘：覆盖盘的虚拟大小 = `max(disk_gib, 基础镜像大小)`，宿主机侧每 5 秒检查覆盖文件大小，超过 `disk_gib` 判失败。启动前宿主机 `<run>` 所在盘的剩余空间须 ≥ `disk_gib + [session] min_free_gib`，否则任务失败。
+
+### 10.4 客户机里做什么（全部经 qga，脚本是固定文本）
+
+1. root：建 `/home/builder/{src,logs,out}`，写 `/opt/agino-build/{logged,run-step,package}.sh`、`/home/builder/control`（由配方 `package` 段生成）和 `/etc/apt/agino-build.list`。
+2. 分块写 `source.tar` 到 `/home/builder/source.tar`（宿主机先核对 size 和 sha256，客户机里 `sha256sum` 再核对），以 `builder` 解到 `/home/builder/src`。
+3. root：`apt-get update`、`apt-get install -y --no-install-recommends <build_depends>`（包名再用 `^[a-z0-9][a-z0-9+.-]{1,99}$` 校验，作为 argv 传，不拼 shell；`build_depends` 为空就不联网）。
+4. `builder` 逐条执行 `steps`：`runuser -u builder -- env -i HOME=… PATH=… LANG=C.UTF-8 … run-step.sh <日志> <秒数> <步骤文本>`，步骤文本是 `sh -c` 的单个参数，工作目录 `/home/builder/src`，每步包在 `timeout -k 10` 里。
+5. 打包（`builder` 身份，`package.sh`）：`pkgroot` 必须是 `src/pkgroot` 下的真实目录；已存在 `DEBIAN`（含符号链接）则失败（退出码 21，不接受 maintainer 脚本和上游 control）；用配方生成的 control 加 `Installed-Size` 做 `dpkg-deb --root-owner-group -Zxz --build`，产物固定为 `/home/builder/out/pkg.deb`。
+6. 取回：`stat` 确认是普通文件、大小 ≤ `max_artifact_mib`（超出直接失败，不取半截 deb），`guest-file-read` 每次 1 MiB，首块必须以 `!<arch>\n` 开头；写成 `out/<id>/<package.name>_<version>_amd64.deb`（文件名只来自配方和任务版本，不用客户机给的名字）。
+
+日志：构建中每 2 秒把客户机日志的新内容追加到 `out/<id>/build.log`；去掉控制字符（只留换行和制表符；回车转换行；C1、行/段分隔符、双向控制符、BOM 一并去掉），超过 `max_log_mib` 截断并追加一行 `[log truncated: …]`，之后不再读客户机日志。
+
+`result.json` = `{"ok", "error", "steps": [{"n","cmd","exit","seconds"}], "artifacts": [{"file","sha256","size"}]}`（`error` ≤ 300 字符，`cmd` 是清理过的步骤文本，超时的步骤 `exit` 记 124）。
+
+### 10.5 取消、超时、清理
+
+- 取消：每轮扫描检查 `queue/<id>/cancel`；运行中的任务被请求停止，只杀本任务自己启动的 qemu（`Popen` 对象），任务落到 `cancelled`（`error` 为 `cancelled`）。还没开始的任务直接记 `cancelled`。守护进程收到 SIGTERM/SIGINT：运行中的任务以 `failed`（`the build runner was stopped`）结束。
+- 结束一律 `vm.stop()`：QMP `quit`，10 秒后仍在则杀；只删这次登记过的运行文件（`<run>/b<槽>/` 里的 overlay、vars、sockets、qemu.log）。tap 设备由基础设施管理，运行器不碰。
+- `out/<id>/` 保留 7 天（按 `status.json` 的修改时间，每小时清一次）：只处理名字匹配 `^[0-9a-f]{16}$` 的真实目录、只删目录里的普通文件（不进子目录、不跟符号链接）；若 `queue/<id>/` 还在，保留 `status.json` 当墓碑，否则运行器会把它当新任务再编一次。
+- seccomp：与交互会话相同，探测失败即拒绝启动任务（`seccomp sandbox unavailable`），只有显式 `qemu_sandbox = off` 才不带 `-sandbox`。
+
+### 10.6 对基础镜像和服务端的要求
+
+- 基础镜像：有 `builder` 用户（非 root）、`/usr/sbin/runuser`、`/usr/bin/timeout`、`dpkg-deb`、`tar`、`sha256sum`、qga；apt 源的签名钥匙已在镜像里（或在 `apt_source` 里写 `[trusted=yes]` / `[signed-by=…]`）；根文件系统要能用到 `disk_gib`（镜像本身够大，或首次开机自动扩展）。
+- 服务端写队列时先写 `source.tar` 再原子重命名写 `task.json`（运行器另外要求两个文件静默 3 秒后才接手，`--once` 不等待）。
+- 测试：`tests/sandbox/test_build_task.py`（任务和配置解析）、`test_build_out.py`（输出目录、日志、清理）、`test_build_vm.py`（qemu 参数、覆盖盘、qga 分块读写）、`test_build_job.py`（状态机各分支）、`test_build_serve.py`（队列、并发、取消、孤儿任务）。
