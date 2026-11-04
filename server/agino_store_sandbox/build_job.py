@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """One build task: the state machine from `starting` to `done`, `failed` or `cancelled`.
 
-starting -> installing_deps -> building -> packaging -> [testing ->] collecting -> done. Whatever happens (a failing step, a
-dead VM, a guest agent timeout, a cancel, a bug) the task ends in exactly one terminal state with the reason in
-result.json, the VM is gone and its run files are removed: nothing is left in `building`.
+starting -> installing_deps -> building -> packaging -> [testing ->] collecting -> done. Whatever
+happens (a failing step, a dead VM, a guest agent timeout, a cancel, a bug) the task ends in exactly one
+terminal state with the reason in result.json, the VM is gone and its run files are removed: nothing is
+left in `building`.
 
 Time: `limits.cpu_minutes` bounds boot + dependency install + all steps together (one deadline). Packaging and
 collecting have fixed extra allowances (PACKAGE_TIMEOUT, COLLECT_TIMEOUT), so a task can run at most
