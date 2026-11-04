@@ -25,7 +25,7 @@ import time
 from .rfb_filter import ClientFilter, RfbReject
 from .session import APP_RE, OpError
 from .shots_scene import LANGS
-from .util import log
+from .util import give_group, log
 
 AUTH_LINE_MAX = 128
 AUTH_DEADLINE = 5.0
@@ -160,10 +160,9 @@ class WebServer:
         except KeyError:
             log("group %s does not exist; web.sock keeps the process group" % self.group)
             gid = os.getegid()
-        try:
-            os.chown(self.path, -1, gid)
-        except OSError as e:
-            log("cannot give web.sock to group %s: %s" % (self.group, e.strerror))
+        err = give_group(self.path, gid)  # normally a no-op: the setgid run directory already gave the group
+        if err is not None:
+            log("cannot give web.sock to group %s: %s" % (self.group, err.strerror))
         os.chmod(self.path, 0o660)
         srv.listen(32)
         self.listener = srv

@@ -140,6 +140,39 @@ class ServeTests(unittest.TestCase):
         SS.prepare_dirs(self.cfg.session, "vm0")
         self.assertEqual(sorted(os.listdir(self.app_dir)), ["private"])
 
+    def test_group_chown_failure_is_not_fatal(self):
+        # The daemon is not a member of web_group: chown fails with EPERM and the run directory (setgid in
+        # production) provides the group, so prepare_dirs only logs.
+        other = os.getegid() + 4242
+        messages = []
+        denied = PermissionError(1, "Operation not permitted")
+        with mock.patch.object(SS, "_group_id", lambda name: other), \
+                mock.patch.object(SS, "log", messages.append), \
+                mock.patch("os.chown", side_effect=denied) as chown:
+            app_dir, private = SS.prepare_dirs(self.cfg.session, "vm0")
+        chown.assert_called_once_with(app_dir, -1, other)
+        self.assertEqual(stat.S_IMODE(os.stat(app_dir).st_mode) & 0o777, 0o750)
+        self.assertEqual(stat.S_IMODE(os.stat(private).st_mode) & 0o777, 0o700)
+        self.assertEqual(len(messages), 1)
+        self.assertIn("cannot give", messages[0])
+        self.assertIn("Operation not permitted", messages[0])
+
+    def test_session_id_write_survives_fchown_failure(self):
+        path = os.path.join(self.tmp.name, "session.id")
+        messages = []
+        with mock.patch.object(SS, "log", messages.append), \
+                mock.patch("os.fchown", side_effect=PermissionError(1, "Operation not permitted")):
+            SS._write(path, b"abc\n", 0o640, gid=os.getegid() + 4242)
+        self.assertEqual(read(path), b"abc\n")
+        self.assertEqual(stat.S_IMODE(os.stat(path).st_mode), 0o640)
+        self.assertEqual(len(messages), 1)
+
+    def test_no_chown_when_the_group_is_already_right(self):
+        with mock.patch("os.chown") as chown:
+            app_dir, _ = SS.prepare_dirs(self.cfg.session, "vm0")  # nonexistent group: our own gid
+        chown.assert_not_called()
+        self.assertTrue(os.path.isdir(app_dir))
+
     def test_status_command(self):
         private = os.path.join(self.app_dir, "private")
         os.makedirs(private)

@@ -7,6 +7,7 @@ import os
 import re
 import secrets
 import signal
+import stat
 import threading
 import time
 
@@ -14,7 +15,7 @@ from . import session as S
 from .session_capture import NAME_RE
 from .session_vm import PRIVATE_NAMES
 from .session_web import WebServer
-from .util import SandboxError, log
+from .util import SandboxError, give_group, log
 
 FAILED_LINGER = 60
 CLOSE_GRACE = 0.5  # lets the reply to `end` reach the platform before the sockets are shut
@@ -40,32 +41,46 @@ def _write(path, data, mode, exclusive=False, gid=None):
     with os.fdopen(fd, "wb") as f:
         os.fchmod(f.fileno(), mode)
         if gid is not None:
-            try:
-                os.fchown(f.fileno(), -1, gid)
-            except OSError:
-                pass
+            err = give_group(f.fileno(), gid)
+            if err is not None:
+                log("cannot give %s to group %d: %s" % (path, gid, err.strerror))
         f.write(data)
     if not exclusive:
         os.replace(target, path)
 
 
 def prepare_dirs(scfg, slot):
-    """(slot dir, private dir): fresh, owned by us, 0750 (group web_group) and 0700."""
+    """(slot dir, private dir): fresh, owned by us, 0750 (group web_group) and 0700.
+
+    The unit runs with RestrictSUIDSGID and without the web group: no chmod here may carry or clear the setgid
+    bit and the chown is only a fallback. The group comes from the setgid /run/agino-session (tmpfiles.d, 2750):
+    the slot directory takes it at mkdir time (like the captures directory), and the files in it inherit it.
+    """
     gid = _group_id(scfg.web_group)
     os.makedirs(scfg.runtime_dir, mode=0o750, exist_ok=True)
     app_dir = os.path.join(scfg.runtime_dir, slot)
     private = os.path.join(app_dir, "private")
-    os.makedirs(private, mode=0o700, exist_ok=True)
-    os.chmod(private, 0o700)
-    os.chmod(app_dir, 0o750)
+    old = os.umask(0o027)  # the slot directory must come out 0750 without a chmod (that would drop the setgid bit)
     try:
-        os.chown(app_dir, -1, gid)
-    except OSError as e:
-        log("cannot give %s to group %s: %s" % (app_dir, scfg.web_group, e.strerror))
+        os.makedirs(app_dir, mode=0o750, exist_ok=True)
+    finally:
+        os.umask(old)
+    os.makedirs(private, mode=0o700, exist_ok=True)
+    _ensure_mode(private, 0o700)
+    _ensure_mode(app_dir, 0o750)
+    err = give_group(app_dir, gid)
+    if err is not None:
+        log("cannot give %s to group %s: %s" % (app_dir, scfg.web_group, err.strerror))
     for name in STALE_NAMES:
         _unlink(os.path.join(app_dir, name))
     _unlink(os.path.join(private, STATUS_FILE))
     return app_dir, private
+
+
+def _ensure_mode(path, mode):
+    """chmod only when the permission bits differ, so a setgid bit inherited at mkdir time is not cleared."""
+    if stat.S_IMODE(os.lstat(path).st_mode) & 0o777 != mode:
+        os.chmod(path, mode)
 
 
 def _unlink(path):

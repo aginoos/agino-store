@@ -105,7 +105,7 @@ milkyway 里的应用不进沙箱队列，已通过的候选也不会再排队�
 |---|---|---|
 | `runtime_dir` | `/run/agino-session` | `<slot>/web.sock`（0660，组 `web_group`）、`<slot>/session.id`、`<slot>/token.once`（0600）；`<slot>/private/`（0700）放 `qmp.sock`、`qga.sock`、`vnc.sock`、`shot.ppm`、`status.json` |
 | `captures` | `/srv/store/sandbox/captures` | `<会话 id>/NN-<kind>-<lang>.png` 和 `captures.json`；目录 2750（setgid：文件继承 agino-store 组，导入命令才读得到），文件 0640 |
-| `web_group` | `agino-admin` | `web.sock` 和槽位目录的组；组不存在时记日志，保持进程的组 |
+| `web_group` | `agino-admin` | `web.sock` 和槽位目录的组。守护进程**不是**该组成员（单元没有 `SupplementaryGroups`，qemu 会继承附加组）：`/run/agino-session` 由 tmpfiles 建成 `2750`（setgid），槽位目录和 `web.sock` 创建时继承该组；`chown` 只是尽力而为，失败只记日志；组不存在时同样记日志 |
 | `max_sessions` | 2 | 全站并发上限（助手里另有同值常量） |
 | `idle_minutes` / `total_minutes` / `install_minutes` | 10 / 120 / 15 | 无输入空闲、整个会话的总时长（`extend` 一次 +30 分钟）、单个应用的安装时限（开机加做快照也按它计）；`run_minutes` 不再使用，只为旧配置能加载而保留 |
 | `overlay_cap_gib` / `min_free_gib` | 12 / 20 | 唯一一层 overlay 的大小上限（含快照状态，起步约 2.1 GiB；每 10 秒检查）；`[sandbox] run` 所在文件系统剩余空间低于此值拒绝开始 |

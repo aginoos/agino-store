@@ -502,6 +502,17 @@ class UnitTests(unittest.TestCase):
             web.close()
             self.assertFalse(os.path.exists(path))
 
+    def test_bind_survives_a_refused_chown(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "web.sock")
+            web = W.WebServer(FakeSession(), path, TOKEN, "no-such-group-xyz")
+            # the group exists but we are not a member: chown says EPERM, the socket stays usable at 0660
+            with mock.patch("grp.getgrnam", return_value=mock.Mock(gr_gid=os.getegid() + 4242)), \
+                    mock.patch("os.chown", side_effect=PermissionError(1, "Operation not permitted")):
+                web.bind()
+            self.assertEqual(stat.S_IMODE(os.stat(path).st_mode), 0o660)
+            web.close()
+
     def test_regular_file_is_not_deleted_by_bind(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "web.sock")

@@ -10,8 +10,8 @@ Requires=agino-sandbox-net.service agino-sandbox-dhcp.service
 # Run directory: /run/agino-session/<slot>/.
 Type=simple
 User=agino-sandbox
-# agino-admin: the daemon gives web.sock to that group. kvm comes with the user (same as the batch unit).
-SupplementaryGroups=agino-admin
+# No SupplementaryGroups=agino-admin: qemu inherits the daemon's groups, and an escaped guest must not reach the
+# admin sockets. web.sock gets its group from the setgid /run/agino-session (tmpfiles.d). kvm comes with the user.
 ExecStart=/usr/local/bin/agino-store-sandbox --config /etc/agino-store-sandbox/sandbox.conf session serve %i
 # Hard limit: total_minutes (120) + one extension (30) + 5 min clean-up. Never restarted: a session is not resumable.
 RuntimeMaxSec=9300

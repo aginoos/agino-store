@@ -2,6 +2,7 @@
 """Small shared helpers: errors, logging, text sanitising, time."""
 
 import datetime
+import os
 import re
 import sys
 
@@ -27,6 +28,26 @@ def now():
 
 def log(msg):
     print("%s %s" % (now(), msg), file=sys.stderr, flush=True)
+
+
+def give_group(target, gid):
+    """Best-effort chgrp of a path or an open file descriptor; returns None or the OSError.
+
+    The daemon is not a member of the platform group: directories below /run/agino-session are setgid and
+    hand that group to everything created in them, so the chown only matters when the group differs, and
+    a refusal (EPERM) is not fatal.
+    """
+    try:
+        info = os.fstat(target) if isinstance(target, int) else os.lstat(target)
+        if info.st_gid == gid:
+            return None
+        if isinstance(target, int):
+            os.fchown(target, -1, gid)
+        else:
+            os.chown(target, -1, gid)
+    except OSError as e:
+        return e
+    return None
 
 
 def clean(text, limit):
