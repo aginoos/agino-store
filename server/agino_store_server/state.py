@@ -136,7 +136,7 @@ class State:
         return read_json(self._path("builds", build_id + ".json"), None)
 
     def builds(self, app=None):
-        """All task records, oldest first (by created, then id); damaged files raise StateError."""
+        """All task records, oldest first (by created, then attempt, then id); damaged files raise StateError."""
         base = self._path("builds")
         names = sorted(os.listdir(base)) if os.path.isdir(base) else []
         out = []
@@ -146,7 +146,11 @@ class State:
             rec = read_json(os.path.join(base, name), None)
             if isinstance(rec, dict) and (app is None or rec.get("app") == app):
                 out.append(rec)
-        return sorted(out, key=lambda r: (str(r.get("created") or ""), str(r.get("id"))))
+        def attempt(r):
+            a = r.get("attempt")
+            return a if isinstance(a, int) and not isinstance(a, bool) else 0
+        # Tasks created within one second share `created`: the attempt counter keeps them in request order.
+        return sorted(out, key=lambda r: (str(r.get("created") or ""), attempt(r), str(r.get("id"))))
 
     def save_build(self, record):
         build_id = record.get("id")

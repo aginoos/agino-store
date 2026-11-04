@@ -70,6 +70,10 @@ class EditCase(ShotsCase):
         """Change an app.yaml and commit it (the checkout must be clean for content-edit)."""
         H.edit_yaml(os.path.join(self.content, "apps", app, "app.yaml"), change)
         self.commit_all("fixture")
+        try:  # the fixture commit is already on origin: content-edit's startup repair pushes unpushed commits
+            git(self.content, "push", "-q", "origin", "main")
+        except Exception:  # noqa: BLE001 - a checkout without a usable origin has nothing to push
+            pass
 
     def staged(self, name):
         return os.path.join(self.staging, name)
