@@ -41,12 +41,14 @@ Control {
             D.Label {
                 Layout.fillWidth: true
                 text: row.info.name
+                textFormat: Text.PlainText
                 font.weight: Font.Medium
                 elide: Text.ElideRight
             }
             Muted {
                 Layout.fillWidth: true
                 text: row.info.summary
+                textFormat: Text.PlainText
             }
         }
         ActionButtons { appId: row.appId }

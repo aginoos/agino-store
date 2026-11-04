@@ -42,6 +42,7 @@ Control {
         D.Label {
             Layout.fillWidth: true
             text: card.info.name
+            textFormat: Text.PlainText
             font.pixelSize: 14
             font.weight: Font.Medium
             elide: Text.ElideRight
@@ -51,6 +52,7 @@ Control {
             Layout.minimumHeight: 32
             font.pixelSize: 12
             text: card.info.summary
+            textFormat: Text.PlainText
             wrapMode: Text.Wrap
             maximumLineCount: 2
             verticalAlignment: Text.AlignTop

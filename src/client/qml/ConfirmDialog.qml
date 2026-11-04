@@ -76,12 +76,14 @@ D.Dialog {
             Layout.fillWidth: true
             visible: text !== ""
             text: dialog.sizeText
+            textFormat: Text.PlainText
             wrapMode: Text.Wrap
         }
         D.Label {
             Layout.fillWidth: true
             visible: !dialog.batch && !dialog.removing && dialog.request.source !== undefined
             text: qsTr("Source: %1").arg(dialog.request.source ? dialog.request.source : "")
+            textFormat: Text.PlainText
             wrapMode: Text.Wrap
         }
 
@@ -97,6 +99,7 @@ D.Dialog {
             contentItem: D.Label {
                 font: D.DTK.fontManager.t8
                 wrapMode: Text.Wrap
+                textFormat: Text.PlainText
                 text: dialog.extras.length === 0
                       ? qsTr("No extra components needed")
                       : (dialog.removing ? qsTr("Also removes components nothing else needs:")

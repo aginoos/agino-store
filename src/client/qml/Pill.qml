@@ -18,6 +18,7 @@ Control {
 
     contentItem: D.Label {
         text: pill.text
+        textFormat: Text.PlainText
         font.pixelSize: 12
         color: pill.checked ? pill.palette.highlight : pill.palette.windowText
     }

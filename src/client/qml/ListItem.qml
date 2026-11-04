@@ -10,9 +10,16 @@ Control {
 
     property string appId
     property string sub
+    // True only when `sub` is built by the caller as StyledText markup; every dynamic part of it
+    // must go through escapeMarkup(). Plain text (the default) can never turn into rich text.
+    property bool subStyled: false
     property bool separator: false
     default property alias actions: actionRow.data
     readonly property var info: Store.app(appId)
+
+    function escapeMarkup(s) {
+        return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    }
 
     Layout.fillWidth: true
     leftPadding: 14
@@ -48,13 +55,14 @@ Control {
             D.Label {
                 Layout.fillWidth: true
                 text: item.info.name ? item.info.name : ""
+                textFormat: Text.PlainText
                 font.weight: Font.Medium
                 elide: Text.ElideRight
             }
             Muted {
                 Layout.fillWidth: true
                 text: item.sub
-                textFormat: Text.StyledText
+                textFormat: item.subStyled ? Text.StyledText : Text.PlainText
             }
         }
         RowLayout {

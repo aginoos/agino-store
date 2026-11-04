@@ -43,6 +43,7 @@ Control {
             D.Label {
                 anchors.centerIn: parent
                 text: root.initial
+                textFormat: Text.PlainText
                 color: root.palette.highlight
                 font.pixelSize: root.size * 0.46
                 font.weight: Font.DemiBold

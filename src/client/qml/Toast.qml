@@ -37,6 +37,7 @@ Control {
         spacing: 14
         D.Label {
             text: toast.text
+            textFormat: Text.PlainText
             color: toast.palette.window
             elide: Text.ElideRight
             Layout.maximumWidth: 480

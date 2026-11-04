@@ -7,4 +7,6 @@ D.Label {
     color: Qt.alpha(palette.windowText, 0.62)
     font: D.DTK.fontManager.t8
     elide: Text.ElideRight
+    // Catalog and PackageKit strings are untrusted: never let Qt guess rich text (remote <img>, spoofed UI).
+    textFormat: Text.PlainText
 }
