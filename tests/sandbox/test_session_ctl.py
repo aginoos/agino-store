@@ -297,7 +297,8 @@ class LockTests(unittest.TestCase):
     def test_production_lock_is_not_in_the_daemons_directory(self):
         self.assertEqual(self.ctl.LOCK_PATH, "/run/agino-session-ctl.lock")
         self.assertFalse(self.ctl.LOCK_PATH.startswith(self.ctl.RUNTIME_DIR + "/"))
-        self.assertEqual(self.ctl.LOCK_OWNER_UID, 0)
+        with open(CTL) as f:  # the setUp patches the constant with the test user; the source says root
+            self.assertRegex(f.read(), r"(?m)^LOCK_OWNER_UID = 0$")
 
     def test_creates_a_private_file_and_never_touches_the_runtime_dir(self):
         runtime = os.path.join(self.tmp.name, "rt")  # does not exist: production never creates it here
