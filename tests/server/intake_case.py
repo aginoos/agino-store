@@ -128,7 +128,8 @@ class IntakeCase(BuildCase):
         self.run_cli("build-step")
         return ai_id
 
-    def run_verify(self, intake_id, ok=True, error="test 1 failed", deb=None, klass="recipe", log=b"log line\n"):
+    def run_verify(self, intake_id, ok=True, error="test 1 failed", deb=None, klass="recipe", log=b"log line\n",
+                   package="newtool-agino"):
         """The verification build ends; build-step collects it."""
         verify_id = self.intake(intake_id)["verify_task"]
         record = self.st.build(verify_id)
@@ -137,7 +138,7 @@ class IntakeCase(BuildCase):
         os.makedirs(directory, exist_ok=True)
         H.write(os.path.join(directory, "build.log"), log)
         if ok:
-            deb = deb or self.make_deb(record["version"], package="newtool-agino")
+            deb = deb or self.make_deb(record["version"], package=package)
             self.write_result(verify_id, self.result_for(deb, **{"class": "ok"}), deb)
         else:
             self.write_result(verify_id, {"ok": False, "error": error, "class": klass, "steps": [], "artifacts": []})

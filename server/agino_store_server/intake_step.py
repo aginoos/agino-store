@@ -22,7 +22,7 @@ import tempfile
 
 from . import builds, content, debinfo, intake, intake_delivery, intake_materials, intake_proxy, intake_workspace
 from .intake import IntakeError
-from .state import StateError, write_json_atomic
+from .state import StateError, StateLocked, write_json_atomic
 
 LOCK_WAIT = 60.0
 FETCH_PREFIX = ".fetch-"
@@ -369,6 +369,8 @@ def step(cfg, st, now):
     for rec in [r for r in st.intakes() if r.get("status") in ACTIVE]:
         try:
             _process(ctx, rec)
+        except StateLocked:
+            raise
         except IntakeError as e:
             rep.fail("intake %s: %s" % (rec["id"], e))
         except StateError as e:
