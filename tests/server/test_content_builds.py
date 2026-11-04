@@ -198,7 +198,7 @@ class TestInvalidRecipe(BuiltCase):
         for depends, needle in [
             (["Bad_Name"], "bad format"), (["a"], "bad format"), (["-x"], "bad format"),
             (["meson", "meson"], "duplicate package"), (["meson; rm -rf /"], "bad format"),
-            (["x" * 129], "bad format"), (["ok-pkg"] * 101, "0..100 items"), ("meson", "list of 0..100"),
+            (["x" * 129], "at most 128 characters"), (["ok-pkg"] * 101, "0..100 items"), ("meson", "list of 0..100"),
             ([1], "non-empty string"),
         ]:
             with self.subTest(depends=depends):
