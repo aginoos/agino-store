@@ -9,6 +9,7 @@ import threading
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "server"))
 
+from agino_store_sandbox import build_ai_guest as AG  # noqa: E402
 from agino_store_sandbox import build_guest as G  # noqa: E402
 from agino_store_sandbox import config  # noqa: E402
 from agino_store_sandbox.qga import ExecResult  # noqa: E402
@@ -17,6 +18,7 @@ from agino_store_sandbox.util import InfraError  # noqa: E402
 TASK_ID = "0123456789abcdef"
 SOURCE = b"fake source tarball\n" * 50
 DEB = b"!<arch>\ndebian-binary   2.0\n" + b"x" * 1000
+WORKSPACE = b"fake workspace tarball\n" * 20
 
 
 def builder_cfg(tmp, **builder):
@@ -42,8 +44,15 @@ def task_doc(**over):
     return doc
 
 
-def write_task(cfg, task_id=TASK_ID, doc=None, source=SOURCE, raw=None):
-    """queue/<id>/{task.json,source.tar}; raw replaces the task.json bytes."""
+def ai_task_doc(**over):
+    """A mode "ai" task.json: no source, no recipe."""
+    doc = {"mode": "ai", "ai": {"agent": "claude", "kind": "import", "minutes": 30}}
+    doc.update(over)
+    return doc
+
+
+def write_task(cfg, task_id=TASK_ID, doc=None, source=SOURCE, raw=None, workspace=None):
+    """queue/<id>/{task.json,source.tar[,workspace.tar]}; raw replaces the task.json bytes."""
     base = os.path.join(cfg.builder.queue, task_id)
     os.makedirs(base, exist_ok=True)
     with open(os.path.join(base, "task.json"), "wb") as f:
@@ -51,7 +60,15 @@ def write_task(cfg, task_id=TASK_ID, doc=None, source=SOURCE, raw=None):
     if source is not None:
         with open(os.path.join(base, "source.tar"), "wb") as f:
             f.write(source)
+    if workspace is not None:
+        with open(os.path.join(base, "workspace.tar"), "wb") as f:
+            f.write(workspace)
     return base
+
+
+def write_ai_task(cfg, task_id=TASK_ID, doc=None, workspace=WORKSPACE):
+    """An AI task: task.json and workspace.tar, no source.tar."""
+    return write_task(cfg, task_id, doc=doc or ai_task_doc(), source=None, workspace=workspace)
 
 
 class Clock:
@@ -81,6 +98,17 @@ class FakeQga:
         self.hang_steps = set()
         self.apt_exit = {"update": 0, "install": 0}
         self.package_exit = 0
+        self.test_exit = {}        # test command -> exit code
+        self.hang_tests = set()
+        self.place_exit = 0
+        self.placed = []           # (path, mode, content) of every place-file call
+        self.ai_exit = 0           # exit code of the agent CLI
+        self.ai_out = b""          # what the agent printed (its log file)
+        self.ai_hang = False
+        self.task_md = True        # whether /work/TASK.md exists after unpacking the workspace
+        self.work_out = {}         # /work/out: name -> bytes, or None for a symbolic link
+        self.read_paths = []       # path of every read_chunk call
+        self.list_extra = b""      # raw bytes appended to the collect script's output
         self.deb = DEB
         self.corrupt_source = False
         self.stat_override = None
@@ -102,6 +130,10 @@ class FakeQga:
     def sh(self, script, args=(), timeout=60, input_data=None):
         self._guard("sh")
         self.execs.append(("sh", script))
+        if script == AG.AI_COLLECT_SCRIPT:
+            listing = b"".join(b"%d\t%s\0" % (len(data), name.encode()) for name, data in self.work_out.items()
+                               if data is not None)
+            return ExecResult(0, listing + self.list_extra, b"")
         return ExecResult(0, b"", b"")
 
     def write_file(self, path, data, mode="755"):
@@ -122,6 +154,12 @@ class FakeQga:
             if self.corrupt_source:
                 data += b"!"
             return ExecResult(0, ("%s  %s\n" % (hashlib.sha256(data).hexdigest(), argv[1])).encode(), b"")
+        if G.PLACE_FILE in argv:
+            i = argv.index(G.PLACE_FILE)
+            self.placed.append((argv[i + 1], argv[i + 2], input_data))
+            return ExecResult(self.place_exit, b"", b"")
+        if argv[0] == "/usr/bin/test":
+            return ExecResult(0 if self.task_md else 1, b"", b"")
         if argv[0] == "/usr/bin/stat":
             if self.stat_override is not None:
                 return ExecResult(0, self.stat_override.encode(), b"")
@@ -138,9 +176,9 @@ class FakeQga:
         self.started.append(list(argv))
         pid = 100 + len(self.started)
         if G.APT_GET in argv:
-            label = "install" if "install" in argv else "update"
+            label = ("install-package" if G.ARTIFACT in argv else "install") if "install" in argv else "update"
             log_path = argv[1]
-            self._finish(pid, self.apt_exit[label], log_path, b"apt %s done\n" % label.encode())
+            self._finish(pid, self.apt_exit.get(label, 0), log_path, b"apt %s done\n" % label.encode())
         elif G.RUN_STEP in argv:
             i = argv.index(G.RUN_STEP)
             log_path, cmd = argv[i + 1], argv[i + 3]
@@ -149,6 +187,19 @@ class FakeQga:
             else:
                 out = self.step_out.get(cmd, b"ran: " + cmd.encode() + b"\n")
                 self._finish(pid, self.step_exit.get(cmd, 0), log_path, out)
+        elif G.RUN_TEST in argv:
+            i = argv.index(G.RUN_TEST)
+            log_path, cmd = argv[i + 1], argv[i + 3]
+            if cmd in self.hang_tests:
+                self.results[pid] = None
+            else:
+                self._finish(pid, self.test_exit.get(cmd, 0), log_path, b"test: " + cmd.encode() + b"\n")
+        elif AG.AI_RUN in argv:
+            i = argv.index(AG.AI_RUN)
+            if self.ai_hang:
+                self.results[pid] = None
+            else:
+                self._finish(pid, self.ai_exit, argv[i + 1], self.ai_out)
         elif G.PACKAGE in argv:
             self._finish(pid, self.package_exit, argv[argv.index(G.PACKAGE) + 1], b"packaging\n")
         else:
@@ -161,11 +212,25 @@ class FakeQga:
 
     def read_chunk(self, path, offset, count):
         self._guard("read_chunk")
+        self.read_paths.append(path)
         if path == G.ARTIFACT:
             return self.deb[offset:offset + count]
+        if path.startswith(AG.OUT_DIR + "/"):
+            data = self.work_out.get(path[len(AG.OUT_DIR) + 1:])
+            if data is None:
+                raise InfraError("guest agent guest-file-open failed: No such file or directory")
+            return data[offset:offset + count]
         if path not in self.files:
             raise InfraError("guest agent guest-file-open failed: No such file or directory")
         return self.files[path][offset:offset + count]
+
+    def test_commands(self):
+        return [argv[argv.index(G.RUN_TEST) + 3] for argv in self.started if G.RUN_TEST in argv]
+
+    def step_env(self):
+        """The `NAME=value` items of the first recipe step's command line."""
+        argv = next(a for a in self.started if G.RUN_STEP in a)
+        return [a for a in argv[argv.index(G.ENV_BIN) + 2:argv.index(G.RUN_STEP)] if "=" in a]
 
     def step_commands(self):
         out = []
@@ -211,9 +276,10 @@ class VmFactory:
     def __init__(self, configure=None):
         self.vms, self.configure, self.calls = [], configure, 0
 
-    def __call__(self, cfg, slot, limits):
+    def __call__(self, cfg, slot, limits, cpus=None):
         self.calls += 1
         vm = FakeVm(cfg, slot, limits)
+        vm.cpus = cpus
         if self.configure:
             self.configure(vm)
         self.vms.append(vm)

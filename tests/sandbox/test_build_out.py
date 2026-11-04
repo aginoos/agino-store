@@ -47,6 +47,45 @@ class OutDirTests(OutCase):
         self.assertEqual(sha, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
         self.assertEqual(sorted(os.listdir(directory)), ["a_1_amd64.deb", "build.log", "result.json", "status.json"])
 
+    def test_result_class_and_files(self):
+        out = O.OutDir(self.out, TASK_ID, 1 << 20)
+        out.create()
+        path = os.path.join(self.out, TASK_ID, "result.json")
+
+        def result():
+            with open(path) as f:
+                return json.load(f)
+        out.write_result(True, "", [], [])
+        self.assertEqual((result()["ok"], result()["class"]), (True, "ok"))
+        self.assertNotIn("files", result())
+        out.write_result(False, "x", [], [])
+        self.assertEqual(result()["class"], "infra")
+        for klass in ("recipe", "infra", "timeout", "model"):
+            out.write_result(False, "x", [], [], klass)
+            self.assertEqual(result()["class"], klass)
+        out.write_result(False, "x", [], [], "ok")  # a failure can never be class ok
+        self.assertEqual(result()["class"], "infra")
+        out.write_result(True, "", [], [], "model")  # and a success always is
+        self.assertEqual(result()["class"], "ok")
+        out.write_result(True, "", [], [], "ok", ["recipe.yaml", "app.yaml"])
+        self.assertEqual(result()["files"], ["recipe.yaml", "app.yaml"])
+        out.close()
+
+    def test_ai_directory_and_artifacts(self):
+        out = O.OutDir(self.out, TASK_ID, 1 << 20)
+        out.create()
+        art = out.ai_artifact("recipe.yaml")
+        art.write(b"abc")
+        art.commit()
+        aborted = out.ai_artifact("app.yaml")
+        aborted.write(b"partial")
+        aborted.abort()
+        out.close()
+        ai = os.path.join(self.out, TASK_ID, "ai")
+        self.assertEqual(stat.S_IMODE(os.stat(ai).st_mode), 0o750)
+        self.assertEqual(os.listdir(ai), ["recipe.yaml"])
+        self.assertEqual(stat.S_IMODE(os.stat(os.path.join(ai, "recipe.yaml")).st_mode), 0o640)
+
     def test_bad_id(self):
         for bad in ("../x", "ABCDEF0123456789", "short"):
             with self.assertRaises(SandboxError):
@@ -195,6 +234,53 @@ class CleanupTests(OutCase):
 
     def test_missing_out_directory(self):
         self.assertEqual(O.cleanup_old(os.path.join(self.tmp.name, "nope"), self.queue), [])
+
+    def make_ai_files(self, name):
+        directory = self.make(name)
+        ai = os.path.join(directory, "ai")
+        os.makedirs(ai)
+        for f in ("recipe.yaml", "app.yaml", "x_1_amd64.deb"):
+            with open(os.path.join(ai, f), "w") as fh:
+                fh.write("x")
+        return directory, ai
+
+    def test_the_ai_directory_goes_with_the_old_output(self):
+        directory, ai = self.make_ai_files(OLD)
+        self.assertEqual(self.run_cleanup(), [OLD])
+        self.assertFalse(os.path.exists(ai))
+        self.assertFalse(os.path.exists(directory))
+
+    def test_the_ai_directory_goes_but_the_tombstone_stays(self):
+        directory, ai = self.make_ai_files(OLD)
+        os.makedirs(os.path.join(self.queue, OLD))
+        self.run_cleanup()
+        self.assertFalse(os.path.exists(ai))
+        self.assertEqual(os.listdir(directory), ["status.json"])
+
+    def test_a_recent_ai_directory_is_kept(self):
+        _directory, ai = self.make_ai_files(FRESH)
+        self.assertEqual(self.run_cleanup(), [])
+        self.assertTrue(os.path.exists(os.path.join(ai, "recipe.yaml")))
+
+    def test_a_symlinked_ai_directory_is_not_followed(self):
+        directory = self.make(OLD)
+        victim = os.path.join(self.tmp.name, "victim")
+        os.makedirs(victim)
+        with open(os.path.join(victim, "keep"), "w") as f:
+            f.write("data")
+        os.symlink(victim, os.path.join(directory, "ai"))
+        self.run_cleanup()
+        self.assertTrue(os.path.exists(os.path.join(victim, "keep")))
+
+    def test_the_ai_directory_is_not_descended_into(self):
+        directory, ai = self.make_ai_files(OLD)
+        sub = os.path.join(ai, "sub")
+        os.makedirs(sub)
+        with open(os.path.join(sub, "file"), "w") as f:
+            f.write("x")
+        self.run_cleanup()
+        self.assertTrue(os.path.exists(os.path.join(sub, "file")))
+        self.assertFalse(os.path.exists(os.path.join(ai, "recipe.yaml")))
 
 
 if __name__ == "__main__":

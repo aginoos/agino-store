@@ -100,6 +100,23 @@ class BuildVmTests(unittest.TestCase):
         _vm, runs, _argv = self.boot(32 * GIB, config.BuildLimits(90, 8, 20))
         self.assertEqual(runs[0][-1], str(32 * GIB))
 
+    def test_ai_vm_has_its_own_vcpu_count_tap_and_mac(self):
+        vm = B.BuildVm(self.cfg, 1, config.BuildLimits(120, 16, 40), False, cpus=8)
+        with mock.patch.object(vm, "_virtual_size", return_value=GIB), mock.patch.object(vm, "_run"), \
+                mock.patch.object(vm, "_spawn") as spawn:
+            vm.boot()
+        argv = spawn.call_args[0][0]
+        self.assertEqual(argv[argv.index("-smp") + 1], "8")
+        self.assertEqual(argv[argv.index("-m") + 1], str(16 * 1024))
+        self.assertEqual(argv[argv.index("-name") + 1], "agsbx-b1")
+        joined = " ".join(argv)
+        self.assertIn("ifname=agsbx-b1,", joined)
+        self.assertIn("mac=52:54:00:5b:01:01", joined)
+
+    def test_builds_keep_the_configured_vcpu_count(self):
+        _vm, _runs, argv = self.boot(GIB, config.BuildLimits())
+        self.assertEqual(argv[argv.index("-smp") + 1], str(self.cfg.cpus))
+
     def test_memory_follows_the_recipe(self):
         _vm, _runs, argv = self.boot(GIB, config.BuildLimits(90, 2, 5))
         self.assertEqual(argv[argv.index("-m") + 1], "2048")

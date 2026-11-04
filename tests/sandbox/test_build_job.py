@@ -139,7 +139,7 @@ class HappyPathTests(JobCase):
         self.assertEqual(argv[:4], [G.RUNUSER, "-u", "builder", "--"])
         self.assertEqual(argv[4:6], [G.ENV_BIN, "-i"])
         env = [a for a in argv[6:argv.index(G.RUN_STEP)] if "=" in a]
-        self.assertEqual(env, G.USER_ENV)
+        self.assertEqual(env, G.USER_ENV + ["AGINO_VERSION=1.0", "AGINO_TAG=", "AGINO_COMMIT="])
         self.assertEqual(argv[-1], "./configure --prefix=/usr")
 
     def test_step_text_is_one_argument_without_expansion(self):
