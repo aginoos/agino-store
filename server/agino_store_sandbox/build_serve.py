@@ -98,11 +98,17 @@ class BuildDaemon:
         except TaskError as e:
             return self._record(task_id, "failed", "invalid task: %s" % e)
         slot = self.free_slots.pop(0)
-        job = self.job_factory(self.cfg, task, slot)
-        thread = threading.Thread(target=_job_thread, args=(job,), name="build-" + task_id)
-        self.active[task_id] = (job, thread, slot)
-        log("build %s: %s %s on slot %d" % (task_id, task.app, task.version, slot))
-        thread.start()
+        try:
+            job = self.job_factory(self.cfg, task, slot)
+            thread = threading.Thread(target=_job_thread, args=(job,), name="build-" + task_id)
+            self.active[task_id] = (job, thread, slot)
+            log("build %s: %s %s on slot %d" % (task_id, task.app, task.version, slot))
+            thread.start()
+        except Exception as e:  # noqa: BLE001 - one broken task must not stop the daemon
+            self.active.pop(task_id, None)
+            self.free_slots = sorted(self.free_slots + [slot])
+            log("build %s: cannot start: %s" % (task_id, type(e).__name__))
+            self._record(task_id, "failed", "internal error: %s" % type(e).__name__)
 
     def _reap(self):
         for task_id, (job, thread, slot) in list(self.active.items()):
