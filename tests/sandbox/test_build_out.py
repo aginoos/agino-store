@@ -235,8 +235,8 @@ class CleanupTests(OutCase):
     def test_missing_out_directory(self):
         self.assertEqual(O.cleanup_old(os.path.join(self.tmp.name, "nope"), self.queue), [])
 
-    def make_ai_files(self, name):
-        directory = self.make(name)
+    def make_ai_files(self, name, age_days=8):
+        directory = self.make(name, age_days=age_days)
         ai = os.path.join(directory, "ai")
         os.makedirs(ai)
         for f in ("recipe.yaml", "app.yaml", "x_1_amd64.deb"):
@@ -258,7 +258,7 @@ class CleanupTests(OutCase):
         self.assertEqual(os.listdir(directory), ["status.json"])
 
     def test_a_recent_ai_directory_is_kept(self):
-        _directory, ai = self.make_ai_files(FRESH)
+        _directory, ai = self.make_ai_files(FRESH, age_days=0)
         self.assertEqual(self.run_cleanup(), [])
         self.assertTrue(os.path.exists(os.path.join(ai, "recipe.yaml")))
 

@@ -132,7 +132,7 @@ class BuildJob:
             if self.out.sink is not None:
                 self.out.sink.note("== %s%s ==" % (state, ": " + error if error else ""))
             self.out.write_result(ok, error, self.steps, self.artifacts, "ok" if ok else self.klass, self.files)
-            self.out.write_status(state, self.started, len(self.steps), len(self.task.steps), error)
+            self.out.write_status(state, self.started, min(len(self.steps), len(self.task.steps)), len(self.task.steps), error)
         except OSError as e:
             log("build %s: cannot write the result: %s" % (self.task.id, e.strerror))
         finally:
