@@ -16,12 +16,12 @@ echo "$*" >> "$FAKE/calls"
 case "$1" in
 list-units) [ -f "$FAKE/list-fails" ] && exit 1; cat "$FAKE/units" 2>/dev/null; exit 0;;
 start) [ -f "$FAKE/start-fails" ] && exit 1
-       app=${2#agino-store-session@}; app=${app%.service}
+       slot=${2#agino-store-session@}; slot=${slot%.service}
        if [ -f "$FAKE/daemon" ]; then
-         mkdir -p "$FAKE/rt/$app"
-         [ -f "$FAKE/session-id" ] && cp "$FAKE/session-id" "$FAKE/rt/$app/session.id"
-         [ -f "$FAKE/token" ] && cp "$FAKE/token" "$FAKE/rt/$app/token.once"
-         [ -f "$FAKE/readonly-dir" ] && chmod 500 "$FAKE/rt/$app"
+         mkdir -p "$FAKE/rt/$slot"
+         [ -f "$FAKE/session-id" ] && cp "$FAKE/session-id" "$FAKE/rt/$slot/session.id"
+         [ -f "$FAKE/token" ] && cp "$FAKE/token" "$FAKE/rt/$slot/token.once"
+         [ -f "$FAKE/readonly-dir" ] && chmod 500 "$FAKE/rt/$slot"
        fi
        exit 0;;
 stop) [ -f "$FAKE/stop-fails" ] && exit 1; exit 0;;
@@ -78,112 +78,164 @@ class CtlCase(unittest.TestCase):
 
 class ArgumentTests(CtlCase):
     def test_bad_arguments_never_reach_systemctl(self):
-        bad = [[], ["start"], ["stop"], ["start", "a", "b"], ["restart", "a"], ["start", "A"], ["start", "-x"],
-               ["start", "../x"], ["start", "a/b"], ["start", "a" * 65], ["start", ""], ["start", "a b"],
-               ["start", "a\n"], ["start", "é"], ["start", "a.service"], ["start", "a@b"], ["start", "-"],
-               ["start", "a_b"], ["START", "a"], ["start", "a;id"], ["start", "$(id)"], ["stop", "a%i"]]
+        bad = [[], ["stop"], ["start", "vm0"], ["start", "demo"], ["start", ""], ["start", "-x"],
+               ["start", "vm0", "vm1"], ["restart"], ["restart", "vm0"], ["START"], ["START", "vm0"],
+               ["stop", "vm0", "vm1"], ["stop", "demo"], ["stop", "audacity"], ["stop", "VM0"], ["stop", "vm"],
+               ["stop", "vm10"], ["stop", "vm-1"], ["stop", "vma"], ["stop", "vm0\n"], ["stop", "vm0 "],
+               ["stop", " vm0"], ["stop", "xvm0"], ["stop", "vm0x"], ["stop", "../vm0"], ["stop", "vm0/.."],
+               ["stop", "vm0.service"], ["stop", "vm0@x"], ["stop", "vm\u0663"], ["stop", "vm0;id"],
+               ["stop", "$(id)"], ["stop", "vm0%i"], ["stop", ""], ["stop", "-"]]
         for args in bad:
             code, out, err = self.run_ctl(*args)
             self.assertEqual((code, out), (2, ""), args)
         self.assertEqual(self.calls(), [])
 
     def test_options_are_refused_outside_test_mode(self):
-        for args in (["--runtime-dir", "/tmp", "start", "a"], ["--max-sessions", "9", "start", "a"],
-                     ["--wait", "1", "start", "a"], ["--help"], ["-h"]):
+        for args in (["--runtime-dir", "/tmp", "start"], ["--max-sessions", "9", "start"],
+                     ["--wait", "1", "start"], ["--help"], ["-h"]):
             code, out, err = self.run_ctl(*args, test=False)
             self.assertEqual((code, out), (2, ""), args)
         self.assertEqual(self.calls(), [])
 
     def test_unknown_or_malformed_options_in_test_mode(self):
-        for args in (["--evil", "x", "start", "a"], ["--runtime-dir"], ["--max-sessions", "x", "start", "a"],
-                     ["--max-sessions", "0", "start", "a"], ["--wait", "99", "start", "a"]):
+        for args in (["--evil", "x", "start"], ["--runtime-dir"], ["--max-sessions", "x", "start"],
+                     ["--max-sessions", "0", "start"], ["--max-sessions", "11", "start"],
+                     ["--wait", "99", "start"]):
             env = {"PATH": "/usr/bin:/bin", "AGINO_SESSION_CTL_TEST": "1"}
             done = subprocess.run([sys.executable, "-I", CTL, *args], capture_output=True, env=env, text=True)
             self.assertEqual(done.returncode, 2, args)
 
     def test_test_variable_must_be_exactly_one(self):
         env = {"PATH": "/usr/bin:/bin", "AGINO_SESSION_CTL_TEST": "yes"}
-        done = subprocess.run([sys.executable, "-I", CTL, "--runtime-dir", "/tmp", "start", "a"], capture_output=True,
+        done = subprocess.run([sys.executable, "-I", CTL, "--runtime-dir", "/tmp", "start"], capture_output=True,
                               env=env, text=True)
         self.assertEqual(done.returncode, 2)
 
 
+def unit(slot):
+    return "agino-store-session@%s.service" % slot
+
+
+def active(*slots):
+    return "".join("%s loaded active running x\n" % unit(slot) for slot in slots)
+
+
 class StartTests(CtlCase):
-    def test_success_prints_two_lines_and_consumes_the_token(self):
-        code, out, err = self.run_ctl("start", "demo")
-        self.assertEqual((code, out, err), (0, "SESSION %s\nTOKEN %s\n" % (SID, TOKEN), ""))
-        self.assertFalse(os.path.exists(os.path.join(self.fake, "rt", "demo", "token.once")))
+    def test_success_prints_three_lines_and_consumes_the_token(self):
+        code, out, err = self.run_ctl("start")
+        self.assertEqual((code, out, err), (0, "SLOT vm0\nSESSION %s\nTOKEN %s\n" % (SID, TOKEN), ""))
+        self.assertFalse(os.path.exists(os.path.join(self.fake, "rt", "vm0", "token.once")))
         calls = self.calls()
         self.assertEqual(calls[0], "list-units --state=active --plain --no-legend agino-store-session@*.service")
-        self.assertEqual(calls[1:], ["start agino-store-session@demo.service"])
+        self.assertEqual(calls[1:], ["start agino-store-session@vm0.service"])
 
-    def test_limit_counts_only_session_units(self):
-        self.put("units", "agino-store-session@one.service loaded active running x\n"
-                          "other.service loaded active running y\n"
-                          "agino-store-session@@evil.service loaded active running z\n"
-                          "agino-store-session@two.service loaded active running x\n")
-        code, out, err = self.run_ctl("start", "demo", limit=2)
+    def test_first_free_slot_is_chosen(self):
+        self.put("units", active("vm0"))
+        code, out, _ = self.run_ctl("start", limit=3)
+        self.assertEqual((code, out.splitlines()[0]), (0, "SLOT vm1"))
+        self.put("units", active("vm1"))
+        code, out, _ = self.run_ctl("start", limit=3)
+        self.assertEqual((code, out.splitlines()[0]), (0, "SLOT vm0"))
+        self.put("units", active("vm0", "vm1"))
+        code, out, _ = self.run_ctl("start", limit=3)
+        self.assertEqual((code, out.splitlines()[0]), (0, "SLOT vm2"))
+        self.put("units", active("vm0", "vm2"))
+        code, out, _ = self.run_ctl("start", limit=3)
+        self.assertEqual((code, out.splitlines()[0]), (0, "SLOT vm1"))
+
+    def test_all_slots_busy_exits_with_three_and_one_line(self):
+        self.put("units", active("vm0", "vm1"))
+        code, out, err = self.run_ctl("start", limit=2)
         self.assertEqual((code, out), (3, ""))
-        self.assertIn("too many", err)
-        self.assertEqual(len(self.calls()), 1)  # only the listing
-        code, out, _ = self.run_ctl("start", "demo", limit=3)
-        self.assertEqual(code, 0)
+        self.assertEqual(len(err.splitlines()), 1)
+        self.assertIn("busy", err)
+        self.assertEqual(len(self.calls()), 1)  # only the listing, nothing started
+        self.assertNotIn("start agino-store-session@vm0.service", self.calls())
 
-    def test_default_limit_is_two(self):
-        self.put("units", "agino-store-session@one.service l a r x\nagino-store-session@two.service l a r x\n")
-        code, _, _ = self.run_ctl("start", "demo")
+    def test_default_limit_is_two_slots(self):
+        self.put("units", active("vm0", "vm1"))
+        code, _, _ = self.run_ctl("start")
         self.assertEqual(code, 3)
+        self.put("units", active("vm0"))
+        code, out, _ = self.run_ctl("start")
+        self.assertEqual((code, out.splitlines()[0]), (0, "SLOT vm1"))
 
-    def test_same_app_twice_is_refused(self):
-        self.put("units", "agino-store-session@demo.service l a r x\n")
-        code, _, err = self.run_ctl("start", "demo")
-        self.assertEqual(code, 3)
-        self.assertIn("already running", err)
+    def test_slots_outside_the_limit_are_not_used(self):
+        # vm0 is free, but a unit beyond the limit does not count and a slot beyond the limit is never picked
+        self.put("units", active("vm1", "vm5"))
+        code, out, _ = self.run_ctl("start", limit=2)
+        self.assertEqual((code, out.splitlines()[0]), (0, "SLOT vm0"))
+        self.put("units", active("vm0", "vm1"))
+        self.assertEqual(self.run_ctl("start", limit=2)[0], 3)
+
+    def test_other_units_do_not_occupy_slots(self):
+        self.put("units", "other.service loaded active running y\n"
+                          "agino-store-session@@evil.service loaded active running z\n"
+                          "agino-store-session@demo.service loaded active running z\n"
+                          "agino-store-session@vm10.service loaded active running z\n"
+                          + active("vm1"))
+        code, out, _ = self.run_ctl("start", limit=2)
+        self.assertEqual((code, out.splitlines()[0]), (0, "SLOT vm0"))
+
+    def test_same_slot_is_not_allocated_twice(self):
+        # the second start sees the first one's unit as active (as systemd would report it)
+        code, out, _ = self.run_ctl("start", limit=2)
+        self.assertEqual((code, out.splitlines()[0]), (0, "SLOT vm0"))
+        self.put("units", active("vm0"))
+        code, out, _ = self.run_ctl("start", limit=2)
+        self.assertEqual((code, out.splitlines()[0]), (0, "SLOT vm1"))
+        self.put("units", active("vm0", "vm1"))
+        code, out, _ = self.run_ctl("start", limit=2)
+        self.assertEqual((code, out), (3, ""))
+        started = [c for c in self.calls() if c.startswith("start ")]
+        self.assertEqual(started, ["start " + unit("vm0"), "start " + unit("vm1")])
 
     def test_timeout_stops_the_unit(self):
         self.daemon(token=None)
-        code, out, err = self.run_ctl("start", "demo")
+        code, out, err = self.run_ctl("start")
         self.assertEqual((code, out), (1, ""))
-        self.assertEqual(self.calls()[-1], "stop agino-store-session@demo.service")
+        self.assertEqual(self.calls()[-1], "stop agino-store-session@vm0.service")
 
     @unittest.skipIf(os.geteuid() == 0, "root ignores directory permissions")
     def test_unlink_failure_stops_the_unit_and_is_a_clean_refusal(self):
         self.put("readonly-dir", "")
-        self.addCleanup(lambda: os.path.isdir(os.path.join(self.fake, "rt", "demo"))
-                        and os.chmod(os.path.join(self.fake, "rt", "demo"), 0o700))
-        code, out, err = self.run_ctl("start", "demo")
+        self.addCleanup(lambda: os.path.isdir(os.path.join(self.fake, "rt", "vm0"))
+                        and os.chmod(os.path.join(self.fake, "rt", "vm0"), 0o700))
+        code, out, err = self.run_ctl("start")
         self.assertEqual((code, out), (1, ""))
         self.assertIn("agino-session-ctl: cannot collect the session token", err)
         self.assertNotIn("Traceback", err)
-        self.assertEqual(self.calls()[-1], "stop agino-store-session@demo.service")
+        self.assertEqual(self.calls()[-1], "stop agino-store-session@vm0.service")
 
     def test_stale_files_of_an_earlier_run_are_not_returned(self):
-        os.makedirs(os.path.join(self.fake, "rt", "demo"))
+        os.makedirs(os.path.join(self.fake, "rt", "vm0"))
         for name, text in (("token.once", "f" * 64 + "\n"), ("session.id", "f" * 16 + "\n")):
-            with open(os.path.join(self.fake, "rt", "demo", name), "w") as f:
+            with open(os.path.join(self.fake, "rt", "vm0", name), "w") as f:
                 f.write(text)
         self.daemon(token=None, session_id=None)
-        code, out, _ = self.run_ctl("start", "demo")
+        code, out, _ = self.run_ctl("start")
         self.assertEqual((code, out), (1, ""))
+        self.assertFalse(os.path.exists(os.path.join(self.fake, "rt", "vm0", "token.once")))
+        self.assertFalse(os.path.exists(os.path.join(self.fake, "rt", "vm0", "session.id")))
 
     def test_odd_token_files_are_refused(self):
         for token in ("zz" * 32 + "\n", "ab" * 31 + "\n", "ab" * 33 + "\n", "AB" * 32 + "\n", TOKEN + "\nextra\n",
                       "../../etc/shadow\n", ""):
             self.daemon(token=token)
-            code, out, _ = self.run_ctl("start", "demo")
+            code, out, _ = self.run_ctl("start")
             self.assertEqual((code, out), (1, ""), token)
 
     def test_odd_session_ids_are_refused(self):
         for sid in ("short\n", "0123456789ABCDEF\n", SID + "0\n", "../etc/passwd!!!!\n"):
             self.daemon(session_id=sid)
-            code, out, _ = self.run_ctl("start", "demo")
+            code, out, _ = self.run_ctl("start")
             self.assertEqual((code, out), (1, ""), sid)
 
     def test_token_symlink_is_refused(self):
         secret = os.path.join(self.fake, "secret")
         with open(secret, "w") as f:
             f.write(TOKEN + "\n")
-        os.makedirs(os.path.join(self.fake, "rt", "demo"))
+        os.makedirs(os.path.join(self.fake, "rt", "vm0"))
         self.daemon(token=None)
 
         # the fake daemon creates a symlink instead of a file
@@ -191,43 +243,44 @@ class StartTests(CtlCase):
         path = os.path.join(self.fake, "bin", "systemctl")
         with open(path) as f:
             script = f.read()
-        script = script.replace('cp "$FAKE/token" "$FAKE/rt/$app/token.once"', 'ln -s "$FAKE/secret" "$FAKE/rt/$app/token.once"')
+        script = script.replace('cp "$FAKE/token" "$FAKE/rt/$slot/token.once"', 'ln -s "$FAKE/secret" "$FAKE/rt/$slot/token.once"')
         with open(path, "w") as f:
             f.write(script)
-        code, out, err = self.run_ctl("start", "demo")
+        code, out, err = self.run_ctl("start")
         self.assertEqual((code, out), (1, ""))
+        self.assertEqual(self.calls()[-1], "stop agino-store-session@vm0.service")
 
     def test_oversized_token_file_is_refused(self):
         self.daemon(token="a" * 5000)
-        code, out, _ = self.run_ctl("start", "demo")
+        code, out, _ = self.run_ctl("start")
         self.assertEqual((code, out), (1, ""))
 
     def test_systemctl_failures(self):
         self.put("start-fails", "")
-        code, out, _ = self.run_ctl("start", "demo")
+        code, out, _ = self.run_ctl("start")
         self.assertEqual((code, out), (1, ""))
         os.unlink(os.path.join(self.fake, "start-fails"))
         os.unlink(os.path.join(self.fake, "calls"))
         self.put("list-fails", "")
-        code, out, _ = self.run_ctl("start", "demo")
+        code, out, _ = self.run_ctl("start")
         self.assertEqual((code, out), (1, ""))
-        self.assertNotIn("start agino-store-session@demo.service", self.calls())
+        self.assertNotIn("start agino-store-session@vm0.service", self.calls())
 
     def test_lock_file_is_private(self):
-        self.run_ctl("start", "demo")
+        self.run_ctl("start")
         mode = stat.S_IMODE(os.stat(os.path.join(self.fake, "rt", ".lock")).st_mode)
         self.assertEqual(mode, 0o600)
 
 
 class StopTests(CtlCase):
     def test_stop(self):
-        code, out, _ = self.run_ctl("stop", "demo")
+        code, out, _ = self.run_ctl("stop", "vm1")
         self.assertEqual((code, out), (0, ""))
-        self.assertEqual(self.calls(), ["stop agino-store-session@demo.service"])
+        self.assertEqual(self.calls(), ["stop agino-store-session@vm1.service"])
 
     def test_stop_failure(self):
         self.put("stop-fails", "")
-        self.assertEqual(self.run_ctl("stop", "demo")[0], 1)
+        self.assertEqual(self.run_ctl("stop", "vm0")[0], 1)
 
 
 if __name__ == "__main__":

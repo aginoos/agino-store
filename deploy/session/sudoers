@@ -1,3 +1,5 @@
-# /etc/sudoers.d/agino-session (mode 0440, root:root). The helper checks APP itself and rejects extra arguments.
+# /etc/sudoers.d/agino-session (mode 0440, root:root). `start` takes no argument (sudoers matches the
+# argument list exactly, so extra arguments are refused); `stop` takes one slot name, vm0..vm9 (a bracket
+# pattern matches exactly one character, unlike `*`). The helper checks everything again itself.
 Defaults:agino-store env_reset
-agino-store ALL=(root) NOPASSWD: /usr/local/sbin/agino-session-ctl start *, /usr/local/sbin/agino-session-ctl stop *
+agino-store ALL=(root) NOPASSWD: /usr/local/sbin/agino-session-ctl start, /usr/local/sbin/agino-session-ctl stop vm[0-9]

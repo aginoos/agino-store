@@ -5,15 +5,16 @@ Wants=network-online.target
 Requires=agino-sandbox-net.service agino-sandbox-dhcp.service
 
 [Service]
-# One session per instance. The instance name is the app id, validated by agino-session-ctl and
-# again by the daemon; it is used as %i only (never %I).
+# One session per instance. The instance name is the slot (vm0, vm1, ...; ^vm[0-9]$), chosen by
+# agino-session-ctl and validated again by the daemon; it is used as %i only (never %I).
+# Run directory: /run/agino-session/<slot>/.
 Type=simple
 User=agino-sandbox
 # agino-admin: the daemon gives web.sock to that group. kvm comes with the user (same as the batch unit).
 SupplementaryGroups=agino-admin
 ExecStart=/usr/local/bin/agino-store-sandbox --config /etc/agino-store-sandbox/sandbox.conf session serve %i
-# Hard limit: 60 min total + clean-up. Never restarted: a session is not resumable.
-RuntimeMaxSec=3900
+# Hard limit: total_minutes (120) + one extension (30) + 5 min clean-up. Never restarted: a session is not resumable.
+RuntimeMaxSec=9300
 Restart=no
 TimeoutStopSec=30
 KillMode=control-group
