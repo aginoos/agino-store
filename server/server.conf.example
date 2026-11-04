@@ -52,3 +52,19 @@ limits = cpu_minutes=90 memory_gib=8 disk_gib=20   # ceilings; a recipe may only
 max_source_mib = 512
 max_artifact_mib = 1024
 max_log_mib = 8
+
+[intake]
+# AI source intake (docs/server.md section 15). The whole section is optional; these are the defaults.
+agents = claude                   # AI agents that are set up (claude, codex); the first one is the default
+switch_agent = no                 # yes: after a model service failure the next agent takes over; no: the task pauses and retries
+ai_minutes = 120                  # time limit of one AI task, 10..600
+max_rounds = 3                    # corrections after a bad delivery or a failed replay, 0..10
+model_retry_minutes = 5           # pause after a model service failure, 1..1440
+model_max_retries = 12            # retries before the task fails
+auto_repair = yes                 # open a repair task when a recipe stops building (at most max_auto_repairs per version)
+max_auto_repairs = 2
+max_unfinished = 20               # open intake tasks at once
+proxy_allow_file = /srv/store/builder-proxy/allow-extra.list   # extra hosts for the builder's forwarding proxy; rewritten by every intake-step
+max_page_kib = 1024               # one fetched page
+max_inputs_mib = 8                # everything handed to the agent
+keep_days = 14                    # working files of finished tasks

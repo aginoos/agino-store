@@ -191,7 +191,7 @@ class TestStatus(StatusCase):
 
     def test_timers(self):
         timers = self.doc("timers")["sections"]["timers"]
-        self.assertEqual(len(timers), 14)
+        self.assertEqual(len(timers), 16)
         self.assertEqual(timers[0]["unit"], "agino-store-track.service")
         self.assertEqual(timers[0]["ActiveState"], "active")
 
