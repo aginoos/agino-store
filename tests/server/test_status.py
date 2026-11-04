@@ -79,7 +79,7 @@ class TestStatus(StatusCase):
         self.assertTrue(apps["chrome"]["proprietary"])
         self.assertEqual(apps["gimp"]["kind"], "milkyway")
         self.assertIsNone(apps["gimp"]["approved"])
-        self.assertEqual(doc["schema"], 1)
+        self.assertEqual(doc["schema"], 2)
 
     def test_apps_carry_the_editable_information(self):
         H.edit_yaml(os.path.join(self.cfg.content, "apps", "gimp", "app.yaml"), lambda d: dict(
@@ -191,7 +191,7 @@ class TestStatus(StatusCase):
 
     def test_timers(self):
         timers = self.doc("timers")["sections"]["timers"]
-        self.assertEqual(len(timers), 10)
+        self.assertEqual(len(timers), 14)
         self.assertEqual(timers[0]["unit"], "agino-store-track.service")
         self.assertEqual(timers[0]["ActiveState"], "active")
 
@@ -238,7 +238,7 @@ class TestStatus(StatusCase):
         self.assertEqual(out, "")
 
     def test_future_section_is_absent(self):
-        doc = self.doc("builds", "timers")
+        doc = self.doc("submissions", "timers")
         self.assertEqual(list(doc["sections"]), ["timers"])
 
     def test_requires_json_flag(self):

@@ -10,7 +10,7 @@ from .status_io import SMALL_READ, ReadError, iso, list_dir, mtime_iso, pick, re
 MAX_REPORTS = 30
 MAX_SUMMARY = 200
 SYSTEMCTL_TIMEOUT = 5
-UNIT_NAMES = ("track", "check", "build", "sandbox", "reports")
+UNIT_NAMES = ("track", "check", "build", "sandbox", "reports", "upstream-check", "build-step")
 UNITS = tuple("agino-store-%s.%s" % (n, kind) for n in UNIT_NAMES for kind in ("service", "timer"))
 PROPERTIES = ("LoadState", "ActiveState", "SubState", "Result", "LastTriggerUSec",
               "NextElapseUSecRealtime", "ExecMainStatus")
