@@ -5,6 +5,7 @@ import configparser
 import dataclasses
 import re
 
+from . import build_ai_conf as ai_conf
 from .util import SandboxError
 
 DEFAULT_PATH = "/etc/agino-store-sandbox/sandbox.conf"
@@ -106,10 +107,24 @@ BUILDER_DEFAULTS = {
     "max_source_mib": "512",
     "max_artifact_mib": "1024",
     "max_log_mib": "8",
+    # AI mode (docs/sandbox.md section 10.7). ai_slot "" = the first slot after the regular ones (1 by default).
+    "ai_slot": "",
+    "ai_max_concurrent": "1",
+    "ai_limits": "cpu=8 memory_gib=16 disk_gib=40 minutes=120",
+    "ai_env": ai_conf.DEFAULT_ENV,
+    "ai_claude_env": ai_conf.DEFAULT_CLAUDE_ENV,
+    "ai_codex_env": ai_conf.DEFAULT_CODEX_ENV,
+    "ai_claude_cmd": ai_conf.DEFAULT_CLAUDE_CMD,
+    "ai_codex_cmd": ai_conf.DEFAULT_CODEX_CMD,
+    "ai_codex_toml": ai_conf.DEFAULT_CODEX_TOML,
 }
 BUILDER_INT_RANGES = {"max_concurrent": (1, 4), "max_source_mib": (1, 4096), "max_artifact_mib": (1, 8192),
                       "max_log_mib": (1, 256)}
 LIMIT_RANGES = {"cpu_minutes": (1, 24 * 60), "memory_gib": (1, 64), "disk_gib": (1, 512)}
+AI_LIMIT_RANGES = {"cpu": (1, 64), "memory_gib": (1, 64), "disk_gib": (1, 512), "minutes": (1, 24 * 60)}
+MAX_AI_SLOT = 15
+ENV_ITEM_RE = re.compile(r"\A[A-Za-z_][A-Za-z0-9_]{0,63}=[A-Za-z0-9._:/@+,%~-]{0,300}\Z")
+CMD_RE = re.compile(r"\A[^\x00-\x1f\x7f]{1,1000}\Z")
 APT_SOURCE_RE = re.compile(r"\A(?:\[[A-Za-z0-9=,./:_+-]{1,200}\] )?https?://[A-Za-z0-9.:/_-]{1,200} "
                            r"[A-Za-z0-9._-]{1,64}(?: [a-z0-9-]{1,32}){1,8}\Z")
 
@@ -120,6 +135,54 @@ class BuildLimits:
     cpu_minutes: int = 90
     memory_gib: int = 8
     disk_gib: int = 20
+
+
+@dataclasses.dataclass(frozen=True)
+class AiLimits:
+    """Ceilings of one AI task (the VM size and the run time of the agent); a task may only lower them."""
+    cpu: int = 8
+    memory_gib: int = 16
+    disk_gib: int = 40
+    minutes: int = 120
+
+
+def parse_env_items(text, what):
+    """`NAME=value NAME=value`: values without whitespace, quotes, `$`, backslashes or backticks."""
+    items = tuple(text.split())
+    for item in items:
+        if not ENV_ITEM_RE.match(item):
+            raise SandboxError("config [builder] %s: bad item %r" % (what, item[:40]))
+    names = [i.partition("=")[0] for i in items]
+    if len(set(names)) != len(names):
+        raise SandboxError("config [builder] %s: a name is set twice" % what)
+    return items
+
+
+def _command(text, what):
+    text = text.strip()
+    if not CMD_RE.match(text):
+        raise SandboxError("config [builder] %s must be one line of at most 1000 characters" % what)
+    return text
+
+
+def _toml(text):
+    if len(text) > 4096 or "\x00" in text:
+        raise SandboxError("config [builder] ai_codex_toml must be text of at most 4096 characters")
+    return text if text.endswith("\n") or not text else text + "\n"
+
+
+def parse_ai_limits(text):
+    """`cpu=8 memory_gib=16 disk_gib=40 minutes=120` (any subset, missing keys keep the defaults)."""
+    values = {}
+    for item in text.split():
+        key, sep, raw = item.partition("=")
+        if not sep or key not in AI_LIMIT_RANGES or key in values or not raw.isdigit():
+            raise SandboxError("config [builder] ai_limits: bad item %r" % item[:40])
+        low, high = AI_LIMIT_RANGES[key]
+        if not low <= int(raw) <= high:
+            raise SandboxError("config [builder] ai_limits: %s must be between %d and %d" % (key, low, high))
+        values[key] = int(raw)
+    return AiLimits(**values)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -135,6 +198,20 @@ class BuilderConfig:
     max_source_mib: int = 512
     max_artifact_mib: int = 1024
     max_log_mib: int = 8
+    ai_slot: int = 1
+    ai_max_concurrent: int = 1
+    ai_limits: AiLimits = AiLimits()
+    ai_env: tuple = tuple(ai_conf.DEFAULT_ENV.split())
+    ai_claude_env: tuple = tuple(ai_conf.DEFAULT_CLAUDE_ENV.split())
+    ai_codex_env: tuple = tuple(ai_conf.DEFAULT_CODEX_ENV.split())
+    ai_claude_cmd: str = ai_conf.DEFAULT_CLAUDE_CMD
+    ai_codex_cmd: str = ai_conf.DEFAULT_CODEX_CMD
+    ai_codex_toml: str = ai_conf.DEFAULT_CODEX_TOML
+
+    @property
+    def ai_slots(self):
+        """The slots AI tasks use: contiguous, never overlapping the regular ones (checked when loading)."""
+        return tuple(range(self.ai_slot, self.ai_slot + self.ai_max_concurrent))
 
 
 def parse_limits(text):
@@ -170,7 +247,36 @@ def builder_from_dict(values):
             raise SandboxError("config [builder] %s must be an absolute path without a comma" % key)
     if not APT_SOURCE_RE.match(out["apt_source"]):
         raise SandboxError("config [builder] apt_source must look like '[options] URL SUITE COMPONENT...'")
-    return BuilderConfig(limits=parse_limits(merged["limits"]), **out)
+    return BuilderConfig(limits=parse_limits(merged["limits"]), **out, **_ai_options(merged, out["max_concurrent"]))
+
+
+def _ai_options(merged, max_concurrent):
+    """The AI mode keys of [builder]; the AI slots must not overlap the regular slots 0..max_concurrent-1."""
+    out = {}
+    for key, (low, high) in (("ai_max_concurrent", (1, 4)), ("ai_slot", (0, MAX_AI_SLOT))):
+        raw = merged[key].strip()
+        if key == "ai_slot" and not raw:
+            out[key] = max(1, max_concurrent)  # default: right after the regular slots (1 with the default of 1)
+            continue
+        try:
+            n = int(raw)
+        except ValueError:
+            raise SandboxError("config [builder] %s must be an integer" % key) from None
+        if not low <= n <= high:
+            raise SandboxError("config [builder] %s must be between %d and %d" % (key, low, high))
+        out[key] = n
+    if out["ai_slot"] < max_concurrent:
+        raise SandboxError("config [builder] ai_slot must be %d or more: the slots below are the regular ones"
+                           % max_concurrent)
+    if out["ai_slot"] + out["ai_max_concurrent"] - 1 > MAX_AI_SLOT:
+        raise SandboxError("config [builder] ai_slot + ai_max_concurrent must not pass slot %d" % MAX_AI_SLOT)
+    out["ai_limits"] = parse_ai_limits(merged["ai_limits"])
+    for key in ("ai_env", "ai_claude_env", "ai_codex_env"):
+        out[key] = parse_env_items(merged[key], key)
+    out["ai_claude_cmd"] = _command(merged["ai_claude_cmd"], "ai_claude_cmd")
+    out["ai_codex_cmd"] = _command(merged["ai_codex_cmd"], "ai_codex_cmd")
+    out["ai_codex_toml"] = _toml(merged["ai_codex_toml"])
+    return out
 
 
 @dataclasses.dataclass(frozen=True)
