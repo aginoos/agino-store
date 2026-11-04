@@ -179,6 +179,14 @@ class FakeLocator:
         return (100, 100, 1000, 700), "Demo"
 
 
+def attempt(call):
+    """Run an operation on a helper thread without a traceback when it is refused."""
+    try:
+        call()
+    except S.OpError:
+        pass
+
+
 class Harness(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -570,9 +578,13 @@ class RestoreTests(Harness):
         self.assertEqual(session.status()["app"], "demo")
 
     def test_rollback_from_a_failed_app(self):
-        calls = []
-        self.install_hook = lambda: (calls.append(1), (_ for _ in ()).throw(InstallError("x", 1, "")))[1] \
-            if len(calls) == 0 else None
+        attempts = []
+
+        def fail_once():
+            attempts.append(1)
+            if len(attempts) == 1:
+                raise InstallError("apt-get install failed (exit 100)", 100, "")
+        self.install_hook = fail_once
         session = self.idle()
         session.op_select_app("demo", "zh_CN")
         self.wait_for(session, "failed_app")
@@ -622,7 +634,7 @@ class RestoreTests(Harness):
         vm = FakeVm.instances[0]
         original = vm.snapshot_load
         vm.snapshot_load = lambda: (gate.wait(5), original())[1]
-        t = threading.Thread(target=session.op_finish_app)
+        t = threading.Thread(target=attempt, args=(session.op_finish_app,))
         t.start()
         self.wait_for(session, "restoring")
         self.clock.t += S.ROLLBACK_SECONDS + 1
@@ -924,7 +936,7 @@ class OperationTests(Harness):
         vm = FakeVm.instances[0]
         original = vm.snapshot_load
         vm.snapshot_load = lambda: (gate.wait(5), original())[1]
-        t = threading.Thread(target=session.op_finish_app)
+        t = threading.Thread(target=attempt, args=(session.op_finish_app,))
         t.start()
         self.wait_for(session, "restoring")
         self.assertIsNone(session.vnc_path())
