@@ -23,7 +23,7 @@ import threading
 import time
 
 from .rfb_filter import ClientFilter, RfbReject
-from .session import OpError
+from .session import APP_RE, OpError
 from .shots_scene import LANGS
 from .util import log
 
@@ -106,6 +106,8 @@ def _field(kind):
     return {"str": lambda v: isinstance(v, str),
             "kind": lambda v: v in KINDS,
             "lang": lambda v: v in LANGS,
+            "app": lambda v: isinstance(v, str) and APP_RE.match(v) is not None,
+            "bool": lambda v: isinstance(v, bool),
             "n": lambda v: isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 99}[kind]
 
 
@@ -116,15 +118,20 @@ class WebServer:
         self._conns = set()
         self._lock = threading.Lock()
         self._vnc = None
+        # op -> (required fields, optional fields, handler); fields map a name to a kind of _field()
         self.ops = {
-            "status": ({}, lambda r: session.status()),
-            "capture": ({"kind": "kind"}, lambda r: dict(session.op_capture(r["kind"]), ok=True)),
-            "captures": ({}, lambda r: {"ok": True, "items": [dict(i, ok=True) for i in session.op_captures()]}),
-            "lang": ({"lang": "lang"}, lambda r: self._done(session.op_lang(r["lang"]))),
-            "restart": ({}, lambda r: self._done(session.op_restart())),
-            "rollback": ({}, lambda r: self._done(session.op_rollback())),
-            "extend": ({}, lambda r: self._done(session.op_extend())),
-            "end": ({}, lambda r: self._done(session.op_end())),
+            "status": ({}, {}, lambda r: session.status()),
+            "capture": ({"kind": "kind"}, {}, lambda r: dict(session.op_capture(r["kind"]), ok=True)),
+            "captures": ({}, {}, lambda r: {"ok": True, "items": [dict(i, ok=True) for i in session.op_captures()]}),
+            "select_app": ({"app": "app", "lang": "lang"}, {},
+                           lambda r: self._done(session.op_select_app(r["app"], r["lang"]))),
+            "finish_app": ({}, {}, lambda r: self._done(session.op_finish_app())),
+            "lang": ({"lang": "lang"}, {"desktop": "bool"},
+                     lambda r: self._done(session.op_lang(r["lang"], r.get("desktop", False)))),
+            "restart": ({}, {}, lambda r: self._done(session.op_restart())),
+            "rollback": ({}, {}, lambda r: self._done(session.op_rollback())),
+            "extend": ({}, {}, lambda r: self._done(session.op_extend())),
+            "end": ({}, {}, lambda r: self._done(session.op_end())),
         }
 
     @staticmethod
@@ -300,7 +307,7 @@ class WebServer:
                     blob = self.session.op_get(request["n"])
                     response = {"ok": True, "size": len(blob)}
                 else:
-                    response = self.ops[request["op"]][1](request)
+                    response = self.ops[request["op"]][2](request)
             except OpError as e:
                 response, blob = {"ok": False, "error": e.code}, None
             except _BadRequest:
@@ -321,12 +328,16 @@ class WebServer:
             raise _BadRequest()
         op = request["op"]
         if op == "get":
-            spec = {"n": "n"}
+            required, optional = {"n": "n"}, {}
         elif op in self.ops:
-            spec = self.ops[op][0]
+            required, optional = self.ops[op][0], self.ops[op][1]
         else:
             raise _BadRequest()
-        if set(request) != set(spec) | {"op"} or not all(_field(kind)(request[name]) for name, kind in spec.items()):
+        given = set(request) - {"op"}
+        if not set(required) <= given <= set(required) | set(optional):
+            raise _BadRequest()
+        fields = dict(required, **optional)
+        if not all(_field(fields[name])(request[name]) for name in given):
             raise _BadRequest()
         return request
 

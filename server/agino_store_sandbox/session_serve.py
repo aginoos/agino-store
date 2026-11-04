@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The `session` subcommands: serve (the daemon), status (debugging) and cleanup (old captures)."""
+"""The `session` subcommands: serve (the daemon of one VM slot vm0, vm1, ...), status (debugging) and cleanup."""
 
 import grp
 import json
@@ -14,7 +14,6 @@ from . import session as S
 from .session_capture import NAME_RE
 from .session_vm import PRIVATE_NAMES
 from .session_web import WebServer
-from .shots_scene import LANGS
 from .util import SandboxError, log
 
 FAILED_LINGER = 60
@@ -50,11 +49,11 @@ def _write(path, data, mode, exclusive=False, gid=None):
         os.replace(target, path)
 
 
-def prepare_dirs(scfg, app):
-    """(app dir, private dir): fresh, owned by us, 0750 (group web_group) and 0700."""
+def prepare_dirs(scfg, slot):
+    """(slot dir, private dir): fresh, owned by us, 0750 (group web_group) and 0700."""
     gid = _group_id(scfg.web_group)
     os.makedirs(scfg.runtime_dir, mode=0o750, exist_ok=True)
-    app_dir = os.path.join(scfg.runtime_dir, app)
+    app_dir = os.path.join(scfg.runtime_dir, slot)
     private = os.path.join(app_dir, "private")
     os.makedirs(private, mode=0o700, exist_ok=True)
     os.chmod(private, 0o700)
@@ -110,19 +109,19 @@ class StatusPublisher:
             pass
 
 
-def serve(cfg, app, lang="zh_CN", deps=None, linger=FAILED_LINGER):
-    """Run one session in this process; returns the exit code."""
+def serve(cfg, slot, deps=None, linger=FAILED_LINGER):
+    """Run the session of VM slot `slot` (vm0, vm1, ...) in this process; returns the exit code."""
     scfg = cfg.session
-    if not S.APP_RE.match(app) or lang not in LANGS:
-        raise SandboxError("bad app id or language")
+    if not S.SLOT_RE.match(slot):
+        raise SandboxError("bad slot name")
     os.umask(0o077)
     session_id = secrets.token_hex(8)
     token = secrets.token_bytes(32)
-    app_dir, private = prepare_dirs(scfg, app)
+    app_dir, private = prepare_dirs(scfg, slot)
     gid = _group_id(scfg.web_group)
     publisher = StatusPublisher(os.path.join(private, STATUS_FILE))
     holder = {}
-    session = S.Session(cfg, app, session_id, lang, private, deps, publish=publisher,
+    session = S.Session(cfg, slot, session_id, private, deps, publish=publisher,
                         drop_vnc=lambda: holder["web"].drop_vnc() if "web" in holder else None)
     try:
         session.store.create_directory()
@@ -137,7 +136,7 @@ def serve(cfg, app, lang="zh_CN", deps=None, linger=FAILED_LINGER):
         _write(os.path.join(app_dir, "token.once"), token.hex().encode("ascii") + b"\n", 0o600, exclusive=True)
         publisher(session)
         threading.Thread(target=session.watch, daemon=True).start()
-        log("session %s for %s started" % (session_id, app))
+        log("session %s on %s started" % (session_id, slot))
         session.run()
         deadline = time.monotonic() + linger
         while session.state == "failed" and time.monotonic() < deadline:  # let the platform read the error
@@ -153,18 +152,18 @@ def serve(cfg, app, lang="zh_CN", deps=None, linger=FAILED_LINGER):
     return 0
 
 
-def status(cfg, app):
+def status(cfg, slot):
     """The last status the daemon published, with the clocks advanced to now."""
-    if not S.APP_RE.match(app):
-        raise SandboxError("bad app id")
-    path = os.path.join(cfg.session.runtime_dir, app, "private", STATUS_FILE)
+    if not S.SLOT_RE.match(slot):
+        raise SandboxError("bad slot name")
+    path = os.path.join(cfg.session.runtime_dir, slot, "private", STATUS_FILE)
     try:
         with open(path, "rb") as f:
             doc = json.loads(f.read(1 << 16).decode("utf-8"))
     except (OSError, ValueError):
-        raise SandboxError("no running session for %s" % app) from None
+        raise SandboxError("no running session on %s" % slot) from None
     age = max(0, int(time.time() - doc.pop("written", time.time())))
-    if doc.get("state") == "running":
+    if doc.get("state") in S.IDLE_STATES:
         doc["idle_s"] = doc.get("idle_s", 0) + age
     doc["remaining_s"] = max(0, doc.get("remaining_s", 0) - age)
     return json.dumps(doc, indent=1, sort_keys=True)
