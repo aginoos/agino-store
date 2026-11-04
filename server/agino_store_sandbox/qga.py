@@ -74,6 +74,10 @@ class Qga:
             time.sleep(1)
         raise InfraError("guest agent did not answer within %d s" % timeout)
 
+    def set_time(self, nanoseconds):
+        """guest-set-time to `nanoseconds` since the epoch (the clock is stale after a snapshot was loaded)."""
+        self._call("guest-set-time", {"time": int(nanoseconds)}, 20)
+
     def start(self, argv, input_data=None, timeout=60):
         """guest-exec without waiting; argv[0] must be an absolute path. Returns the guest pid."""
         args = {"path": argv[0], "arg": list(argv[1:]), "capture-output": True}
