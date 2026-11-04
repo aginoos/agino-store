@@ -97,6 +97,9 @@ def build_record(st, app, repo, recipe, version, tag, commit, attempt, by, now, 
     }
     if recipe.is_v2:
         record["pins"] = source_assembly.pin_map(task_recipe["sources"], repo, tag, commit)
+        if not repo:   # a recipe without a tracked upstream: the main source stands in (shown as the origin)
+            git = next((s for s in task_recipe["sources"] if s["kind"] == "git"), task_recipe["sources"][0])
+            record["repo"] = git["url"]
     record.update(extra)
     return record
 

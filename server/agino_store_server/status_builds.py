@@ -15,7 +15,7 @@ MAX_BUILDS = 50
 MAX_VERSIONS = 30
 MAX_MOVES = 10
 BUILD_FIELDS = ("id", "app", "version", "upstream_version", "tag", "commit", "attempt", "status", "by", "created",
-                "started", "finished", "error", "artifact", "candidate")
+                "started", "finished", "error", "artifact", "candidate", "mode", "class", "intake")
 WAITING = ("queued", "fetching", "ready")
 
 

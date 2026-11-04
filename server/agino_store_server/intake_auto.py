@@ -10,7 +10,7 @@ the build (intake_adopt).
 
 import datetime
 
-from . import content, intake
+from . import builds, content, intake
 from .state import StateError
 
 LOCK_WAIT = 60.0
@@ -40,7 +40,7 @@ def _open(cfg, st, loaded, record, rep, now):
         try:
             made = intake.create_repair(cfg, st, loaded, app, version, intake.AUTO_USER, now=_stamp(now),
                                         failed_task=record)
-        except (intake.IntakeError, intake.IntakeUsage, StateError) as e:
+        except (intake.IntakeError, intake.IntakeUsage, builds.BuildUsage, StateError) as e:
             rep.add("no repair task for %s %s: %s" % (app, version, e))
             return
     rep.add("repair task %s opened for %s %s (the build %s failed in its recipe)" % (made["id"], app, version,
