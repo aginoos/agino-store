@@ -27,7 +27,7 @@ class Base(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.ppm = os.path.join(self.tmp.name, "shot.ppm")
         self.dir = os.path.join(self.tmp.name, "caps", "0123456789abcdef")
-        self.store = C.CaptureStore(self.dir, "0123456789abcdef", "app", 3)
+        self.store = C.CaptureStore(self.dir, "0123456789abcdef", 3)
         self.store.create_directory()
 
     def capturer(self, data, locator=None, **kw):
@@ -36,7 +36,7 @@ class Base(unittest.TestCase):
 
 class PipelineTests(Base):
     def test_screen_capture(self):
-        item = self.capturer(make_ppm(1920, 1080)).capture("screen", "zh_CN")
+        item = self.capturer(make_ppm(1920, 1080)).capture("screen", "zh_CN", "app", "zh_CN")
         self.assertEqual({k: item[k] for k in ("n", "file", "kind", "lang", "width", "height", "title", "problems")},
                          {"n": 1, "file": "01-screen-zh_CN.png", "kind": "screen", "lang": "zh_CN", "width": 1920,
                           "height": 1080, "title": "", "problems": []})
@@ -53,6 +53,23 @@ class PipelineTests(Base):
         self.assertEqual(stat.S_IMODE(os.stat(os.path.join(self.dir, "captures.json")).st_mode), 0o640)
         self.assertEqual(stat.S_IMODE(os.stat(self.dir).st_mode) & 0o777, 0o750)   # setgid comes from the parent
 
+    def test_items_carry_the_app_and_the_desktop_language(self):
+        cap = self.capturer(make_ppm(1920, 1080))
+        item = cap.capture("screen", "en_US", "audacity", "en_US")
+        self.assertEqual((item["app"], item["lang"], item["desktop_lang"]), ("audacity", "en_US", "en_US"))
+        other = cap.capture("screen", "zh_CN", "gimp", "zh_CN")
+        index = json.loads(slurp(os.path.join(self.dir, "captures.json")))
+        self.assertEqual([(i["n"], i["app"], i["desktop_lang"]) for i in index["items"]],
+                         [(1, "audacity", "en_US"), (2, "gimp", "zh_CN")])
+        self.assertNotIn("app", index)  # the app is per capture, a session captures many
+        self.assertEqual(other["file"], "02-screen-zh_CN.png")
+
+    def test_bad_app_or_desktop_language(self):
+        for app, desktop in (("", "zh_CN"), ("a", "fr_FR")):
+            with self.assertRaises(C.CaptureError) as ctx:
+                self.capturer(make_ppm(640, 480)).capture("screen", "zh_CN", app, desktop)
+            self.assertEqual(ctx.exception.code, "bad_request")
+
     def test_bad_screendumps(self):
         cases = {
             "bad header": b"P5\n1920 1080\n255\n" + b"\0" * 10,
@@ -67,7 +84,7 @@ class PipelineTests(Base):
         }
         for name, data in cases.items():
             with self.assertRaises(C.CaptureError, msg=name) as ctx:
-                self.capturer(data).capture("screen", "en_US")
+                self.capturer(data).capture("screen", "en_US", "app", "zh_CN")
             self.assertEqual(ctx.exception.code, "bad_image", name)
             self.assertFalse(os.path.exists(self.ppm), name)
         self.assertEqual(self.store.count(), 0)
@@ -79,7 +96,7 @@ class PipelineTests(Base):
                     f.truncate(C.MAX_PPM_FILE + 1)
         capturer = C.Capturer(self.store, Big(), self.ppm, None)
         with self.assertRaises(C.CaptureError) as ctx:
-            capturer.capture("screen", "zh_CN")
+            capturer.capture("screen", "zh_CN", "app", "zh_CN")
         self.assertEqual(ctx.exception.code, "bad_image")
         self.assertFalse(os.path.exists(self.ppm))
 
@@ -92,19 +109,19 @@ class PipelineTests(Base):
             def screendump(self, filename, fmt="png"):
                 os.symlink(secret, filename)
         with self.assertRaises(C.CaptureError):
-            C.Capturer(self.store, Link(), self.ppm, None).capture("screen", "zh_CN")
+            C.Capturer(self.store, Link(), self.ppm, None).capture("screen", "zh_CN", "app", "zh_CN")
         self.assertTrue(os.path.exists(secret))
 
     def test_qmp_failure(self):
         with self.assertRaises(C.CaptureError) as ctx:
-            self.capturer(b"", fail=True).capture("screen", "zh_CN")
+            self.capturer(b"", fail=True).capture("screen", "zh_CN", "app", "zh_CN")
         self.assertEqual(ctx.exception.code, "capture_failed")
 
     def test_too_big_is_rejected_and_nothing_is_left(self):
         noise = make_ppm(1024, 1100, pixel=b"")
         noise = noise + os.urandom(1024 * 1100 * 3)
         with self.assertRaises(C.CaptureError) as ctx:
-            self.capturer(noise).capture("screen", "zh_CN")
+            self.capturer(noise).capture("screen", "zh_CN", "app", "zh_CN")
         self.assertEqual(ctx.exception.code, "too_big")
         self.assertEqual(sorted(os.listdir(self.dir)), ["captures.json"])
         self.assertEqual(self.store.count(), 0)
@@ -112,17 +129,17 @@ class PipelineTests(Base):
 
     def test_limit_and_numbering(self):
         cap = self.capturer(make_ppm(640, 480))
-        names = [cap.capture("screen", "zh_CN")["file"] for _ in range(3)]
+        names = [cap.capture("screen", "zh_CN", "app", "zh_CN")["file"] for _ in range(3)]
         self.assertEqual(names, ["01-screen-zh_CN.png", "02-screen-zh_CN.png", "03-screen-zh_CN.png"])
         with self.assertRaises(C.CaptureError) as ctx:
-            cap.capture("screen", "en_US")
+            cap.capture("screen", "en_US", "app", "zh_CN")
         self.assertEqual(ctx.exception.code, "too_many")
         self.assertEqual(self.store.count(), 3)
 
     def test_bad_arguments(self):
         for kind, lang in (("full", "zh_CN"), ("screen", "fr_FR"), ("", "zh_CN")):
             with self.assertRaises(C.CaptureError) as ctx:
-                self.capturer(make_ppm(640, 480)).capture(kind, lang)
+                self.capturer(make_ppm(640, 480)).capture(kind, lang, "app", "zh_CN")
             self.assertEqual(ctx.exception.code, "bad_request")
 
     def test_problems_for_small_images(self):
@@ -133,7 +150,7 @@ class PipelineTests(Base):
 
     def test_store_read_and_snapshot(self):
         cap = self.capturer(make_ppm(640, 480))
-        item = cap.capture("screen", "zh_CN")
+        item = cap.capture("screen", "zh_CN", "app", "zh_CN")
         self.assertEqual(self.store.read(1), slurp(os.path.join(self.dir, item["file"])))
         self.assertIsNone(self.store.read(2))
         self.assertEqual(self.store.snapshot(), [item])
@@ -147,7 +164,7 @@ class WindowTests(Base):
         ppm = bytearray(make_ppm(1920, 1080))
         sg = FakeShotsGuest({"0x1": {"type": NORMAL, "geo": (100, 100, 1000, 700), "ext": (2, 2, 30, 2),
                                      "title": "My\x1b[31m App\x00"}}, active="0x1")
-        item = self.capturer(bytes(ppm), C.GuestLocator(sg)).capture("window", "en_US")
+        item = self.capturer(bytes(ppm), C.GuestLocator(sg)).capture("window", "en_US", "app", "zh_CN")
         self.assertEqual((item["width"], item["height"]), (1004, 732))
         self.assertEqual(item["file"], "01-window-en_US.png")
         self.assertNotIn("\x1b", item["title"])
@@ -156,18 +173,18 @@ class WindowTests(Base):
 
     def test_small_window_is_kept_with_problems(self):
         sg = FakeShotsGuest({"0x1": {"geo": (0, 0, 800, 250)}}, active="0x1")
-        item = self.capturer(make_ppm(1920, 1080), C.GuestLocator(sg)).capture("window", "zh_CN")
+        item = self.capturer(make_ppm(1920, 1080), C.GuestLocator(sg)).capture("window", "zh_CN", "app", "zh_CN")
         self.assertEqual(item["problems"], ["too_narrow", "too_short"])
 
     def test_window_outside_screen_is_clamped(self):
         sg = FakeShotsGuest({"0x1": {"geo": (1800, 1000, 600, 600)}}, active="0x1")
-        item = self.capturer(make_ppm(1920, 1080), C.GuestLocator(sg)).capture("window", "zh_CN")
+        item = self.capturer(make_ppm(1920, 1080), C.GuestLocator(sg)).capture("window", "zh_CN", "app", "zh_CN")
         self.assertEqual((item["width"], item["height"]), (120, 80))
 
     def test_window_fully_outside_the_screen(self):
         sg = FakeShotsGuest({"0x1": {"geo": (5000, 5000, 600, 600)}}, active="0x1")
         with self.assertRaises(C.CaptureError) as ctx:
-            self.capturer(make_ppm(1920, 1080), C.GuestLocator(sg)).capture("window", "zh_CN")
+            self.capturer(make_ppm(1920, 1080), C.GuestLocator(sg)).capture("window", "zh_CN", "app", "zh_CN")
         self.assertEqual(ctx.exception.code, "no_window")
 
     def test_active_dialog_allowed_dock_not(self):
@@ -199,7 +216,7 @@ class WindowTests(Base):
         sg = FakeShotsGuest({"0x1": {"geo": (0, 0, 500, 400)}}, active="0x1")
         sg.fail = True
         with self.assertRaises(C.CaptureError) as ctx:
-            self.capturer(make_ppm(640, 480), C.GuestLocator(sg)).capture("window", "zh_CN")
+            self.capturer(make_ppm(640, 480), C.GuestLocator(sg)).capture("window", "zh_CN", "app", "zh_CN")
         self.assertEqual(ctx.exception.code, "guest_failed")
         self.assertTrue(ctx.exception.qga_broken)
         self.assertEqual(self.store.count(), 0)
@@ -215,7 +232,7 @@ class WindowTests(Base):
         class Boom:
             def locate(self, screen):
                 raise AssertionError("guest used")
-        self.capturer(make_ppm(640, 480), Boom()).capture("screen", "zh_CN")
+        self.capturer(make_ppm(640, 480), Boom()).capture("screen", "zh_CN", "app", "zh_CN")
 
 
 class EncodingTests(unittest.TestCase):

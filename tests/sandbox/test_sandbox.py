@@ -350,7 +350,38 @@ class QemuArgvTests(unittest.TestCase):
         self.assertNotIn("serial=sbxdeb", " ".join(vm.build_argv(cfg, 0, files, None, False)))
 
 
+    def test_normal_runs_keep_raw_pflash_and_plain_drive(self):
+        cfg = config.from_dict({})
+        joined = " ".join(vm.build_argv(cfg, 0, vm.RunFiles("/run/0"), None, False))
+        self.assertIn("-machine q35,accel=kvm ", joined)
+        self.assertIn("if=pflash,format=raw,readonly=on,file=" + cfg.ovmf_code, joined)
+        self.assertIn("if=pflash,format=raw,file=/run/0/vars.fd", joined)
+        self.assertIn("file=/run/0/overlay.qcow2,format=qcow2,if=none,id=sys,discard=unmap ", joined + " ")
+        self.assertNotIn("-blockdev", joined)
+        self.assertNotIn("node-name", joined)
+
+    def test_snapshot_vm_uses_blockdevs_and_names_the_system_node(self):
+        cfg = config.from_dict({})
+        argv = vm.build_argv(cfg, 0, vm.RunFiles("/run/0"), None, False, vars_name="vars.qcow2", snapshot_vm=True)
+        joined = " ".join(argv)
+        self.assertIn("-machine q35,accel=kvm,pflash0=code,pflash1=vars", joined)
+        self.assertNotIn("if=pflash", joined)
+        blockdevs = [json.loads(argv[i + 1]) for i, a in enumerate(argv) if a == "-blockdev"]
+        self.assertEqual([b["node-name"] for b in blockdevs], ["code", "vars"])
+        self.assertEqual((blockdevs[0]["driver"], blockdevs[0]["read-only"]), ("raw", True))
+        self.assertEqual((blockdevs[1]["driver"], blockdevs[1]["file"]["filename"]), ("qcow2", "/run/0/vars.qcow2"))
+        self.assertIn("id=sys,node-name=sysn,discard=unmap", joined)
+
+    def test_blockdev_json_survives_odd_file_names(self):
+        argv = vm.blockdev(**{"node-name": "x", "file": {"filename": "/a,b=c/d"}})
+        self.assertEqual(json.loads(argv[1])["file"]["filename"], "/a,b=c/d")
+
+
 class ConfigTests(unittest.TestCase):
+    def test_session_defaults(self):
+        scfg = config.from_dict({}).session
+        self.assertEqual((scfg.total_minutes, scfg.overlay_cap_gib, scfg.idle_minutes), (120, 12, 10))
+
     def test_validation(self):
         self.assertEqual(config.from_dict({}).slots, 4)
         for bad in ({"slots": "9"}, {"qemu_sandbox": "maybe"}, {"cpus": "x"}, {"nonsense": "1"}):
