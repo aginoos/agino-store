@@ -7,6 +7,7 @@ content); 2 usage or configuration error; 3 another task holds the state lock.
 
 import argparse
 import configparser
+import contextlib
 import datetime
 import functools
 import getpass
@@ -15,9 +16,10 @@ import os
 import re
 import sys
 import tempfile
+import time
 
-from . import (catalog, catalogwriter, config, content, content_edit, reports, sandboxqueue, shots_cmds, shots_import,
-               shots_session, shots_store, shotsreq, status)
+from . import (approve_rules, build_step, builds, catalog, catalogwriter, config, content, content_edit, reports,
+               sandboxqueue, shots_cmds, shots_import, shots_session, shots_store, shotsreq, status, upstreams)
 from .state import ID_RE, VERSION_RE, State, StateError, StateLocked
 
 EXIT_OK, EXIT_PROBLEM, EXIT_USAGE, EXIT_LOCKED = 0, 1, 2, 3
@@ -100,6 +102,15 @@ def _parser():
     p = sub.add_parser("content-confirm", help="mark the description of APP as confirmed by a human")
     p.add_argument("app")
     p.add_argument("--editor", required=True)
+    sub.add_parser("upstream-check", help="check the tracked upstreams for new versions").add_argument("--app")
+    p = sub.add_parser("build-request", help="queue a build of an upstream version")
+    p.add_argument("app")
+    p.add_argument("--version", required=True, help="upstream version seen by upstream-check")
+    p.add_argument("--by", required=True, metavar="NAME")
+    p = sub.add_parser("build-cancel", help="cancel an unfinished build task")
+    p.add_argument("id")
+    p.add_argument("--by", required=True, metavar="NAME")
+    sub.add_parser("build-step", help="advance the build tasks (timer, every minute)")
     sub.add_parser("build", help="build and publish the catalog").add_argument("--if-changed", action="store_true")
     sub.add_parser("metrics", help="write the Prometheus text file")
     p = sub.add_parser("status", help="read-only state overview for the admin console (needs --json)")
@@ -177,6 +188,50 @@ def cmd_intake(cfg, st, args):
     return EXIT_OK
 
 
+# upstream tracking and build tasks
+
+def cmd_upstream_check(cfg, st, args):
+    if args.app is not None and not ID_RE.match(args.app):
+        raise UsageError("bad app id: %r" % args.app)
+    with st.lock():
+        try:
+            lines, problem = upstreams.check_all(cfg, st, _load_content(cfg), app=args.app)
+        except upstreams.UnknownUpstream as e:
+            raise UsageError(str(e)) from e
+    for line in lines:
+        print(_clean(line))
+    return EXIT_PROBLEM if problem else EXIT_OK
+
+
+def cmd_build_request(cfg, st, args):
+    if not ID_RE.match(args.app):
+        raise UsageError("bad app id: %r" % args.app)
+    with st.lock():
+        record = builds.request(cfg, st, _load_content(cfg), args.app, args.version, args.by)
+    print(record["id"])
+    return EXIT_OK
+
+
+def cmd_build_cancel(cfg, st, args):
+    with st.lock():
+        record = builds.cancel(cfg, st, args.id, args.by)
+    print("cancelled %s" % record["id"])
+    return EXIT_OK
+
+
+def cmd_build_step(cfg, st, args):
+    with contextlib.ExitStack() as stack:
+        try:
+            stack.enter_context(st.lock("build-step"))
+        except StateLocked:
+            print("build-step is already running")
+            return EXIT_OK
+        report = build_step.step(cfg, st, time.time())
+    for line in report.lines:
+        print(_clean(line))
+    return EXIT_PROBLEM if report.failed else EXIT_OK
+
+
 # pending
 
 def _pending_records(st):
@@ -214,13 +269,15 @@ def cmd_pending(cfg, st, args):
 
 def _blockers(record, no_sandbox):
     checks = record.get("checks") or {}
+    built = approve_rules.is_built(record)
     out = []
     if record.get("status") != "pending":
         out.append("status is %s" % record.get("status"))
     if (checks.get("deps") or {}).get("ok") is not True:
         out.append("dependency check has not passed")
-    if not no_sandbox and (checks.get("sandbox") or {}).get("status") != "pass":
-        out.append("sandbox is %s (use --no-sandbox to override)" % (checks.get("sandbox") or {}).get("status", "missing"))
+    if not (no_sandbox and not built) and (checks.get("sandbox") or {}).get("status") != "pass":
+        hint = "" if built else " (use --no-sandbox to override)"
+        out.append("sandbox is %s%s" % ((checks.get("sandbox") or {}).get("status", "missing"), hint))
     return out
 
 
@@ -283,6 +340,8 @@ def approve_record(st, record, no_sandbox, note, description_reviewed=False):
     log = {"at": when, "action": "approve", "app": record["app"], "version": record["version"],
            "sha256": record["sha256"], "by": who, "note": note, "sandbox": sandbox, "no_sandbox": no_sandbox,
            "description_reviewed": description_reviewed}
+    if approve_rules.is_built(record):
+        log.update(approve_rules.audit_fields(record))
     st.set_approved(record["app"], entry, log)
     st.update_candidate(record, {"status": "approved", "decided": {"action": "approve", "at": when, "by": who,
                                                                     "note": note, "no_sandbox": no_sandbox}})
@@ -290,6 +349,10 @@ def approve_record(st, record, no_sandbox, note, description_reviewed=False):
         if other["_path"] != record["_path"] and catalog.compare_versions(other["version"], record["version"]) < 0:
             st.update_candidate(other, {"status": "superseded", "decided": {
                 "action": "superseded", "at": when, "by": who, "note": "superseded by %s" % record["version"]}})
+
+
+def _built_blockers(record, args):
+    return approve_rules.built_blockers(record, args.no_sandbox, args.note, args.include_flagged, _flagged(record))
 
 
 def _approve_all(cfg, st, args):
@@ -300,7 +363,7 @@ def _approve_all(cfg, st, args):
     skipped = 0
     for app in apps:
         record = _select(st, app, None)
-        blockers = _blockers(record, args.no_sandbox)
+        blockers = _blockers(record, args.no_sandbox) + _built_blockers(record, args)
         if blockers:
             print("skipped %s %s: %s" % (app, record["version"], "; ".join(blockers)))
             skipped += 1
@@ -331,7 +394,7 @@ def cmd_approve(cfg, st, args):
             return _approve_all(cfg, st, args)
         app, version = _split_target(args.target)
         record = _select(st, app, version)
-        blockers = _blockers(record, args.no_sandbox)
+        blockers = _blockers(record, args.no_sandbox) + _built_blockers(record, args)
         if not args.description_reviewed and _ai_description(_load_content(cfg), app):
             blockers.append(AI_DESCRIPTION_BLOCKER)
         if blockers:
@@ -545,6 +608,8 @@ COMMANDS = {"track": cmd_track, "check": cmd_check, "intake": cmd_intake, "pendi
             "shots-session-import": _shots(shots_session.cmd_session_import), "shots-ingest": _shots(shots_cmds.cmd_ingest),
             "shots-review": _shots(shots_cmds.cmd_review), "shots-remove": _shots(shots_cmds.cmd_remove),
             "content-edit": content_edit.cmd_edit, "content-confirm": content_edit.cmd_confirm,
+            "upstream-check": cmd_upstream_check, "build-request": cmd_build_request,
+            "build-cancel": cmd_build_cancel, "build-step": cmd_build_step,
             "build": cmd_build, "metrics": cmd_metrics, "status": cmd_status}
 # Commands whose implementation lives in modules written separately: any failure there is reported, not traced.
 GUARDED = ("track", "check", "intake")
@@ -564,7 +629,7 @@ def main(argv=None):
     st = State(cfg.state)
     try:
         return COMMANDS[args.command](cfg, st, args)
-    except (UsageError, shots_cmds.ShotsUsage) as e:
+    except (UsageError, shots_cmds.ShotsUsage, builds.BuildUsage) as e:
         print("error: %s" % e, file=sys.stderr)
         return EXIT_USAGE
     except StateLocked as e:
@@ -573,7 +638,7 @@ def main(argv=None):
     except content.ContentError as e:
         print("store-content is invalid:\n%s" % e, file=sys.stderr)
         return EXIT_PROBLEM
-    except (StateError, shots_store.ShotsError, content_edit.EditError, OSError) as e:
+    except (StateError, shots_store.ShotsError, content_edit.EditError, builds.BuildError, OSError) as e:
         print("error: %s" % e, file=sys.stderr)
         return EXIT_PROBLEM
     except Exception as e:  # noqa: BLE001 - see GUARDED
