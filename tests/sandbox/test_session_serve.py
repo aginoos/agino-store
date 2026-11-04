@@ -66,6 +66,7 @@ class ServeTests(unittest.TestCase):
 
     @staticmethod
     def ask(f, obj):
+        time.sleep(0.21)  # the daemon allows 5 requests per second per connection
         f.write(json.dumps(obj).encode() + b"\n")
         f.flush()
         return json.loads(f.readline())

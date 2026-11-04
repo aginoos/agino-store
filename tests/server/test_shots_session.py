@@ -149,7 +149,7 @@ class TestImport(SessionCase):
 class TestAppFilter(SessionCase):
     def test_only_captures_of_the_app_are_imported(self):
         self.capture(1, app="gimp")
-        self.capture(2, app="audacity", lang="en_US")
+        self.capture(2, app="chrome", lang="en_US")
         self.capture(3, app="gimp", lang="en_US")
         code, out, _ = self.imp("01,02,03")
         self.assertEqual(code, 1)
@@ -159,8 +159,8 @@ class TestAppFilter(SessionCase):
 
     def test_the_other_app_can_import_its_own(self):
         self.capture(1, app="gimp")
-        self.capture(2, app="audacity")
-        code, out, _ = self.imp("02", app="audacity")
+        self.capture(2, app="chrome")
+        code, out, _ = self.imp("02", app="chrome")
         self.assertEqual(code, 0, out)
 
     def test_app_names_must_match_exactly(self):
