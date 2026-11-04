@@ -172,7 +172,10 @@ agino-store-sandbox [--config …] build-run [--once]
 | `out` | `/srv/store/build-out` | 本进程写，`<id>/{status.json,result.json,build.log,<包名>_<版本>_amd64.deb}` |
 | `max_concurrent` | 1 | 1..4，槽位 0..N-1，tap `agsbx-b<槽>`、MAC `52:54:00:5b:01:0N` |
 | `limits` | `cpu_minutes=90 memory_gib=8 disk_gib=20` | 上限；任务只能下调，超过的任务判为无效 |
-| `max_source_mib` / `max_artifact_mib` / `max_log_mib` | 512 / 1024 / 8 | 源码、deb、日志的大小上限 |
+| `max_source_mib` / `max_artifact_mib` / `max_log_mib` | 512 / 1024 / 8 | 源码（AI 模式：`workspace.tar`）、deb、日志的大小上限 |
+| `ai_slot` / `ai_max_concurrent` | 空（= `max(1, max_concurrent)`，默认即 1）/ 1 | AI 模式的槽位（见 10.7）；槽位 `ai_slot … ai_slot+ai_max_concurrent-1` 不能与常规槽位 `0…max_concurrent-1` 重叠，最大槽位 15 |
+| `ai_limits` | `cpu=8 memory_gib=16 disk_gib=40 minutes=120` | AI 任务的上限（见 10.7） |
+| `ai_env` / `ai_claude_env` / `ai_codex_env` / `ai_claude_cmd` / `ai_codex_cmd` / `ai_codex_toml` | 见 10.7 | 代理 CLI 的环境变量、命令行、Codex 配置文件，**待实机核对** |
 
 ### 10.2 task.json（严格解析，未知键拒绝）
 
@@ -186,11 +189,15 @@ agino-store-sandbox [--config …] build-run [--once]
  "limits": {"cpu_minutes": 90, "memory_gib": 8, "disk_gib": 20}}
 ```
 
-`limits` 可省（取 `recipe.limits`，再取配置上限）。另可带信息性键 `upstream_version tag commit attempt by created`（忽略）。目录名必须是 16 位十六进制；`version` 匹配 `^[0-9][A-Za-z0-9.+~-]{0,63}$`（不含 epoch）；`steps` ≤ 40 条、每条 ≤ 512 字符、无控制字符（制表符和换行除外）；包名、依赖、section、maintainer 都按固定正则再校验。不合格的任务不起虚拟机，直接 `failed`，`result.json` 的 `error` 为 `invalid task: …`。
+`limits` 可省（取 `recipe.limits`，再取配置上限）。另可带信息性键 `upstream_version tag commit attempt by created`：前三个变成环境变量 `AGINO_VERSION`（缺省取 `version` 去掉 `+agino<N>`）、`AGINO_TAG`、`AGINO_COMMIT`（缺省空），格式不对的值当作没有，其余忽略。task.json 上限 4 MiB（配方 v2 的 `files` 最多 20 × 64 KiB）。
+
+**配方 v2（`recipe` 里新增，全部可选，严格解析，未知键拒绝）**：`recipe_version`、`derived_from`（整数 ≥ 1）；`sources`（1..8 项 `{name, kind: git|tarball|file, url(https), ref(仅 git), sha256(tarball/file 必填，git 不能有)}`，`name` 唯一且不能是 `pkgroot`；运行器只校验、不取文件，`source.tar` 里每个 source 一个 `<name>/` 顶层目录，仍解到 `/home/builder/src`）；`files`（0..20 项 `{path, mode: "0644"|"0755", content ≤ 64 KiB 文本}`，路径相对 `/home/builder/src`、逐段匹配 `[A-Za-z0-9._@+][A-Za-z0-9._+@-]*`、不含 `.`/`..`、深度 ≤ 8，不能以 source 名或 `pkgroot` 开头，不能重复，一个文件不能是另一个的目录）；`test`（0..10 条单行命令 ≤ 512 字符）；`evidence`（0..20 项 `{claim ≤ 200, url}`）。`recipe.source` 与 `recipe.sources` 不能同时出现。`source.tar` 解开后，`files` 由 `builder` 身份经固定脚本 `place-file.sh`（内容走 stdin，不经 root）逐个写入并设 mode。
+
+**AI 任务**：`"mode": "ai"`（缺省 `build`）加 `"ai": {"agent": "claude"|"codex", "kind": "import"|"repair", "minutes": N}`，`minutes` 缺省 = `ai_limits.minutes`，超过则任务无效。AI 任务的 `app`、`version`（可省，写了要合法）、`source`、`recipe`（可省，写了只校验形状，不使用）；队列目录要有 `workspace.tar`（`source.tar` 可有可无、不使用）；`limits` 可下调 `memory_gib`、`disk_gib`（上限 `ai_limits`），`cpu_minutes` 被 `ai.minutes` 取代。`mode` 为 `build` 时不能有 `ai`。目录名必须是 16 位十六进制；`version` 匹配 `^[0-9][A-Za-z0-9.+~-]{0,63}$`（不含 epoch）；`steps` ≤ 40 条、每条 ≤ 512 字符、无控制字符（制表符和换行除外）；包名、依赖、section、maintainer 都按固定正则再校验。不合格的任务不起虚拟机，直接 `failed`，`result.json` 的 `error` 为 `invalid task: …`。
 
 ### 10.3 状态机
 
-`starting → installing_deps → building → packaging → collecting → done | failed | cancelled`，每次转移写 `status.json`（`{id,state,started,updated,step,steps_total,error}`）；结束时先写 `result.json` 再写最终 `status.json`。任何异常（步骤失败、qga 超时、VM 退出、磁盘或时间超限、代码 bug）都落到 `failed` 并留下原因；运行器重启时 out 里状态不是终态且没人在跑的任务一律置 `failed`（`the build runner stopped while this task was running`），不会停在 `building`。有 `status.json` 的任务不会再被启动。
+`starting → installing_deps → building → packaging → [testing →] collecting → done | failed | cancelled`（`testing` 只在配方有 `test` 时出现；AI 任务见 10.7），每次转移写 `status.json`（`{id,state,started,updated,step,steps_total,error}`）；结束时先写 `result.json` 再写最终 `status.json`。任何异常（步骤失败、qga 超时、VM 退出、磁盘或时间超限、代码 bug）都落到 `failed` 并留下原因；运行器重启时 out 里状态不是终态且没人在跑的任务一律置 `failed`（`the build runner stopped while this task was running`），不会停在 `building`。有 `status.json` 的任务不会再被启动。
 
 时间：`cpu_minutes` 约束「启动 + 装依赖 + 全部步骤」的总时长（单一截止时间，每步的 `timeout` 取剩余时间）；打包另给 10 分钟，取回另给 15 分钟。所以一个任务最多跑 `cpu_minutes + 25` 分钟加启动等待（≤3 分钟）；服务端的「超时无结果」余量应不小于 30 分钟。磁盘：覆盖盘的虚拟大小 = `max(disk_gib, 基础镜像大小)`，宿主机侧每 5 秒检查覆盖文件大小，超过 `disk_gib` 判失败。启动前宿主机 `<run>` 所在盘的剩余空间须 ≥ `disk_gib + [session] min_free_gib`，否则任务失败。
 
@@ -205,7 +212,9 @@ agino-store-sandbox [--config …] build-run [--once]
 
 日志：构建中每 2 秒把客户机日志的新内容追加到 `out/<id>/build.log`；去掉控制字符（只留换行和制表符；回车转换行；C1、行/段分隔符、双向控制符、BOM 一并去掉），超过 `max_log_mib` 截断并追加一行 `[log truncated: …]`，之后不再读客户机日志。
 
-`result.json` = `{"ok", "error", "steps": [{"n","cmd","exit","seconds"}], "artifacts": [{"file","sha256","size"}]}`（`error` ≤ 300 字符，`cmd` 是清理过的步骤文本，超时的步骤 `exit` 记 124）。
+**配方 v2 的客户机部分**：步骤和 `test` 的环境在最小环境之外多 `AGINO_VERSION`/`AGINO_TAG`/`AGINO_COMMIT`（运行器注入，不做文本替换）。**`test` 阶段**（打包成功后、取回之前；状态 `testing`）：root `apt-get install -y --no-install-recommends /home/builder/out/pkg.deb`（加 `-o APT::Sandbox::User=root`；若前面没跑过 `apt-get update` 先更新；**待实机核对**：apt 对 builder 家目录里的 deb 的行为），再以 `builder` 对每条命令跑 `timeout -k 10 120 xvfb-run -a /bin/sh -c <命令>`（工作目录 `/home/builder`，命令是单个 argv 元素），输出进日志；任一条非 0（含 124）→ `failed: test N failed`，`class=recipe`，不取回 deb。允许时间：安装 600 秒 + 每条 190 秒，用尽判 `testing timed out`（`class=timeout`）。没有 `test` 就没有 `testing` 状态、不装包。
+
+`result.json` = `{"ok", "error", "class", "steps": [{"n","cmd","exit","seconds"}], "artifacts": [{"file","sha256","size"}]}`（`error` ≤ 300 字符，`cmd` 是清理过的步骤文本，超时的步骤 `exit` 记 124；AI 任务另有 `"files": [...]`）。`class` 是失败原因：`ok`；`recipe`（步骤/`test`/打包/源码文件问题、`apt-get install` 依赖装不上、deb 不合格）；`infra`（虚拟机、qga、磁盘/资源、`apt-get update` 失败、源码校验不符、任务无效、取消、运行器停止）；`timeout`（步骤超时、总时限、打包/取回/测试阶段超时）；`model`（只有 AI 模式）。
 
 ### 10.5 取消、超时、清理
 
@@ -219,3 +228,38 @@ agino-store-sandbox [--config …] build-run [--once]
 - 基础镜像：有 `builder` 用户（非 root）、`/usr/sbin/runuser`、`/usr/bin/timeout`、`dpkg-deb`、`tar`、`sha256sum`、qga；apt 源的签名钥匙已在镜像里（或在 `apt_source` 里写 `[trusted=yes]` / `[signed-by=…]`）；根文件系统要能用到 `disk_gib`（镜像本身够大，或首次开机自动扩展）。
 - 服务端写队列时先写 `source.tar` 再原子重命名写 `task.json`（运行器另外要求两个文件静默 3 秒后才接手，`--once` 不等待）。
 - 测试：`tests/sandbox/test_build_task.py`（任务和配置解析）、`test_build_out.py`（输出目录、日志、清理）、`test_build_vm.py`（qemu 参数、覆盖盘、qga 分块读写）、`test_build_job.py`（状态机各分支）、`test_build_serve.py`（队列、并发、取消、孤儿任务）。
+
+### 10.7 AI 模式（`mode: "ai"`，`build_ai*.py`）
+
+设计依据 `agino-store-admin/docs/ai-intake.md` 第 10 节。同一个守护进程、同一个镜像、同一把锁；AI 任务有**自己的槽位池**，与常规构建互不占用：tap `agsbx-b<ai_slot>`（默认 `agsbx-b1`）、MAC `52:54:00:5b:01:0<slot>`、运行目录 `<run>/b<slot>`、状态目录 `out/<id>/`。常规构建槽位忙时 AI 任务照常启动，反之亦然；同类槽位全忙的任务留在队列里。`ai_slot` 与常规槽位重叠、超过 15 都是配置错误；未设置时取 `max(1, max_concurrent)`，所以旧配置（`max_concurrent = 2`）不会因此失效，但此时 AI tap 是 `agsbx-b2`，基础设施要按配置建。
+
+**队列**：`queue/<id>/{task.json, workspace.tar}`（AI）或 `{task.json, source.tar}`（构建）。扫描时宽松读 `task.json` 的 `mode` 来决定必须有哪个文件；读不出来按构建处理。两个文件都要静默 3 秒。
+
+**状态机**：`starting → preparing → running → collecting → done | failed | cancelled`。`starting` 含开机和 qga（`PREPARE_TIMEOUT` 900 秒，包括 `preparing`）；`running` 的时限 = `ai.minutes` × 60 + 10（`timeout -k`）+ 45 秒（宿主机兜底）；`collecting` 900 秒。覆盖盘、磁盘上限检查、取消、运行器停止与常规构建完全相同。
+
+**客户机准备**（root，qga，全是固定脚本）：建 `/work`、`/home/builder/logs`、`/home/builder/.codex`；写 `ai-run.sh`、`/etc/apt/agino-build.list`、`/etc/apt/apt.conf.d/99agino-build`（让普通 `apt` 只用这个源）、`/etc/environment`（代理变量 + 所选代理的变量）；Codex 另写 `/home/builder/.codex/config.toml`（0600，属主 `builder`）。`workspace.tar` 分块上传到 `/home/builder/workspace.tar`，客户机里 `sha256sum` 核对宿主机算的值，再以 `builder` 解到 `/work`（`--no-same-owner`），建 `/work/out`，并确认 `/work/TASK.md` 存在。宿主机先核对大小（≤ `max_source_mib`，非空）并拒绝符号链接。
+
+**启动**：`runuser -u builder -- env -i <最小环境> <代理变量> <所选代理变量> /opt/agino-build/ai-run.sh <日志> <秒数> <命令片段>`；`ai-run.sh` 在 `/work` 里 `exec timeout -k 10 <秒数> /bin/sh -c <命令片段>`（`timeout` 给整个进程组发 TERM，10 秒后 KILL）。命令片段来自 `[builder]` 的 `ai_claude_cmd` / `ai_codex_cmd`，作为**单个 argv 元素**传，宿主机不拼 shell。输出写客户机的 `/home/builder/logs/agent.log`，宿主机每 2 秒按偏移读新内容，按行解析：每个 JSON 事件只往 `build.log` 写一行摘要（事件类型 + ≤ 300 字符的文本；`tool_use` 只写工具名和 `command/file_path/path/url/pattern` 的前 120 字符；`thinking` 只写类型；请求体、其余字段一律不写），不是 JSON 的行写成 `text: …`；去控制字符；超长行（> 1 MiB）丢弃。`build.log` 达到 `max_log_mib` 后摘要停止，但流继续读（失败分类要用）。
+
+**结束与分类**：CLI 退出后先 `kill -KILL -1`（以 `builder` 身份，两次，各隔 1 秒），再列 `/work/out`（`find -maxdepth 1 -type f -printf '%s\t%f\0'`，符号链接和目录不会出现）。宿主机只认白名单名字：`recipe.yaml app.yaml upstream.yaml vendor.yaml NOTES.md`（各 ≤ 256 KiB，非空，不含 NUL）和**一个** `^[a-z0-9][a-z0-9+.~_-]{0,150}\.deb$`（≤ `max_artifact_mib`，首块必须是 `!<arch>\n`；多于一个时按名字排序取第一个，其余记日志），其余名字、重复记录、坏记录一律丢弃；大小先看列表再读，读时只读列表里的字节数；每个文件写 `out/<id>/ai/<名字>`（0640，目录 0750，超限/坏文件跳过并记日志，其余照取，`out/<id>/` 的 7 天清理会连 `ai/` 一起删）。判定顺序：
+
+1. 超时（退出码 124，或 137 且已跑满 `ai.minutes`，或宿主机兜底到期）→ `class=timeout`，`state=failed`；
+2. 退出码非 0 且流里最后看到的模型信号仍是错误 → `class=model`。信号 = `system/api_retry` 事件的 `error_status` 为 401、402、429 或 5xx，或任意输出行含 `proxy_paused`；之后出现 `assistant` 事件就清掉信号（模型又答了）；
+3. 交付了 `recipe.yaml` **和** `app.yaml` → `ok`（与退出码无关），`state=done`；
+4. 否则 `class=recipe`（`<agent> exited with code N and left no …`）。
+取消、运行器停止、虚拟机/qga/磁盘问题 → `class=infra`。`result.json` 的 `files` 是已取回的文件名（失败时也尽量取回，供管理员查看），`artifacts` 为空，`steps` 有一项 `{n:1, cmd:<agent>, exit, seconds}`。
+
+**核对结果（待实机核对，主 agent 填写）**——下面的名字全部来自契约，运行器代码没有任何一个是核对过的；它们都放在 `config.py` 可覆盖的默认值（`build_ai_conf.py`）里，核对后只需要改配置或默认值：
+
+| 项 | 默认值 | 状态 |
+|---|---|---|
+| Claude 环境变量 | `ANTHROPIC_BASE_URL=http://10.231.0.1:8490/anthropic`、`ANTHROPIC_API_KEY=agino-placeholder`、`ANTHROPIC_MODEL`/`ANTHROPIC_SMALL_FAST_MODEL`/`ANTHROPIC_DEFAULT_{HAIKU,SONNET,OPUS}_MODEL=agino`、`DISABLE_AUTOUPDATER=1`、`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`、`DISABLE_TELEMETRY=1` | 待实机核对（哪些小模型变量在 2.1.318 里有效） |
+| Claude 命令行 | `claude --bare -p "$(cat /work/TASK.md)" --output-format stream-json --verbose --permission-mode bypassPermissions` | 待实机核对（`--bare`、权限开关、`api_retry` 事件的字段名 `error_status`） |
+| Codex 环境变量 | `CODEX_HOME=/home/builder/.codex`、`OPENAI_API_KEY=agino-placeholder` | 待实机核对 |
+| Codex `config.toml` | `model = "agino"`、`model_provider = "agino"`、`[model_providers.agino]`：`base_url = "http://10.231.0.1:8490/openai/v1"`、`wire_api = "responses"`、`env_key = "OPENAI_API_KEY"` | 待实机核对 |
+| Codex 命令行 | `codex exec --json --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check "$(cat /work/TASK.md)"` | 待实机核对；Codex 的模型错误事件格式没有解析，只靠 `proxy_paused` 标记识别 `model` |
+| 代理变量 | `HTTPS_PROXY`/`HTTP_PROXY`（及小写）`=http://10.231.0.1:3128`，`NO_PROXY`/`no_proxy=10.231.0.1,localhost,127.0.0.1` | 待实机核对：`apt` 会读 `http_proxy`，要确认它仍走镜像里配好的 apt 代理（3142），否则在 `99agino-build` 里加 `Acquire::http::Proxy "DIRECT";` 之类 |
+
+**配置覆盖**：`ai_env`/`ai_claude_env`/`ai_codex_env` 是空格分隔的 `NAME=value`（值里不许有空白、引号、`$`、反引号、反斜杠）；`ai_claude_cmd`/`ai_codex_cmd` 是一行（≤ 1000 字符）shell 片段；`ai_codex_toml` 是多行文本（≤ 4096 字符，配置文件里续行缩进）。
+
+**测试**：`test_build_ai.py`（AI 任务状态机、客户机准备、模型/超时分类、交付白名单、符号链接、超大产物）、`test_build_ai_stream.py`（输出摘要和模型信号）、`test_build_recipe_v2.py`（v2 源布局、`files`、`AGINO_*`、`test` 阶段、失败分类）、`test_build_serve.py` 的 `AiQueueTests`（两个槽位池互不干扰）、`test_build_task.py`（v2 / AI 解析和配置校验）。
