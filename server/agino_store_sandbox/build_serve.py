@@ -4,18 +4,22 @@
 queue/<id>/{task.json,source.tar[,cancel]} is written by agino-store (read-only for us); everything we write
 goes to out/<id>/. A task with any status.json in out/ is never started again, so the queue entry may stay
 as long as the server likes. At most `max_concurrent` tasks run at once, each in its own thread with its own
-slot (tap agsbx-b<slot>); the daemon thread only starts, cancels and reaps.
+slot (tap agsbx-b<slot>); the daemon thread only starts, cancels and reaps. AI tasks (`mode: "ai"`, needing
+workspace.tar instead of source.tar) have their own slot pool (`ai_slot`, `ai_max_concurrent`), so they never
+take a regular slot and a regular build never takes the AI tap.
 """
 
 import fcntl
+import json
 import os
 import signal
 import threading
 import time
 
+from .build_ai import AiJob
 from .build_job import BuildJob, CANCEL_FILE, Deps
 from .build_out import TERMINAL_STATES, OutDir, cleanup_old, read_status
-from .build_task import TASK_ID_RE, TaskError, read_task_file
+from .build_task import MAX_TASK_BYTES, TASK_ID_RE, TaskError, read_task_file
 from .util import SandboxError, log, now
 
 SCAN_INTERVAL = 5.0
@@ -38,17 +42,42 @@ class BuildDaemon:
         self.cfg, self.bcfg = cfg, cfg.builder
         self.once = once
         self.deps = deps or Deps()
-        self.job_factory = job_factory or (lambda c, task, slot: BuildJob(c, task, slot, self.deps))
+        self.job_factory = job_factory or self._make_job
         self.wall = wall
         self.stopping = threading.Event()
         self.sleep = sleep or self.stopping.wait
         self.active = {}  # task id -> (job, thread, slot)
         self.free_slots = list(range(self.bcfg.max_concurrent))
+        self.ai_free_slots = list(self.bcfg.ai_slots)
         self.outcomes = []
         self.skip = set()  # ids whose terminal record could not be written; not retried in this process
         self._last_cleanup = None
 
+    def _make_job(self, cfg, task, slot):
+        return (AiJob if task.mode == "ai" else BuildJob)(cfg, task, slot, self.deps)
+
+    def _release(self, slot):
+        if slot in self.bcfg.ai_slots:
+            self.ai_free_slots = sorted(self.ai_free_slots + [slot])
+        else:
+            self.free_slots = sorted(self.free_slots + [slot])
+
     # ---- queue ----
+
+    def _required_files(self, base):
+        """The files a queue entry must have before it is picked up: AI tasks bring workspace.tar, builds source.tar.
+
+        The mode is read from task.json leniently; anything unreadable counts as a build (and is rejected later)."""
+        names = ["task.json", "source.tar"]
+        try:
+            fd = os.open(os.path.join(base, "task.json"), os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            with os.fdopen(fd, "rb") as f:
+                doc = json.loads(f.read(MAX_TASK_BYTES + 1).decode("utf-8"))
+            if isinstance(doc, dict) and doc.get("mode") == "ai":
+                names = ["task.json", "workspace.tar"]
+        except (OSError, ValueError, RecursionError):
+            pass
+        return names
 
     def candidates(self):
         """Ids of queue entries without any status yet, oldest first."""
@@ -66,7 +95,7 @@ class BuildDaemon:
             try:
                 if not os.path.isdir(base) or os.path.islink(base):
                     continue
-                times = [os.lstat(os.path.join(base, f)).st_mtime for f in ("task.json", "source.tar")]
+                times = [os.lstat(os.path.join(base, f)).st_mtime for f in self._required_files(base)]
             except OSError:
                 continue  # not complete yet
             if read_status(self.bcfg.out, name) != {} or self.wall() - max(times) < settle:
@@ -94,10 +123,13 @@ class BuildDaemon:
         if os.path.lexists(os.path.join(self.bcfg.queue, task_id, CANCEL_FILE)):
             return self._record(task_id, "cancelled", "cancelled")
         try:
-            task = read_task_file(self.bcfg.queue, task_id, self.bcfg.limits)
+            task = read_task_file(self.bcfg.queue, task_id, self.bcfg.limits, self.bcfg.ai_limits)
         except TaskError as e:
             return self._record(task_id, "failed", "invalid task: %s" % e)
-        slot = self.free_slots.pop(0)
+        pool = self.ai_free_slots if task.mode == "ai" else self.free_slots
+        if not pool:
+            return  # every slot of its kind is busy: it stays in the queue
+        slot = pool.pop(0)
         try:
             job = self.job_factory(self.cfg, task, slot)
             thread = threading.Thread(target=_job_thread, args=(job,), name="build-" + task_id)
@@ -106,7 +138,7 @@ class BuildDaemon:
             thread.start()
         except Exception as e:  # noqa: BLE001 - one broken task must not stop the daemon
             self.active.pop(task_id, None)
-            self.free_slots = sorted(self.free_slots + [slot])
+            self._release(slot)
             log("build %s: cannot start: %s" % (task_id, type(e).__name__))
             self._record(task_id, "failed", "internal error: %s" % type(e).__name__)
 
@@ -115,7 +147,7 @@ class BuildDaemon:
             if job.finished.is_set() or not thread.is_alive():
                 thread.join()
                 del self.active[task_id]
-                self.free_slots = sorted(self.free_slots + [slot])
+                self._release(slot)
                 self.outcomes.append(job.state if job.state in TERMINAL_STATES else "failed")
                 log("build %s: %s" % (task_id, job.state))
                 status = read_status(self.bcfg.out, task_id)
@@ -156,7 +188,8 @@ class BuildDaemon:
         for task_id in self.candidates():
             if self.stopping.is_set():
                 break
-            if os.path.lexists(os.path.join(self.bcfg.queue, task_id, CANCEL_FILE)) or self.free_slots:
+            if os.path.lexists(os.path.join(self.bcfg.queue, task_id, CANCEL_FILE)) or self.free_slots \
+                    or self.ai_free_slots:
                 self._start(task_id)
         self._cleanup()
 
