@@ -65,7 +65,8 @@ PageBase {
             appId: model.appId
             separator: model.index > 0
             // Old version muted (the label's own colour), new one in the normal text colour.
-            sub: "%1 → <font color=\"%2\">%3</font>".arg(model.installedVersion).arg(palette.windowText).arg(model.version)
+            subStyled: true
+            sub: "%1 → <font color=\"%2\">%3</font>".arg(escapeMarkup(model.installedVersion)).arg(palette.windowText).arg(escapeMarkup(model.version))
                  + (model.downloadSize > 0 ? " · " + Store.formatBytes(model.downloadSize) : "")
             ActionButtons { appId: model.appId }
         }

@@ -69,12 +69,14 @@ Control {
                     // With no subtitle the title becomes the headline below.
                     visible: text !== ""
                     text: banner.hasSubtitle ? banner.current.title : ""
+                    textFormat: Text.PlainText
                     color: Qt.alpha(banner.palette.highlightedText, 0.85)
                     font: D.DTK.fontManager.t8
                 }
                 D.Label {
                     Layout.fillWidth: true
                     text: banner.current ? (banner.hasSubtitle ? banner.current.subtitle : banner.current.title) : ""
+                    textFormat: Text.PlainText
                     color: banner.palette.highlightedText
                     font: Qt.font({ family: D.DTK.fontManager.t2.family, pixelSize: D.DTK.fontManager.t2.pixelSize, weight: Font.DemiBold })
                     wrapMode: Text.Wrap

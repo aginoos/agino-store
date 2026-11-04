@@ -76,6 +76,7 @@ Control {
             D.Label {
                 Layout.fillWidth: true
                 text: row.info.name ? row.info.name : row.appId
+                textFormat: Text.PlainText
                 font.weight: Font.Medium
                 elide: Text.ElideRight
             }
@@ -83,6 +84,7 @@ Control {
                 Layout.fillWidth: true
                 visible: text !== ""
                 text: row.detailText
+                textFormat: Text.PlainText
             }
             D.ProgressBar {
                 Layout.fillWidth: true

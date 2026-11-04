@@ -42,6 +42,7 @@ Control {
         D.Label {
             Layout.fillWidth: true
             text: item.label
+            textFormat: Text.PlainText
             color: item.fg
             elide: Text.ElideRight
         }
@@ -55,6 +56,7 @@ Control {
                 id: badgeText
                 anchors.centerIn: parent
                 text: item.badge
+                textFormat: Text.PlainText
                 font.pixelSize: 11
                 color: item.current ? item.palette.highlight : "#ffffff"
             }

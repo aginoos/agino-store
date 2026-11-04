@@ -23,6 +23,7 @@ Control {
 
     contentItem: D.Label {
         text: chip.text
+        textFormat: Text.PlainText
         font.pixelSize: 11
         color: chip.toneColor
     }

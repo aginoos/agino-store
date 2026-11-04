@@ -133,6 +133,7 @@ PageBase {
                     required property string modelData
                     Layout.fillWidth: true
                     text: modelData
+                    textFormat: Text.PlainText
                     wrapMode: Text.Wrap
                 }
             }
@@ -149,6 +150,7 @@ PageBase {
                     required property string modelData
                     Layout.fillWidth: true
                     text: "•  " + modelData
+                    textFormat: Text.PlainText
                     wrapMode: Text.Wrap
                 }
             }
