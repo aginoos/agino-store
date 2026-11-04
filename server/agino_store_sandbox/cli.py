@@ -5,7 +5,7 @@ import argparse
 import dataclasses
 import sys
 
-from . import config, runner, session_serve, shots_job
+from . import build_serve, config, runner, session_serve, shots_job
 from .util import SandboxError
 
 
@@ -28,6 +28,8 @@ def main(argv=None):
     ssub.add_parser("status", help="print the status JSON of a running session").add_argument(
         "slot", metavar="SLOT", help="vm0, vm1, ...")
     ssub.add_parser("cleanup", help="remove captures directories older than retention_hours")
+    build = sub.add_parser("build-run", help="run build tasks from the build queue (docs/sandbox.md section 10)")
+    build.add_argument("--once", action="store_true", help="process the tasks now in the queue, then exit")
     args = parser.parse_args(argv)
     try:
         cfg = config.load(args.config)
@@ -49,6 +51,8 @@ def main(argv=None):
             for name in session_serve.cleanup(cfg):
                 print("removed %s" % name)
             return 0
+        if args.command == "build-run":
+            return build_serve.serve(cfg, args.once)
         if args.command == "shots-reset":
             print(shots_job.reset(cfg, args.name))
             return 0
