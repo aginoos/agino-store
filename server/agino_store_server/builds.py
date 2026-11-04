@@ -20,6 +20,7 @@ CANCEL_FILE = "cancel"
 TASK_FILE = "task.json"
 SOURCE_FILE = "source.tar"
 WORKSPACE_FILE = "workspace.tar"
+MAX_TASK_BYTES = 4 << 20   # what the build runner reads of a task.json (build_task.MAX_TASK_BYTES)
 MAX_ERROR = 500
 
 

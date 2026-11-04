@@ -293,12 +293,18 @@ class TestFiles(V2Case):
         B.add_built_app(self.root)
         self.assertBad("used as a directory", files=[self.good(path="a"), self.good(path="a/b")])
 
-    def test_too_many_and_too_big(self):
-        B.add_built_app(self.root)
+    def test_too_many_files(self):
         self.assertBad("must be a list of 0..20 items", files=[self.good(path="f%d" % i) for i in range(21)])
+
+    def test_twenty_big_files_are_fine(self):
+        big = "x" * (64 << 10)
+        self.set_recipe(files=[self.good(path="f%d" % i, content=big) for i in range(20)])
+        self.assertEqual(len(self.load_recipe().files), 20)
+
+    def test_pkgroot_is_reserved(self):
+        self.assertBad("must not lie inside a source directory", files=[self.good(path="pkgroot/usr/bin/x")])
         B.add_built_app(self.root)
-        big = "x" * (60 << 10)
-        self.assertBad("together may hold at most", files=[self.good(path="f%d" % i, content=big) for i in range(10)])
+        self.assertBad("'pkgroot' is reserved", sources=[dict(GIT, name="pkgroot")])
 
     def test_twenty_small_files_are_fine(self):
         self.set_recipe(files=[self.good(path="f%d" % i) for i in range(20)])
@@ -314,7 +320,7 @@ class TestFiles(V2Case):
 class TestTestEvidenceAndVersions(V2Case):
     def test_bad_tests(self):
         for tests, needle in [
-            (["a\nb"], "single line"), ([""], "non-empty string"), (["x" * 513], "at most 512"),
+            (["a\nb"], "single line"), (["a\x7fb"], "control characters"), ([""], "non-empty string"), (["x" * 513], "at most 512"),
             (["x\x00"], "control characters"), ([5], "non-empty string"), (["t"] * 11, "0..10 items"),
             ("tool --version", "must be a list"),
         ]:
@@ -332,7 +338,9 @@ class TestTestEvidenceAndVersions(V2Case):
         ok = {"claim": "c", "url": "https://github.com/a/b"}
         for evidence, needle in [
             ([dict(ok, claim="")], "non-empty string"), ([dict(ok, claim="x" * 201)], "at most 200"),
-            ([dict(ok, claim="<b>x</b>")], "must not contain markup"), ([dict(ok, claim="a\nb")], "single line"),
+            ([dict(ok, claim="<b>x</b>")], "must not contain markup"), ([dict(ok, claim="a\nb")], "single line"), ([dict(ok, claim="a\tb")], "single line"),
+            ([dict(ok, url="https://a.example/it's")], "plain https URL"), ([dict(ok, url="https://a.example/x`y")], "plain https URL"),
+            ([dict(ok, url="https://a_b.example/x")], "plain https URL"),
             ([dict(ok, claim="a‮b")], "invisible"), ([dict(ok, url="http://a.example/b")], "https URL"),
             ([dict(ok, url="javascript:alert(1)")], "https URL"), ([dict(ok, url="https://u:p@a.example/")], "credentials"),
             ([dict(ok, extra=1)], "unknown key 'extra'"), ([{"claim": "c"}], "missing key 'url'"),

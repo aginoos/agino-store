@@ -627,18 +627,18 @@ sources:                     # 1..8 项；和 v1 的 source 二选一
   - {name: src,    kind: git,     url: https://github.com/x/y.git, ref: "v${VERSION}"}                     # ref：标签或完整提交；提交由任务固定
   - {name: vendor, kind: tarball, url: "https://dl.example.com/app_${VERSION}.tar.gz", sha256: <64 hex>}    # 解包，去掉唯一顶层目录
   - {name: blob,   kind: file,    url: "https://dl.example.com/app.AppImage", sha256: <64 hex>}             # 原样保存为 <name>/<文件名>
-files:                       # 0..20 项，只能和 sources 一起用；总共 ≤ 512 KiB（任务文件要让运行器读得下）
+files:                       # 0..20 项，只能和 sources 一起用
   - {path: agino/launcher.sh, mode: "0755", content: "…"}           # mode 只能 0644（缺省）/0755，content ≤ 64 KiB 文本
 test:                        # 0..10 条单行命令（≤ 512 字符）；装好包后在 xvfb 下以 builder 逐条执行（运行器做）
   - "app --version"
-evidence: [{claim: "license is GPL-3.0", url: "https://…"}]        # 0..20 项，claim ≤ 200 字符（无标记、无不可见字符），url https
+evidence: [{claim: "license is GPL-3.0", url: "https://…"}]        # 0..20 项，claim ≤ 200 字符（无标记、无不可见字符、单行），url 是运行器接受的 https 形状（主机只含字母数字点和横线，不含引号、空白、尖括号）
 ```
 
-- 严格：未知键拒绝；`name` 是 `[a-z][a-z0-9_-]{0,31}` 且不重复；`url` 必须 https、无凭据/查询/片段、端口缺省、主机在 `[upstream] allowed_hosts`（intake 任务的试跑里再加任务级的额外主机）；git 的 `url` 路径 2..6 段（同上游仓库），tarball/file 的路径 1..12 段 `[A-Za-z0-9._~+-]`；git 必须有 `ref`、不能有 `sha256`；tarball/file 必须有 `sha256` 且不能有 `ref`；`files` 的路径是相对路径（≤ 8 段，每段 `[A-Za-z0-9_][A-Za-z0-9._+@-]*`，没有 `..`、绝对路径、前导点），不能落在某个 source 目录里，不能重复，一个文件不能同时是另一个文件的目录。
+- 严格：未知键拒绝；`name` 是 `[a-z][a-z0-9_-]{0,31}` 且不重复、不能是 `pkgroot`（运行器从 `./pkgroot` 打包；`files` 也不能放进 `pkgroot/`）；`url` 必须 https、无凭据/查询/片段、端口缺省、主机在 `[upstream] allowed_hosts`（intake 任务的试跑里再加任务级的额外主机）；git 的 `url` 路径 2..6 段（同上游仓库），tarball/file 的路径 1..12 段 `[A-Za-z0-9._~+-]`；git 必须有 `ref`、不能有 `sha256`；tarball/file 必须有 `sha256` 且不能有 `ref`；`files` 的路径是相对路径（≤ 8 段，每段 `[A-Za-z0-9_][A-Za-z0-9._+@-]*`，没有 `..`、绝对路径、前导点），不能落在某个 source 目录里，不能重复，一个文件不能同时是另一个文件的目录。
 - 占位符 `${VERSION}`、`${TAG}`、`${COMMIT}` **只能出现在 `sources[].url` 和 `sources[].ref`**（并且不能在主机部分），其他任何字段里出现都拒绝（要版本读环境变量 `AGINO_VERSION`、`AGINO_TAG`、`AGINO_COMMIT`，运行器注入）。服务端在创建任务时代入（`build-request`：版本、标签和提交取自 `seen`；intake 验证构建：见第 15 节），代入后重新检查 URL 和 ref 的形状，不合格（例如版本里带 `..`）任务创建被拒（退出码 1），没有值可代（例如要 `${TAG}` 而任务没有标签）同样被拒。
 - 任务记录里的 `recipe` 是代入后的数据；git source 的固定提交放在记录的 `pins`（`{source 名: 提交}`）：`url` 等于上游仓库且 `ref` 等于任务标签的那一项用 `seen` 里的提交，`ref` 本身是完整提交的用它自己，其他 git source 在取源码时现取并要求以后相同；取到的结果记进 `fetched`（`{name: {kind, commit\|sha256}}`）。
 - 取源码（`source_assembly.fetch_sources`）：逐个取，git 用 `upstream_fetch.git_checkout_tar`（浅取标签或提交，核对固定提交），tarball/file 用 `fetch.Fetcher` 下载并**核对 sha256，不一致任务失败**（`class` 为 `recipe`；下载 404/410 也是 `recipe`），主机限制和每一跳重定向检查同第 14.4 节，大小限额 `max_source_mib` 是全部 source 加起来。每个 source 先按 14.4 的加固规则重新打包，再放进同一个 `source.tar`：顶层是每个 source 的 `<name>/` 目录（git＝提交的树；tarball＝解包、去掉唯一顶层目录；file＝`<name>/<文件名>`，权限 0644），最后整体再检查一遍。**`files` 不写进 `source.tar`**：它们在 task.json 的 `recipe.files` 里，由运行器写在 tar 根下（和 source 目录并列）。
-- `task.json` 的 `recipe` 里只放运行器允许的键：`base`、`build_depends`、`steps`、`package`、`limits`，加上配方里有的 `source`（v1）或 `sources`（每项只有 `name`、`kind`、`url`，git 有 `ref`，tarball/file 有 `sha256`）、`files`（`path`、`mode`、`content`）、`test`、`evidence`（`claim`、`url`）、`recipe_version`、`derived_from`。
+- `task.json` 的 `recipe` 里只放运行器允许的键：`base`、`build_depends`、`steps`、`package`、`limits`，加上配方里有的 `source`（v1）或 `sources`（每项只有 `name`、`kind`、`url`，git 有 `ref`，tarball/file 有 `sha256`）、`files`（`path`、`mode`、`content`）、`test`、`evidence`（`claim`、`url`）、`recipe_version`、`derived_from`。任务文件超过运行器的上限（4 MiB，`builds.MAX_TASK_BYTES`）时任务失败（`class` 为 `recipe`）。
 - 失败原因：`result.json` 的 `class` 为 `recipe` 的编译任务，如果应用有配方，会触发 repair 任务（第 15 节）。
 
 ## 15. AI 来源接入

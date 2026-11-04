@@ -27,7 +27,7 @@ V2_KEYS = ("recipe_version", "derived_from", "sources", "files", "test", "eviden
 MAX_SOURCES = 8
 MAX_FILES = 20
 MAX_FILE_BYTES = 64 << 10
-MAX_FILES_TOTAL_BYTES = 512 << 10   # keeps task.json well below the runner's 1 MiB limit
+RESERVED_NAMES = ("pkgroot",)   # the runner builds the package from ./pkgroot
 MAX_TESTS = 10
 MAX_TEST_LEN = 512
 MAX_EVIDENCE = 20
@@ -35,7 +35,10 @@ MAX_CLAIM_LEN = 200
 MAX_URL_LEN = 400
 MAX_VERSION_NUMBER = 1_000_000
 FILE_CONTROL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
-LINK_CONTROL_RE = re.compile(r"[\x00-\x20\x7f-\x9f]")
+DEL_RE = re.compile(r"\x7f")
+CLAIM_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
+# What the build runner accepts as a URL in a task (build_task.SOURCE_URL_RE); evidence links must fit it too.
+RUNNER_URL_RE = re.compile(r"\Ahttps://[A-Za-z0-9.-]{1,253}(?::[0-9]{1,5})?(?:/[^\s\x00-\x1f\x7f\"'<>\\`]*)?\Z")
 
 
 class ExpandError(ValueError):
@@ -51,8 +54,8 @@ def _integer(chk, path, value, low=1):
 
 def _single_line(chk, path, value, max_len):
     text = chk.string(path, value, max_len=max_len)
-    if text is not None and "\n" in text:
-        chk.fail(path, "must be a single line")
+    if text is not None and ("\n" in text or DEL_RE.search(text)):
+        chk.fail(path, "must be a single line without control characters")
         return None
     return text
 
@@ -110,6 +113,9 @@ def _source(chk, path, item, policy, allow_insecure, public_url):
         return None
     before = len(chk.errors)
     name = chk.string(path + ".name", item["name"], SOURCE_NAME_RE, 32)
+    if name in RESERVED_NAMES:
+        chk.fail(path + ".name", "%r is reserved" % name)
+        name = None
     kind = item["kind"]
     if kind not in SOURCE_KINDS:
         chk.fail(path + ".kind", "must be one of %s" % ", ".join(SOURCE_KINDS))
@@ -212,15 +218,12 @@ def _files(chk, path, value, source_names):
         chk.fail(path, "duplicate file path")
         ok = False
     for i, rel in enumerate(paths):
-        if rel.split("/")[0] in source_names:
+        if rel.split("/")[0] in source_names or rel.split("/")[0] in RESERVED_NAMES:
             chk.fail("%s[%d].path" % (path, i), "must not lie inside a source directory")
             ok = False
         if any(other.startswith(rel + "/") for other in paths):
             chk.fail("%s[%d].path" % (path, i), "is also used as a directory by another file")
             ok = False
-    if sum(len(f["content"].encode("utf-8")) for f in parsed) > MAX_FILES_TOTAL_BYTES:
-        chk.fail(path, "all files together may hold at most %d KiB" % (MAX_FILES_TOTAL_BYTES >> 10))
-        ok = False
     return tuple(parsed) if ok else None
 
 
@@ -241,12 +244,21 @@ def _evidence(chk, path, value, url_check):
             out.append(None)
             continue
         claim = chk.display(where + ".claim", item["claim"], MAX_CLAIM_LEN)
-        if claim is not None and "\n" in claim:
-            chk.fail(where + ".claim", "must be a single line")
+        if claim is not None and CLAIM_CONTROL_RE.search(claim):
+            chk.fail(where + ".claim", "must be a single line without control characters")
             claim = None
         url = url_check(where + ".url", item["url"])
         out.append({"claim": claim, "url": url} if claim and url else None)
     return tuple(out) if items is not None and None not in out else None
+
+
+def _evidence_url(chk, path, value, allow_insecure):
+    url = chk.url(path, value, allow_insecure)
+    if url is not None and not allow_insecure and not RUNNER_URL_RE.match(url):
+        chk.fail(path, "must be a plain https URL (letters, digits, dots and dashes in the host; no quotes, "
+                 "spaces or angle brackets)")
+        return None
+    return url
 
 
 def _placeholders_outside_sources(chk, rel, data):
@@ -294,7 +306,7 @@ def parse(chk, rel, data, policy, allow_insecure, public_url):
         out["test"] = _test(chk, rel + ".test", data["test"])
     if "evidence" in data:
         out["evidence"] = _evidence(chk, rel + ".evidence", data["evidence"],
-                                    lambda p, v: chk.url(p, v, allow_insecure))
+                                    lambda p, v: _evidence_url(chk, p, v, allow_insecure))
     if len(chk.errors) != before or any(v is None for v in out.values()):
         return None
     return out

@@ -72,6 +72,8 @@ def _fail(st, build_id, allowed, message, rep, now, klass=None):
 
 def _write_task(cfg, record, directory, sha, size):
     write_json_atomic(os.path.join(directory, builds.TASK_FILE), builds.task_document(record, sha, size))
+    if os.path.getsize(os.path.join(directory, builds.TASK_FILE)) > builds.MAX_TASK_BYTES:
+        raise upstream_fetch.RecipeSourceError("task.json would be larger than the build runner accepts")
     os.chmod(os.path.join(directory, builds.TASK_FILE), 0o640)
     os.chmod(os.path.join(directory, builds.SOURCE_FILE), 0o640)
     os.chmod(directory, 0o750)
