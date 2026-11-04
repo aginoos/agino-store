@@ -38,11 +38,11 @@ SESSION_DEFAULTS = {
     "captures": "/srv/store/sandbox/captures",
     "web_group": "agino-admin",
     "max_sessions": "2",
-    "run_minutes": "30",
+    "run_minutes": "30",  # no longer used since the session VM is reused (docs/sandbox.md); kept so old configs load
     "idle_minutes": "10",
-    "total_minutes": "60",
+    "total_minutes": "120",
     "install_minutes": "15",
-    "overlay_cap_gib": "8",
+    "overlay_cap_gib": "12",
     "min_free_gib": "20",
     "max_captures": "40",
     "retention_hours": "24",
@@ -59,9 +59,9 @@ class SessionConfig:
     max_sessions: int = 2
     run_minutes: int = 30
     idle_minutes: int = 10
-    total_minutes: int = 60
+    total_minutes: int = 120
     install_minutes: int = 15
-    overlay_cap_gib: int = 8
+    overlay_cap_gib: int = 12
     min_free_gib: int = 20
     max_captures: int = 40
     retention_hours: int = 24

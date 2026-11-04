@@ -38,8 +38,9 @@ class FakeSession:
         self.inputs += n
 
     def status(self):
-        return {"ok": True, "state": "running", "id": "0123456789abcdef", "app": "demo", "lang": "zh_CN",
-                "remaining_s": 1700, "idle_s": 3, "captures": 0, "extended": False, "error": ""}
+        return {"ok": True, "state": "running", "id": "0123456789abcdef", "slot": "vm0", "app": "demo",
+                "lang": "zh_CN", "desktop_lang": "zh_CN", "remaining_s": 1700, "idle_s": 3, "captures": 0,
+                "extended": False, "error": ""}
 
     def _maybe_fail(self):
         if self.fail_with:
@@ -49,7 +50,8 @@ class FakeSession:
         self._maybe_fail()
         self.calls.append(("capture", kind))
         return {"n": 1, "file": "01-%s-zh_CN.png" % kind, "kind": kind, "lang": "zh_CN", "width": 1280,
-                "height": 720, "size": 10, "sha256": "0" * 64, "title": "t", "problems": []}
+                "height": 720, "size": 10, "sha256": "0" * 64, "title": "t", "app": "demo", "desktop_lang": "zh_CN",
+                "problems": []}
 
     def op_captures(self):
         return [{"n": 1, "file": "01-screen-zh_CN.png", "kind": "screen", "lang": "zh_CN", "width": 1, "height": 1,
@@ -60,8 +62,17 @@ class FakeSession:
             raise OpError("no_such_capture")
         return self.png
 
-    def op_lang(self, lang):
-        self.calls.append(("lang", lang))
+    def op_lang(self, lang, desktop=False):
+        self._maybe_fail()
+        self.calls.append(("lang", lang, desktop))
+
+    def op_select_app(self, app, lang):
+        self._maybe_fail()
+        self.calls.append(("select_app", app, lang))
+
+    def op_finish_app(self):
+        self._maybe_fail()
+        self.calls.append(("finish_app",))
 
     def op_restart(self):
         self.calls.append(("restart",))
@@ -274,6 +285,7 @@ class CtlTests(WebCase):
         s = self.ctl()
         r = self.ask(s, {"op": "status"})
         self.assertEqual((r["ok"], r["state"], r["remaining_s"]), (True, "running", 1700))
+        self.assertEqual((r["slot"], r["desktop_lang"]), ("vm0", "zh_CN"))
 
     def no_rate_limit(self):
         old = W.RATE
@@ -285,9 +297,14 @@ class CtlTests(WebCase):
         s = self.ctl()
         r = self.ask(s, {"op": "capture", "kind": "window"})
         self.assertEqual((r["ok"], r["n"], r["file"], r["problems"]), (True, 1, "01-window-zh_CN.png", []))
+        self.assertEqual((r["app"], r["desktop_lang"]), ("demo", "zh_CN"))
         r = self.ask(s, {"op": "captures"})
         self.assertEqual((r["ok"], len(r["items"]), r["items"][0]["file"]), (True, 1, "01-screen-zh_CN.png"))
-        for obj, call in (({"op": "lang", "lang": "en_US"}, ("lang", "en_US")), ({"op": "restart"}, ("restart",)),
+        for obj, call in (({"op": "lang", "lang": "en_US"}, ("lang", "en_US", False)),
+                          ({"op": "lang", "lang": "en_US", "desktop": True}, ("lang", "en_US", True)),
+                          ({"op": "lang", "lang": "zh_CN", "desktop": False}, ("lang", "zh_CN", False)),
+                          ({"op": "select_app", "app": "audacity", "lang": "en_US"}, ("select_app", "audacity", "en_US")),
+                          ({"op": "finish_app"}, ("finish_app",)), ({"op": "restart"}, ("restart",)),
                           ({"op": "rollback"}, ("rollback",)), ({"op": "extend"}, ("extend",)),
                           ({"op": "end"}, ("end",))):
             self.assertEqual(self.ask(s, obj), {"ok": True})
@@ -297,6 +314,12 @@ class CtlTests(WebCase):
         s = self.ctl()
         self.session.fail_with = "busy"
         self.assertEqual(self.ask(s, {"op": "capture", "kind": "screen"}), {"ok": False, "error": "busy"})
+        self.session.fail_with = "bad_state"
+        self.assertEqual(self.ask(s, {"op": "finish_app"}), {"ok": False, "error": "bad_state"})
+        self.session.fail_with = "no_job"
+        self.assertEqual(self.ask(s, {"op": "select_app", "app": "demo", "lang": "zh_CN"}),
+                         {"ok": False, "error": "no_job"})
+        self.session.fail_with = None
         self.assertEqual(self.ask(s, {"op": "get", "n": 9}), {"ok": False, "error": "no_such_capture"})
 
     def test_bad_requests(self):
@@ -305,7 +328,15 @@ class CtlTests(WebCase):
                {"op": "capture", "kind": 1}, {"op": "capture", "kind": "screen", "x": 1}, {"op": "lang", "lang": "fr"},
                {"op": "lang"}, {"op": "get"}, {"op": "get", "n": 0}, {"op": "get", "n": 100}, {"op": "get", "n": True},
                {"op": "get", "n": "4"}, {"op": "get", "n": 1.5}, {"op": 1}, {}, {"Op": "status"}, [], "status", 5, None,
-               {"op": "end", "force": True}]
+               {"op": "end", "force": True}, {"op": "lang", "lang": "en_US", "desktop": "yes"},
+               {"op": "lang", "lang": "en_US", "desktop": 1}, {"op": "lang", "lang": "en_US", "desktop": None},
+               {"op": "lang", "lang": "en_US", "other": True}, {"op": "lang", "desktop": True},
+               {"op": "select_app"}, {"op": "select_app", "app": "demo"}, {"op": "select_app", "lang": "zh_CN"},
+               {"op": "select_app", "app": "../demo", "lang": "zh_CN"}, {"op": "select_app", "app": "Demo", "lang": "zh_CN"},
+               {"op": "select_app", "app": "", "lang": "zh_CN"}, {"op": "select_app", "app": 1, "lang": "zh_CN"},
+               {"op": "select_app", "app": "a" * 65, "lang": "zh_CN"}, {"op": "select_app", "app": "demo\n", "lang": "zh_CN"},
+               {"op": "select_app", "app": "demo", "lang": "fr"}, {"op": "select_app", "app": "demo", "lang": "zh_CN", "x": 1},
+               {"op": "finish_app", "app": "demo"}, {"op": "rollback", "lang": "zh_CN"}]
         s = self.ctl()
         for obj in bad:
             self.assertEqual(self.ask(s, obj), {"ok": False, "error": "bad_request"}, obj)

@@ -11,10 +11,22 @@ SID = "0123456789abcdef"
 
 
 class SessionCase(ShotsCase):
-    def capture(self, n=1, kind="window", lang="zh_CN", sid=SID, data=None, **png):
+    def capture(self, n=1, kind="window", lang="zh_CN", sid=SID, data=None, app="gimp", index=True, **png):
+        """Write a capture file and (unless index=False) record it, with its app, in captures.json like the daemon."""
         name = "%02d-%s-%s.png" % (n, kind, lang)
         H.write(os.path.join(self.captures, sid, name), data if data is not None else make_png(seed=n * 3, **png))
+        if index:
+            self.index_items = getattr(self, "index_items", {})
+            items = self.index_items.setdefault(sid, [])
+            items.append({"n": n, "file": name, "kind": kind, "lang": lang, "app": app, "desktop_lang": "zh_CN"})
+            H.write(os.path.join(self.captures, sid, "captures.json"),
+                    json.dumps({"schema": 2, "session": sid, "items": items}), "w")
         return name
+
+    def write_index(self, *names, app="gimp", sid=SID):
+        """captures.json for files that were created by hand (symlinks, fifos...)."""
+        items = [{"n": int(n[:2]), "file": n, "app": app} for n in names]
+        H.write(os.path.join(self.captures, sid, "captures.json"), json.dumps({"items": items}), "w")
 
     def imp(self, pick, sid=SID, app="gimp", reviewer="alice"):
         return self.run_cli("shots-session-import", app, "--session", sid, "--reviewer", reviewer, "--pick", pick)
@@ -43,8 +55,8 @@ class TestImport(SessionCase):
 
     def test_forged_captures_json_is_ignored(self):
         self.capture(1, width=900, height=320)
-        forged = {"items": [{"n": 1, "file": "../../etc/passwd", "kind": "window", "lang": "en_US", "width": 5,
-                             "height": 5, "size": 1, "sha256": "f" * 64}]}
+        forged = {"items": [{"n": 1, "file": "01-window-zh_CN.png", "app": "gimp", "kind": "screen", "lang": "en_US",
+                             "width": 5, "height": 5, "size": 1, "sha256": "f" * 64}]}
         H.write(os.path.join(self.captures, SID, "captures.json"), json.dumps(forged), "w")
         code, out, _ = self.imp("01")
         self.assertEqual(code, 0)
@@ -134,6 +146,75 @@ class TestImport(SessionCase):
         self.assertIn("skipped 1", out)
 
 
+class TestAppFilter(SessionCase):
+    def test_only_captures_of_the_app_are_imported(self):
+        self.capture(1, app="gimp")
+        self.capture(2, app="audacity", lang="en_US")
+        self.capture(3, app="gimp", lang="en_US")
+        code, out, _ = self.imp("01,02,03")
+        self.assertEqual(code, 1)
+        self.assertIn("imported 2, skipped 0, problems 1", out)
+        self.assertIn("problem capture 02: not recorded for gimp", out)
+        self.assertEqual(sorted(i["scene"] for i in self.images()), ["session-01", "session-03"])
+
+    def test_the_other_app_can_import_its_own(self):
+        self.capture(1, app="gimp")
+        self.capture(2, app="audacity")
+        code, out, _ = self.imp("02", app="audacity")
+        self.assertEqual(code, 0, out)
+
+    def test_app_names_must_match_exactly(self):
+        self.capture(1, app="gimp-extra")
+        self.capture(2, app="GIMP")
+        code, out, _ = self.imp("01,02")
+        self.assertEqual(code, 1)
+        self.assertIn("imported 0, skipped 0, problems 2", out)
+
+    def test_capture_missing_from_the_index(self):
+        self.capture(1, index=False)
+        self.capture(2)
+        code, out, _ = self.imp("01,02")
+        self.assertEqual(code, 1)
+        self.assertIn("capture 01: not recorded for gimp", out)
+        self.assertIn("imported 1", out)
+
+    def test_index_must_name_the_same_file(self):
+        self.capture(1, kind="window")
+        doc = {"items": [{"n": 1, "file": "01-screen-zh_CN.png", "app": "gimp"}]}
+        H.write(os.path.join(self.captures, SID, "captures.json"), json.dumps(doc), "w")
+        code, out, _ = self.imp("01")
+        self.assertEqual(code, 1)
+        self.assertIn("not recorded for gimp", out)
+
+    def test_missing_corrupt_or_odd_index_imports_nothing(self):
+        self.capture(1, index=False)
+        code, out, _ = self.imp("01")
+        self.assertEqual(code, 1)
+        self.assertIn("captures.json", out)
+        self.assertFalse(os.path.exists(os.path.join(self.root, "gimp", "meta.json")))
+        for text in ("{not json", "[]", '{"items": 3}', '{"items": [1, "x", null, {"n": true, "file": 1, "app": 2}]}'):
+            H.write(os.path.join(self.captures, SID, "captures.json"), text, "w")
+            code, out, _ = self.imp("01")
+            self.assertEqual(code, 1, text)
+            self.assertFalse(os.path.exists(os.path.join(self.root, "gimp", "meta.json")))
+
+    def test_index_symlink_and_size_cap(self):
+        self.capture(1)
+        path = os.path.join(self.captures, SID, "captures.json")
+        os.unlink(path)
+        secret = os.path.join(os.path.dirname(self.captures), "secret.json")
+        H.write(secret, json.dumps({"items": [{"n": 1, "file": "01-window-zh_CN.png", "app": "gimp"}]}), "w")
+        os.symlink(secret, path)
+        code, out, _ = self.imp("01")
+        self.assertEqual(code, 1)
+        self.assertIn("symlink", out)
+        os.unlink(path)
+        H.write(path, " " * ((1 << 20) + 1), "w")
+        code, out, _ = self.imp("01")
+        self.assertEqual(code, 1)
+        self.assertIn("larger than", out)
+
+
 class TestHostileInput(SessionCase):
     def test_bad_arguments(self):
         self.capture(1)
@@ -176,6 +257,7 @@ class TestHostileInput(SessionCase):
         H.write(secret, make_png())
         os.makedirs(os.path.join(self.captures, SID))
         os.symlink(secret, os.path.join(self.captures, SID, "01-window-zh_CN.png"))
+        self.write_index("01-window-zh_CN.png")
         code, out, _ = self.imp("01")
         self.assertEqual(code, 1)
         self.assertIn("symlink", out)
@@ -188,6 +270,7 @@ class TestHostileInput(SessionCase):
         base = os.path.join(self.captures, SID)
         os.makedirs(os.path.join(base, "01-window-zh_CN.png"))
         os.mkfifo(os.path.join(base, "02-window-zh_CN.png"))
+        self.write_index("01-window-zh_CN.png", "02-window-zh_CN.png")
         code, out, _ = self.imp("01,02")
         self.assertEqual(code, 1)
         self.assertIn("problems 2", out)

@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """One throwaway KVM guest: qemu command line, run files, lifecycle."""
 
+import json
 import os
 import shutil
 import subprocess
@@ -10,8 +11,8 @@ from .qga import Qga
 from .qmp import Qmp
 from .util import InfraError, log
 
-RUN_FILE_NAMES = ("overlay.qcow2", "overlay2.qcow2", "vars.fd", "vars2.fd", "qmp.sock", "qga.sock", "vnc.sock",
-                  "shot.png", "shot.ppm", "qemu.log")
+RUN_FILE_NAMES = ("overlay.qcow2", "overlay2.qcow2", "vars.fd", "vars2.fd", "vars.qcow2", "qmp.sock", "qga.sock",
+                  "vnc.sock", "shot.png", "shot.ppm", "qemu.log")
 
 
 class RunFiles:
@@ -60,15 +61,33 @@ def mac_address(slot):
     return "52:54:00:5b:00:%02x" % slot
 
 
+def blockdev(**spec):
+    """A `-blockdev` argument pair; JSON keeps file names with commas or equal signs intact."""
+    return ["-blockdev", json.dumps(spec, separators=(",", ":"))]
+
+
 def build_argv(cfg, slot, files, deb_path, sandbox, demo_path=None, *, drive="overlay.qcow2", vars_name="vars.fd",
-               drive_opts="", extra=()):
-    argv = [cfg.qemu, "-name", "agsbx-%d" % slot, "-enable-kvm", "-machine", "q35,accel=kvm", "-cpu", "host",
+               drive_opts="", extra=(), snapshot_vm=False):
+    """qemu arguments. `snapshot_vm` (sessions only) opens the OVMF variables as a qcow2 `-blockdev` node and names
+    the system disk node `sysn`, so that QMP snapshot-save / snapshot-load can cover both; everything else
+    (raw pflash drives, plain `-drive`) is unchanged for the normal runs."""
+    machine = "q35,accel=kvm,pflash0=code,pflash1=vars" if snapshot_vm else "q35,accel=kvm"
+    argv = [cfg.qemu, "-name", "agsbx-%d" % slot, "-enable-kvm", "-machine", machine, "-cpu", "host",
             "-m", str(cfg.memory_mb), "-smp", str(cfg.cpus), "-display", "none", "-no-user-config", "-nodefaults",
-            "-device", "virtio-vga,xres=%d,yres=%d" % tuple(cfg.screen), "-rtc", "base=utc", "-no-reboot",
-            "-drive", "if=pflash,format=raw,readonly=on,file=%s" % cfg.ovmf_code,
-            "-drive", "if=pflash,format=raw,file=%s" % files.path(vars_name),
-            "-drive", "file=%s,format=qcow2,if=none,id=sys,discard=unmap%s" % (files.path(drive), drive_opts),
-            "-device", "virtio-blk-pci,drive=sys,bootindex=0"]
+            "-device", "virtio-vga,xres=%d,yres=%d" % tuple(cfg.screen), "-rtc", "base=utc", "-no-reboot"]
+    if snapshot_vm:
+        argv += blockdev(**{"node-name": "code", "driver": "raw", "read-only": True,
+                            "file": {"driver": "file", "filename": cfg.ovmf_code, "read-only": True}})
+        argv += blockdev(**{"node-name": "vars", "driver": "qcow2",
+                            "file": {"driver": "file", "filename": files.path(vars_name)}})
+        sys_node = ",node-name=sysn"
+    else:
+        argv += ["-drive", "if=pflash,format=raw,readonly=on,file=%s" % cfg.ovmf_code,
+                 "-drive", "if=pflash,format=raw,file=%s" % files.path(vars_name)]
+        sys_node = ""
+    argv += ["-drive", "file=%s,format=qcow2,if=none,id=sys%s,discard=unmap%s" % (files.path(drive), sys_node,
+                                                                               drive_opts),
+             "-device", "virtio-blk-pci,drive=sys,bootindex=0"]
     if deb_path is not None:
         argv += ["-drive", "file=%s,format=raw,if=none,readonly=on,id=deb" % deb_path,
                  "-device", "virtio-blk-pci,drive=deb,serial=sbxdeb"]

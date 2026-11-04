@@ -22,16 +22,15 @@ cpus = 4
 
 # Interactive screenshot sessions (docs/sandbox.md section 9). Optional; these are the defaults.
 [session]
-runtime_dir = /run/agino-session          # <slot>/web.sock (group-visible) and <slot>/private/ (sockets, 0700); slot = vm0, vm1, ...
+runtime_dir = /run/agino-session          # <slot>/web.sock (group-visible) and <slot>/private/ (sockets, 0700); slot is vm0, vm1, ...
 captures = /srv/store/sandbox/captures    # <session id>/NN-<kind>-<lang>.png + captures.json
 web_group = agino-admin                   # group of web.sock (the platform's group)
-max_sessions = 2                          # slots vm0..vm(N-1); also enforced by agino-session-ctl (at most 10)
-run_minutes = 30                          # from the start of the running phase
-                                          # `extend` (once per session) adds 30 minutes
+max_sessions = 2                          # also enforced by agino-session-ctl
+run_minutes = 30                          # unused (the VM is reused for many apps); accepted for old configs
 idle_minutes = 10                         # without a key or pointer event
-total_minutes = 120                       # hard limit including queueing and install
-install_minutes = 15                      # start + install limit
-overlay_cap_gib = 12                      # the single overlay (the clean snapshot starts at about 2.1 GiB)
+total_minutes = 120                       # hard limit of the whole session; one extension of 30 minutes
+install_minutes = 15                      # install limit per app
+overlay_cap_gib = 12                      # the one overlay (snapshot state included)
 min_free_gib = 20                         # free space in [sandbox] run below this refuses to start
 max_captures = 40
 retention_hours = 24                      # `session cleanup` removes older captures directories

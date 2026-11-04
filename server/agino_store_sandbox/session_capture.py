@@ -151,15 +151,15 @@ class GuestLocator:
 
 
 def public(item):
-    """The metadata clients see (no time stamp)."""
+    """The metadata clients see (no time stamp); includes the app and the desktop language."""
     return {k: v for k, v in item.items() if k != "time"}
 
 
 class CaptureStore:
     """The captures of one session on disk: NN-<kind>-<lang>.png files and captures.json."""
 
-    def __init__(self, directory, session_id, app, max_captures):
-        self.directory, self.session_id, self.app, self.max = directory, session_id, app, max_captures
+    def __init__(self, directory, session_id, max_captures):
+        self.directory, self.session_id, self.max = directory, session_id, max_captures
         self.items = []
         self._lock = threading.Lock()
 
@@ -185,8 +185,9 @@ class CaptureStore:
         with self._lock:
             return [public(i) for i in self.items]
 
-    def add(self, kind, lang, png, width, height, title):
-        """Store a finished PNG as the next capture; returns its metadata (CaptureError when full or too big)."""
+    def add(self, kind, lang, png, width, height, title, app, desktop_lang):
+        """Store a finished PNG as the next capture; returns its metadata (CaptureError when full or too big).
+        `lang` is the app language, `desktop_lang` the language of the whole desktop at that moment."""
         if len(png) > MAX_PNG:
             raise CaptureError("too_big", "%d bytes" % len(png))
         with self._lock:
@@ -197,7 +198,7 @@ class CaptureStore:
             self._write(name, png)
             item = {"n": n, "file": name, "kind": kind, "lang": lang, "width": width, "height": height,
                     "size": len(png), "sha256": hashlib.sha256(png).hexdigest(), "title": title,
-                    "problems": problems_for(width, height), "time": now()}
+                    "app": app, "desktop_lang": desktop_lang, "problems": problems_for(width, height), "time": now()}
             self.items = self.items + [item]
             try:
                 self._write_index()
@@ -224,7 +225,7 @@ class CaptureStore:
         os.replace(tmp, os.path.join(self.directory, name))
 
     def _write_index(self):
-        doc = {"schema": 1, "session": self.session_id, "app": self.app, "updated": now(),
+        doc = {"schema": 2, "session": self.session_id, "updated": now(),
                "items": list(self.items)}
         self._write("captures.json", (json.dumps(doc, indent=1, sort_keys=True) + "\n").encode("utf-8"))
 
@@ -233,9 +234,9 @@ class Capturer:
     def __init__(self, store, qmp, ppm_path, locator):
         self.store, self.qmp, self.ppm_path, self.locator = store, qmp, ppm_path, locator
 
-    def capture(self, kind, lang):
+    def capture(self, kind, lang, app, desktop_lang):
         """Take a capture of kind 'window' or 'screen'; returns the stored item. CaptureError otherwise."""
-        if kind not in KINDS or lang not in shots_scene.LANGS:
+        if kind not in KINDS or lang not in shots_scene.LANGS or desktop_lang not in shots_scene.LANGS or not app:
             raise CaptureError("bad_request")
         if self.store.count() >= self.store.max:
             raise CaptureError("too_many")
@@ -259,4 +260,4 @@ class Capturer:
                 raise CaptureError("no_window", "window outside the screen")
             rgb, (width, height) = crop_rgb(width, rgb, rect), rect[2:]
         png = encode_png_rgb(width, height, rgb)
-        return self.store.add(kind, lang, png, width, height, title)
+        return self.store.add(kind, lang, png, width, height, title, app, desktop_lang)

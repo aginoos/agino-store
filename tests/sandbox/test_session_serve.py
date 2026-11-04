@@ -42,8 +42,8 @@ class ServeTests(unittest.TestCase):
         self.deps = S.Deps(vm_factory=T.FakeVm, guest_factory=T.FakeGuest, sg_factory=lambda g: self.sg,
                            install=lambda *a: None, locator_factory=lambda sg: T.FakeLocator(),
                            find_job=lambda cfg, app: T.FakeJob(), sandbox_flag=lambda c: False,
-                           tap_bytes=lambda slot: 0, free_bytes=lambda p: 1 << 40)
-        self.app_dir = os.path.join(self.tmp.name, "rt", "demo")
+                           tap_bytes=lambda slot: 0, free_bytes=lambda p: 1 << 40, settle=0, desktop_settle=0)
+        self.app_dir = os.path.join(self.tmp.name, "rt", "vm0")
 
     def wait(self, predicate, what, timeout=5):
         end = time.monotonic() + timeout
@@ -72,7 +72,7 @@ class ServeTests(unittest.TestCase):
 
     def test_full_run(self):
         result = []
-        t = threading.Thread(target=lambda: result.append(SS.serve(self.cfg, "demo", "zh_CN", self.deps, 1)))
+        t = threading.Thread(target=lambda: result.append(SS.serve(self.cfg, "vm0", self.deps, 1)))
         t.start()
         token_path = os.path.join(self.app_dir, "token.once")
         self.wait(lambda: os.path.exists(token_path), "token.once")
@@ -85,11 +85,18 @@ class ServeTests(unittest.TestCase):
         self.assertEqual(stat.S_IMODE(os.stat(os.path.join(self.app_dir, "private")).st_mode), 0o700)
         self.assertEqual(stat.S_IMODE(os.stat(os.path.join(self.app_dir, "web.sock")).st_mode), 0o660)
         s, f = self.ctl(bytes.fromhex(token_hex))
-        self.wait(lambda: self.ask(f, {"op": "status"})["state"] == "running", "running state")
+        self.wait(lambda: self.ask(f, {"op": "status"})["state"] == "idle", "idle state")
         status = self.ask(f, {"op": "status"})
-        self.assertEqual((status["id"], status["app"]), (session_id, "demo"))
+        self.assertEqual((status["id"], status["slot"], status["app"]), (session_id, "vm0", ""))
+        self.assertEqual(self.ask(f, {"op": "capture", "kind": "screen"}), {"ok": False, "error": "bad_state"})
+        self.assertEqual(self.ask(f, {"op": "select_app", "app": "demo", "lang": "zh_CN"}), {"ok": True})
+        self.wait(lambda: self.ask(f, {"op": "status"})["state"] == "running", "running state")
+        self.assertEqual(self.ask(f, {"op": "status"})["app"], "demo")
         shot = self.ask(f, {"op": "capture", "kind": "screen"})
         self.assertTrue(shot["ok"])
+        self.assertEqual((shot["app"], shot["desktop_lang"]), ("demo", "zh_CN"))
+        self.assertEqual(self.ask(f, {"op": "finish_app"}), {"ok": True})
+        self.assertEqual(self.ask(f, {"op": "status"})["state"], "idle")
         self.assertEqual(self.ask(f, {"op": "end"}), {"ok": True})
         t.join(10)
         self.assertEqual(result, [0])
@@ -99,25 +106,29 @@ class ServeTests(unittest.TestCase):
         self.assertEqual(T.FakeVm.instances[0].events[-1], "stop")
 
     def test_failed_session_lingers_then_cleans_up(self):
-        self.deps.find_job = lambda cfg, app: (_ for _ in ()).throw(SandboxError("no usable sandbox job"))
+        def broken(*a):
+            vm = T.FakeVm(*a)
+            vm.fail_boot = True
+            return vm
+        self.deps.vm_factory = broken
         result = []
-        t = threading.Thread(target=lambda: result.append(SS.serve(self.cfg, "demo", "zh_CN", self.deps, 0.5)))
+        t = threading.Thread(target=lambda: result.append(SS.serve(self.cfg, "vm0", self.deps, 0.5)))
         t.start()
         self.wait(lambda: os.path.exists(os.path.join(self.app_dir, "token.once")), "token.once")
         token = bytes.fromhex(read(os.path.join(self.app_dir, "token.once")).decode().strip())
         try:
             s, f = self.ctl(token)
             self.wait(lambda: self.ask(f, {"op": "status"})["state"] == "failed", "failed state")
-            self.assertIn("no usable sandbox job", self.ask(f, {"op": "status"})["error"])
+            self.assertIn("qemu did not start", self.ask(f, {"op": "status"})["error"])
         except (OSError, AssertionError):
             pass  # the linger is short in this test; the cleanup below is what matters
         t.join(10)
         self.assertFalse(os.path.exists(self.app_dir))
 
     def test_bad_arguments(self):
-        for app, lang in (("../x", "zh_CN"), ("A", "zh_CN"), ("", "zh_CN"), ("demo", "fr_FR"), ("-x", "en_US")):
+        for slot in ("../x", "A", "", "demo", "-x", "vm", "vm10", "vmx", "VM0", "vm0\n", "vm0 ", "vm-1"):
             with self.assertRaises(SandboxError):
-                SS.serve(self.cfg, app, lang, self.deps)
+                SS.serve(self.cfg, slot, self.deps)
 
     def test_stale_files_of_a_crashed_run_are_removed(self):
         private = os.path.join(self.app_dir, "private")
@@ -125,7 +136,7 @@ class ServeTests(unittest.TestCase):
         for name in ("token.once", "session.id", "web.sock"):
             with open(os.path.join(self.app_dir, name), "w") as f:
                 f.write("old")
-        SS.prepare_dirs(self.cfg.session, "demo")
+        SS.prepare_dirs(self.cfg.session, "vm0")
         self.assertEqual(sorted(os.listdir(self.app_dir)), ["private"])
 
     def test_status_command(self):
@@ -134,13 +145,15 @@ class ServeTests(unittest.TestCase):
         doc = {"state": "running", "remaining_s": 100, "idle_s": 5, "written": time.time() - 10}
         with open(os.path.join(private, "status.json"), "w") as f:
             json.dump(doc, f)
-        out = json.loads(SS.status(self.cfg, "demo"))
+        out = json.loads(SS.status(self.cfg, "vm0"))
         self.assertEqual(out["state"], "running")
         self.assertTrue(88 <= out["remaining_s"] <= 90 and 14 <= out["idle_s"] <= 16)
         with self.assertRaises(SandboxError):
-            SS.status(self.cfg, "other")
+            SS.status(self.cfg, "vm1")
         with self.assertRaises(SandboxError):
-            SS.status(self.cfg, "../demo")
+            SS.status(self.cfg, "../vm0")
+        with self.assertRaises(SandboxError):
+            SS.status(self.cfg, "demo")
 
 
 class CleanupTests(unittest.TestCase):
