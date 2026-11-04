@@ -16,6 +16,7 @@ DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "app-yam
 
 class TestEditHappyPath(EditCase):
     def test_text_edit_marks_the_description_confirmed(self):
+        self.set_app(lambda d: dict(d, description_source="ai"))
         before = self.head()
         code, out, err = self.edit(NEW_TEXT)
         self.assertEqual((code, err), (0, ""))
@@ -34,6 +35,35 @@ class TestEditHappyPath(EditCase):
         self.assertEqual(git(self.content, "status", "--porcelain"), "")
         self.assertFalse(os.path.exists(self.staged("patch-0001.json")))
         content.load(self.content)
+
+    def test_summary_only_edit_keeps_an_ai_description_unconfirmed(self):
+        self.set_app(lambda d: dict(d, description_source="ai"))
+        self.assertEqual(self.edit({"summary": NEW_TEXT["summary"]})[0], 0)
+        data = self.app_data()
+        self.assertEqual(data["summary"], NEW_TEXT["summary"])
+        self.assertEqual(data["description_source"], "ai")
+        self.assertNotIn("description_confirmed", data)
+        self.assertTrue(cli._ai_description(content.load(self.content), "gimp"))   # approve is still refused
+
+    def test_description_edit_keeps_official_and_submitter_marks(self):
+        description = {"description": NEW_TEXT["description"]}
+        self.set_app(lambda d: dict(d, description_source="official"))
+        self.assertEqual(self.edit(description)[0], 0)
+        data = self.app_data()
+        self.assertEqual(data["description"], NEW_TEXT["description"])
+        self.assertEqual(data["description_source"], "official")
+        self.assertNotIn("description_confirmed", data)
+        self.assertEqual(self.edit(description, app="chrome", name="patch-0002.json")[0], 0)
+        data = self.app_data("chrome")
+        self.assertEqual(data["description"], NEW_TEXT["description"])
+        self.assertNotIn("description_source", data)   # submitter is the default and stays so
+        self.assertNotIn("description_confirmed", data)
+
+    def test_description_edit_of_a_confirmed_text_replaces_the_reviewer(self):
+        self.set_app(lambda d: dict(d, description_source="confirmed",
+                                    description_confirmed={"by": "bob", "at": "2026-01-01T00:00:00Z"}))
+        self.assertEqual(self.edit({"description": NEW_TEXT["description"]})[0], 0)
+        self.assertEqual(self.app_data()["description_confirmed"]["by"], "alice")
 
     def test_other_keys_replace_the_whole_value(self):
         patch = {"name": {"zh_CN": "吉姆普", "en_US": "GIMP 3"}, "categories": ["web", "graphics"],

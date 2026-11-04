@@ -15,7 +15,8 @@ MARKUP_RE = re.compile(r"<[A-Za-z/]")
 SINGLE_LINE = {"name": 100, "summary": 300, "developer": 100}   # localized single-line texts: max length
 LOCALIZED = tuple(SINGLE_LINE) + ("description",)
 PATCH_KEYS = LOCALIZED + ("categories", "license", "proprietary", "homepage")
-REVIEWED_KEYS = ("description", "summary")   # a human changing these has reviewed the text
+REVIEWED_KEY = "description"   # only a changed description counts as reviewed (a summary edit does not)
+RECONFIRMED_SOURCES = ("ai", "confirmed")   # official and submitter descriptions keep their origin mark
 
 
 class PatchError(Exception):
@@ -119,6 +120,14 @@ def apply(data, patch):
             new[key] = merged
             changed.append(key)
     return new, changed
+
+
+def reviews_description(old_data, changed):
+    """True when this edit makes the editor the reviewer of the description: the description itself changed
+    and it was AI-written (or already confirmed, then the reviewer is replaced). Editing any other key never
+    does, and official / submitter descriptions are never turned into confirmed."""
+    source = old_data.get("description_source", C.DEFAULT_DESCRIPTION_SOURCE)
+    return REVIEWED_KEY in changed and source in RECONFIRMED_SOURCES
 
 
 def mark_confirmed(data, editor, stamp):

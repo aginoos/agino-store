@@ -148,7 +148,7 @@ def cmd_edit(cfg, st, args):
             _delete_patch(cfg, name)
             print("no changes for %s" % app)
             return 0
-        if any(k in patch_mod.REVIEWED_KEYS for k in changed):
+        if patch_mod.reviews_description(data, changed):
             new = patch_mod.mark_confirmed(new, editor, _stamp())
         message = "info(%s): %s by %s" % (app, ", ".join(changed), editor)
         warnings = _commit_change(cfg, app, original, new, message)
