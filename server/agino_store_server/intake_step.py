@@ -23,6 +23,7 @@ import tempfile
 from . import builds, content, debinfo, intake, intake_delivery, intake_materials, intake_proxy, intake_workspace
 from .intake import IntakeError
 from .state import StateError, StateLocked, write_json_atomic
+from .upstream_fetch import UpstreamError
 
 LOCK_WAIT = 60.0
 FETCH_PREFIX = ".fetch-"
@@ -179,10 +180,12 @@ def _prepare(ctx, rec):
     try:
         intake_materials.build_inputs(cfg, st, started, loaded)
         launched = launch_ai(cfg, st, started, started["agent"], ctx.now)
+    except StateLocked:
+        raise
     except intake_materials.MaterialError as e:
         _fail(st, started, str(e), ctx.rep, ctx.now)
         return
-    except (OSError, StateError, ValueError) as e:
+    except (OSError, StateError, ValueError, UpstreamError) as e:
         _fail(st, started, "cannot prepare the task: %s" % (getattr(e, "strerror", None) or e), ctx.rep, ctx.now)
         return
     if launched is not None:

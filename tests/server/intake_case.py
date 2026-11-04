@@ -59,7 +59,7 @@ def delivery(recipe=None, app=None, upstream=UPSTREAM, notes=b"notes\n"):
 
 
 def git(cwd, *args):
-    done = subprocess.run(["git", "-C", cwd, "-c", "user.name=t", "-c", "user.email=t@t", *args], capture_output=True,
+    done = subprocess.run(["git", "-C", cwd, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", *args], capture_output=True,
                           text=True, env={"PATH": os.environ["PATH"], "HOME": os.environ.get("HOME", "/")})
     assert done.returncode == 0, (args, done.stderr)
     return done.stdout.strip()
