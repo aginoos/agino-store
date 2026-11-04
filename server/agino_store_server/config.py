@@ -18,6 +18,8 @@ DEFAULT_SHOTS_MAX_PER_LANG = 6
 DEFAULT_SHOTS_MIN_WIDTH = 900
 DEFAULT_BUILD_QUEUE = "/srv/store/build-queue"
 DEFAULT_BUILD_OUT = "/srv/store/build-out"
+DEFAULT_PROXY_ALLOW_FILE = "/srv/store/builder-proxy/allow-extra.list"
+INTAKE_AGENTS = ("claude", "codex")
 
 
 class ConfigError(Exception):
@@ -68,6 +70,19 @@ class Config:
     builds_max_source_mib: int = 512
     builds_max_artifact_mib: int = 1024
     builds_max_log_mib: int = 8
+    intake_agents: tuple = ("claude",)           # [intake] agents: the AI agents that are set up, first = default
+    intake_switch_agent: bool = False            # [intake] switch_agent: after a model failure try the next agent
+    intake_ai_minutes: int = 120                 # [intake] ai_minutes: time limit of one AI task
+    intake_max_rounds: int = 3                   # [intake] max_rounds: validation / replay corrections per task
+    intake_model_retry_minutes: int = 5          # [intake] model_retry_minutes: pause after a model failure
+    intake_model_max_retries: int = 12           # [intake] model_max_retries
+    intake_auto_repair: bool = True              # [intake] auto_repair: open a repair task for recipe failures
+    intake_max_auto_repairs: int = 2             # [intake] max_auto_repairs: per (app, version)
+    intake_max_unfinished: int = 20              # [intake] max_unfinished: open tasks at once
+    intake_proxy_allow_file: str = DEFAULT_PROXY_ALLOW_FILE   # [intake] proxy_allow_file
+    intake_max_page_kib: int = 1024              # [intake] max_page_kib: one fetched page
+    intake_max_inputs_mib: int = 8               # [intake] max_inputs_mib: everything handed to the agent
+    intake_keep_days: int = 14                   # [intake] keep_days: working files of finished tasks
 
     def build_policy(self):
         """What the content validation needs: the allowed upstream hosts and the global build limits."""
@@ -154,6 +169,26 @@ def _build_limits(cp):
         raise ConfigError("bad value for [builds] limits: %s" % e) from e
 
 
+def _intake_agents(cp):
+    raw = _opt(cp, "intake", "agents")
+    if raw is None:
+        return ("claude",)
+    agents = tuple(dict.fromkeys(raw.replace(",", " ").split()))
+    if not agents or any(a not in INTAKE_AGENTS for a in agents):
+        raise ConfigError("bad value for [intake] agents: %r (use %s)" % (raw, " and ".join(INTAKE_AGENTS)))
+    return agents
+
+
+def _intake_bool(cp, key, default):
+    raw = _opt(cp, "intake", key)
+    if raw is None:
+        return default
+    try:
+        return _bool(raw)
+    except ValueError as e:
+        raise ConfigError("bad value for [intake] %s: %r (yes or no)" % (key, raw)) from e
+
+
 def _sign_command(raw):
     if not raw:
         return ()
@@ -214,6 +249,19 @@ def load(path=DEFAULT_PATH):
         builds_max_source_mib=_section_int(cp, "builds", "max_source_mib", 512, 1, 4096),
         builds_max_artifact_mib=_section_int(cp, "builds", "max_artifact_mib", 1024, 1, 8192),
         builds_max_log_mib=_section_int(cp, "builds", "max_log_mib", 8, 1, 64),
+        intake_agents=_intake_agents(cp),
+        intake_switch_agent=_intake_bool(cp, "switch_agent", False),
+        intake_ai_minutes=_section_int(cp, "intake", "ai_minutes", 120, 10, 600),
+        intake_max_rounds=_section_int(cp, "intake", "max_rounds", 3, 0, 10),
+        intake_model_retry_minutes=_section_int(cp, "intake", "model_retry_minutes", 5, 1, 1440),
+        intake_model_max_retries=_section_int(cp, "intake", "model_max_retries", 12, 0, 1000),
+        intake_auto_repair=_intake_bool(cp, "auto_repair", True),
+        intake_max_auto_repairs=_section_int(cp, "intake", "max_auto_repairs", 2, 0, 20),
+        intake_max_unfinished=_section_int(cp, "intake", "max_unfinished", 20, 1, 1000),
+        intake_proxy_allow_file=_opt(cp, "intake", "proxy_allow_file") or DEFAULT_PROXY_ALLOW_FILE,
+        intake_max_page_kib=_section_int(cp, "intake", "max_page_kib", 1024, 16, 8192),
+        intake_max_inputs_mib=_section_int(cp, "intake", "max_inputs_mib", 8, 1, 64),
+        intake_keep_days=_section_int(cp, "intake", "keep_days", 14, 1, 365),
     )
     if bool(cfg.key) == bool(cfg.sign_command):
         raise ConfigError("[catalog] exactly one of key and sign_command must be set")

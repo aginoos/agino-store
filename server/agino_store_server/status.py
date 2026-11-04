@@ -7,18 +7,18 @@ Never takes state/.lock, writes nothing, runs no sudo and uses no network.
 import datetime
 import json
 
-from . import status_apps, status_builds, status_sandbox, status_shots, status_state
+from . import status_apps, status_builds, status_intake, status_sandbox, status_shots, status_state
 from .status_io import Errors, sanitize
 
-SCHEMA = 2
+SCHEMA = 3
 SECTIONS = ("apps", "candidates", "approved", "vendors", "catalog", "sandbox", "timers", "shots", "categories",
-            "upstreams", "builds", "builder")
+            "upstreams", "builds", "builder", "intake")
 FUTURE_SECTIONS = ("submissions", "sessions")
 MAX_BYTES = 8 << 20
 # (section, path inside the section) of the lists the size guard may shorten; newest or most important first.
 TRUNCATABLE = (("apps", ()), ("shots", ()), ("candidates", ()), ("approved", ("log",)), ("vendors", ()),
                ("sandbox", ("queue",)), ("sandbox", ("jobs",)), ("sandbox", ("reports",)), ("builds", ()),
-               ("upstreams", ()))
+               ("intake", ()), ("upstreams", ()))
 
 
 class UnknownSection(ValueError):
@@ -47,6 +47,7 @@ def _collect(cfg, wanted, errors):
                   if {"apps", "candidates"} & set(wanted) else [])
     approved = status_state.read_approved(cfg, errors) if {"apps", "approved"} & set(wanted) else {}
     records = status_builds.load_records(cfg, errors) if {"builds", "builder"} & set(wanted) else []
+    intake_records = status_intake.load_records(cfg, errors) if "intake" in wanted else []
     makers = {
         "apps": lambda: status_apps.section(cfg, content, approved, status_state.newest_status(candidates), errors),
         "candidates": lambda: candidates,
@@ -60,6 +61,7 @@ def _collect(cfg, wanted, errors):
         "upstreams": lambda: status_builds.upstreams_section(cfg, content, errors),
         "builds": lambda: status_builds.builds_section(records),
         "builder": lambda: status_builds.builder_section(records),
+        "intake": lambda: status_intake.intake_section(intake_records),
     }
     out = {}
     for name in wanted:

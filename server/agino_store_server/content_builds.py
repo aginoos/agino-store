@@ -12,6 +12,7 @@ import re
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
+from . import recipe_v2
 from .buildcfg import LIMIT_KEYS, Limits
 
 ID_RE = re.compile(r"\A[a-z0-9][a-z0-9.+-]*\Z")
@@ -47,18 +48,46 @@ class Upstream:
 class Recipe:
     app: str
     base: str
-    source: dict            # {kind, checksum, url}; checksum/url may be None
+    source: dict | None     # v1: {kind, checksum, url}; checksum/url may be None. None with `sources` (v2)
     build_depends: tuple
     steps: tuple
     package: dict           # {name, section, depends (tuple), maintainer}
     limits: Limits          # effective: the recipe's value, else the global ceiling
+    sources: tuple = ()     # v2: dicts {name, kind, url[, ref][, sha256]}, placeholders not yet replaced
+    files: tuple = ()       # v2: dicts {path, mode, content}
+    test: tuple = ()        # v2: single-line commands run under xvfb after the package is installed
+    evidence: tuple = ()    # v2: dicts {claim, url}
+    recipe_version: int | None = None
+    derived_from: int | None = None
 
-    def as_task(self):
-        """The recipe as plain JSON data for task.json (only keys the build runner knows; no nulls)."""
-        return {"base": self.base, "source": {k: v for k, v in self.source.items() if v is not None},
-                "build_depends": list(self.build_depends), "steps": list(self.steps),
-                "package": dict(self.package, depends=list(self.package["depends"])),
-                "limits": self.limits.as_dict()}
+    @property
+    def is_v2(self):
+        return bool(self.sources)
+
+    def as_task(self, version=None, tag=None, commit=None):
+        """The recipe as plain JSON data for task.json (only keys the build runner knows; no nulls).
+
+        With `sources` the placeholders ${VERSION}, ${TAG}, ${COMMIT} are replaced by the arguments;
+        recipe_v2.ExpandError when one is needed and missing or the result is not a valid URL or ref.
+        """
+        out = {"base": self.base, "build_depends": list(self.build_depends), "steps": list(self.steps),
+               "package": dict(self.package, depends=list(self.package["depends"])),
+               "limits": self.limits.as_dict()}
+        if self.source is not None:
+            out["source"] = {k: v for k, v in self.source.items() if v is not None}
+        if self.sources:
+            values = {"VERSION": version, "TAG": tag, "COMMIT": commit}
+            out["sources"] = list(recipe_v2.expand_sources(self.sources, values))
+        if self.files:
+            out["files"] = [dict(f) for f in self.files]
+        if self.test:
+            out["test"] = list(self.test)
+        if self.evidence:
+            out["evidence"] = [dict(e) for e in self.evidence]
+        for key in ("recipe_version", "derived_from"):
+            if getattr(self, key) is not None:
+                out[key] = getattr(self, key)
+        return out
 
 
 def _one_line(chk, path, value, max_len):
@@ -241,19 +270,25 @@ def _limits(chk, path, value, ceiling):
 def recipe(chk, rel, data, app_id, policy, allow_insecure):
     """Validate one apps/<id>/build.yaml; returns Recipe or None."""
     before = len(chk.errors)
-    required = ("base", "source", "build_depends", "steps", "package")
-    if not chk.mapping(rel, data, required, ("limits",)):
+    required = ("base", "build_depends", "steps", "package")
+    if not chk.mapping(rel, data, required, ("limits", "source") + recipe_v2.V2_KEYS):
         return None
+    if ("source" in data) == ("sources" in data):
+        chk.fail(rel, "missing key 'source' (or 'sources')" if "source" not in data
+                 else "'source' and 'sources' cannot both be set")
     if data["base"] not in BASES:
         chk.fail(rel + ".base", "must be one of %s" % ", ".join(BASES))
-    source = _source(chk, rel + ".source", data["source"], policy, allow_insecure)
+    source = _source(chk, rel + ".source", data["source"], policy, allow_insecure) if "source" in data else None
+    extras = recipe_v2.parse(chk, rel, data, policy, allow_insecure, public_url)
     depends = _packages(chk, rel + ".build_depends", data["build_depends"], 0, MAX_DEPENDS)
     steps = _steps(chk, rel + ".steps", data["steps"])
     package = _package(chk, rel + ".package", data["package"])
     limits = _limits(chk, rel + ".limits", data.get("limits"), policy.limits)
-    if len(chk.errors) != before or None in (source, depends, steps, package, limits):
+    if len(chk.errors) != before or None in (depends, steps, package, limits, extras) or (
+            "source" in data and source is None):
         return None
-    return Recipe(app_id, data["base"], source, depends, steps, package, limits)
+    return Recipe(app_id, data["base"], source, depends, steps, package, limits, **{
+        k: (v if k in ("recipe_version", "derived_from") else tuple(v)) for k, v in extras.items()})
 
 
 # Directory scans

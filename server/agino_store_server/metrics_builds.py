@@ -6,6 +6,8 @@ import os
 from .state import ID_RE
 
 STATUSES = ("queued", "fetching", "ready", "building", "collecting", "done", "failed", "cancelled")
+INTAKE_STATUSES = ("submitted", "fetching", "ready", "running", "verifying", "review", "adopted", "rejected",
+                   "failed", "cancelled", "paused")
 
 
 def lines(cfg, st, epoch):
@@ -27,4 +29,9 @@ def lines(cfg, st, epoch):
         for status in STATUSES:
             out.append(("agino_store_builds", '{status="%s"}' % status,
                         sum(1 for r in records if r.get("status") == status)))
+    intakes = st.intakes()
+    if intakes:
+        for status in INTAKE_STATUSES:
+            out.append(("agino_store_intake_tasks", '{status="%s"}' % status,
+                        sum(1 for r in intakes if r.get("status") == status)))
     return out

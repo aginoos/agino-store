@@ -1,12 +1,12 @@
 # `agino-store-server status --json` example
 
-Schema version 2; field reference in `docs/server.md` section 11. All strings are sanitised, output is
-ASCII JSON. Sections not requested (or not implemented yet: `submissions`, `sessions`) are absent. Schema 2 added `upstreams`, `builds` and `builder`. This example is abridged
+Schema version 3; field reference in `docs/server.md` section 11. All strings are sanitised, output is
+ASCII JSON. Sections not requested (or not implemented yet: `submissions`, `sessions`) are absent. Schema 2 added `upstreams`, `builds` and `builder`; schema 3 added `intake` and the `mode`, `class` and `intake` fields of `builds`. This example is abridged
 (lists have one entry) and pretty-printed; the real output is one line.
 
 ```json
 {
-  "schema": 2,
+  "schema": 3,
   "generated": "2026-11-03T08:00:00Z",
   "sections": {
     "apps": [{
@@ -70,8 +70,13 @@ ASCII JSON. Sections not requested (or not implemented yet: `submissions`, `sess
                 "status": "done", "by": "alice", "created": "2026-11-04T06:10:00Z", "started": "2026-11-04T06:12:00Z",
                 "finished": "2026-11-04T07:05:00Z", "error": "",
                 "artifact": {"file": "gimp-agino_3.0.4+agino1_amd64.deb", "sha256": "...", "size": 52428800},
-                "candidate": "3.0.4+agino1_0123456789ab"}],
+                "candidate": "3.0.4+agino1_0123456789ab", "class": "ok"}],
     "builder": {"running": null, "queued": 0},
+    "intake": [{"id": "fedcba9876543210", "kind": "import", "app": "newtool", "address": "https://vendor.example.com/newtool",
+                "hint": "", "agent": "claude", "allow_hosts": ["vendor.example.com"], "status": "review", "by": "alice",
+                "created": "2026-11-04T09:00:00Z", "started": "2026-11-04T09:00:05Z", "finished": null, "error": "",
+                "ai_task": "0011223344556677", "verify_task": "8899aabbccddeeff", "repair_of": null, "attempt": 1,
+                "rounds": 0, "retries": 0, "next_retry": null, "version": "1.2.0", "candidate": null}],
     "timers": [{"unit": "agino-store-track.timer", "LoadState": "loaded", "ActiveState": "active",
                 "SubState": "waiting", "LastTriggerUSec": "Tue 2026-11-03 06:00:00 UTC",
                 "NextElapseUSecRealtime": "Tue 2026-11-03 12:00:00 UTC"}]
@@ -85,6 +90,14 @@ A candidate built from source has `"origin": {"type": "built", "source_url": "ht
 "source_ref": "GIMP_3_0_4", "source_commit": "<40 hex>", "build_job": "<16 hex>"}` and `"source_class": "personal"`.
 `builds` lists the 50 newest tasks (newest first; no recipe, no log); `builder.queued` counts tasks in
 `queued`, `fetching` and `ready`; `versions` in `upstreams` are the seen versions, newest first, at most 30.
+A build task has `mode` (`build`, absent in old records; `ai` for the AI task of an intake task), `class` (why
+it failed: `recipe`, `infra`, `timeout`, `model`; `ok` when it succeeded; absent or `null` when unknown) and, for
+the tasks an intake task made, `intake` (its id). `intake` lists the 50 newest intake tasks (newest first; no hint
+beyond 1000 characters, no log, no delivered files). `status` is one of `submitted`, `fetching`, `ready`, `running`,
+`verifying`, `review`, `adopted`, `rejected`, `failed`, `cancelled`, `paused`; `app` is `null` until the delivered
+`app.yaml` names it; `repair_of` is `{app, version, failed_task}` for a repair task; `rounds` counts the correction
+rounds used, `retries` the pauses after a model failure, `next_retry` is when a paused task is tried again;
+`version` is the upstream version of the verification build; `candidate` the first candidate once adoption made it.
 
 `description_source` is one of `ai`, `confirmed`, `submitter` (default), `official`; `description_confirmed` is
 `{by, at}` or `null`. Section `categories` lists `categories.yaml` in file order and is also a valid `--section`

@@ -6,6 +6,7 @@
   2. ready/building tasks: follow builds.out/<id>/status.json;
   3. tasks with a result.json: collect the deb as a pending candidate (build_collect);
   4. tasks that ran past their time limit fail with a timeout (and get a cancel file);
+  4b. recipe failures of tracked apps open a repair task for the AI (intake_auto, at most twice per version);
   5. housekeeping: finished tasks lose their queue directory after an hour, stale fetch directories go.
 
 The caller holds the `build-step` lock, so only one run is active; state changes take the main state
@@ -18,7 +19,7 @@ import re
 import shutil
 import tempfile
 
-from . import build_collect, builds, debinfo, upstream_fetch
+from . import build_collect, builds, debinfo, intake_auto, source_assembly, upstream_fetch
 from .state import write_json_atomic
 from .status_io import SMALL_READ, ReadError, read_json
 
@@ -30,7 +31,8 @@ FETCH_PREFIX = ".fetch-"
 STATUS_FILE = "status.json"
 UTC_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 UTC_RE = re.compile(r"\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\Z")
-RUNNING_STATES = ("starting", "installing_deps", "building", "packaging", "collecting")   # all mean `building` here
+RUNNING_STATES = ("starting", "installing_deps", "building", "packaging", "collecting", "testing",
+                  "preparing", "running", "ai")   # all mean `building` here
 STOPPED_STATES = ("failed", "cancelled")
 STATUS_GRACE = 300   # seconds a stopped runner status may stand without a result.json
 
@@ -56,9 +58,12 @@ def _transition(st, build_id, allowed, **changes):
     return updated
 
 
-def _fail(st, build_id, allowed, message, rep, now):
+def _fail(st, build_id, allowed, message, rep, now, klass=None):
+    """Mark a task failed; `klass` (recipe | infra | timeout | model) lands in the record's `class`."""
+    extra = {"class": klass} if klass else {}
     with st.lock(wait=LOCK_WAIT):
-        done = _transition(st, build_id, allowed, status="failed", finished=_iso(now), error=builds.clean_error(message))
+        done = _transition(st, build_id, allowed, status="failed", finished=_iso(now),
+                           error=builds.clean_error(message), **extra)
     if done is not None:
         rep.fail("failed %s: %s" % (build_id, done["error"]))
 
@@ -67,12 +72,14 @@ def _fail(st, build_id, allowed, message, rep, now):
 
 def _write_task(cfg, record, directory, sha, size):
     write_json_atomic(os.path.join(directory, builds.TASK_FILE), builds.task_document(record, sha, size))
+    if os.path.getsize(os.path.join(directory, builds.TASK_FILE)) > builds.MAX_TASK_BYTES:
+        raise upstream_fetch.RecipeSourceError("task.json would be larger than the build runner accepts")
     os.chmod(os.path.join(directory, builds.TASK_FILE), 0o640)
     os.chmod(os.path.join(directory, builds.SOURCE_FILE), 0o640)
     os.chmod(directory, 0o750)
 
 
-def _publish(cfg, st, record, tmp, sha, size, rep):
+def _publish(cfg, st, record, tmp, sha, size, rep, fetched=None):
     with st.lock(wait=LOCK_WAIT):
         current = st.build(record["id"])
         if current is None or current.get("status") != "fetching":
@@ -84,8 +91,20 @@ def _publish(cfg, st, record, tmp, sha, size, rep):
         elif os.path.lexists(final):
             shutil.rmtree(final)   # left over from an earlier attempt at this same task
         os.rename(tmp, final)
-        st.save_build(dict(current, status="ready", source={"sha256": sha, "size": size}))
+        extra = {"fetched": fetched} if fetched is not None else {}
+        st.save_build(dict(current, status="ready", source={"sha256": sha, "size": size}, **extra))
     rep.add("fetched %s: %s %s (%.1f MiB)" % (record["id"], record["app"], record["upstream_version"], size / (1 << 20)))
+
+
+def _fetch_source(cfg, record, tmp):
+    """(sha256, size, fetched) of the task's source.tar written into `tmp`. A v2 recipe (sources) is assembled
+    from every source; a v1 recipe has the single pinned source. `fetched` is None for v1."""
+    recipe, dest = record["recipe"], os.path.join(tmp, builds.SOURCE_FILE)
+    if recipe.get("sources"):
+        return source_assembly.fetch_sources(cfg, record, tmp, dest)
+    sha, size = upstream_fetch.fetch_source(cfg, recipe["source"], record["repo"], record["tag"], record["commit"],
+                                            tmp, dest)
+    return sha, size, None
 
 
 def _fetch_one(cfg, st, build_id, rep, now):
@@ -97,17 +116,18 @@ def _fetch_one(cfg, st, build_id, rep, now):
     tmp = tempfile.mkdtemp(prefix=FETCH_PREFIX, dir=cfg.builds_queue)
     try:
         try:
-            sha, size = upstream_fetch.fetch_source(cfg, record["recipe"]["source"], record["repo"], record["tag"],
-                                                    record["commit"], tmp, os.path.join(tmp, builds.SOURCE_FILE))
+            sha, size, fetched = _fetch_source(cfg, record, tmp)
             _write_task(cfg, record, tmp, sha, size)
         except (upstream_fetch.UpstreamError, OSError) as e:
-            _fail(st, build_id, ("fetching",), "fetching the source failed: %s" % e, rep, now)
+            _fail(st, build_id, ("fetching",), "fetching the source failed: %s" % e, rep, now,
+                  getattr(e, "klass", "infra"))
             return
         except Exception as e:  # noqa: BLE001 - one task must not stop the others
-            _fail(st, build_id, ("fetching",), "internal error while fetching: %s" % type(e).__name__, rep, now)
+            _fail(st, build_id, ("fetching",), "internal error while fetching: %s" % type(e).__name__, rep, now,
+                  "infra")
             return
         try:
-            _publish(cfg, st, record, tmp, sha, size, rep)
+            _publish(cfg, st, record, tmp, sha, size, rep, fetched)
         except OSError as e:
             _fail(st, build_id, ("fetching",), "publishing the source failed: %s" % e.strerror, rep, now)
     finally:
@@ -160,7 +180,7 @@ def _sync_status(cfg, st, rep, now):
         elif state in STOPPED_STATES and _status_age(cfg, record["id"], now) > STATUS_GRACE:
             if not os.path.lexists(os.path.join(builds.out_dir(cfg, record["id"]), build_collect.RESULT_FILE)):
                 error = data.get("error") if isinstance(data.get("error"), str) and data["error"].strip() else state
-                _fail(st, record["id"], ("ready", "building"), "the runner stopped: %s" % error, rep, now)
+                _fail(st, record["id"], ("ready", "building"), "the runner stopped: %s" % error, rep, now, "infra")
 
 
 # 4. timeouts
@@ -183,7 +203,7 @@ def _expire(cfg, st, rep, now):
         if os.path.lexists(os.path.join(builds.out_dir(cfg, record["id"]), build_collect.RESULT_FILE)):
             continue   # the next run collects it
         builds.write_cancel_file(cfg, record, "build-step", _iso(now))
-        _fail(st, record["id"], ("ready", "building"), "timeout", rep, now)
+        _fail(st, record["id"], ("ready", "building"), "timeout", rep, now, "timeout")
 
 
 # 5. housekeeping
@@ -224,5 +244,6 @@ def step(cfg, st, now):
     _sync_status(cfg, st, rep, now)
     build_collect.collect_results(cfg, st, rep, now)
     _expire(cfg, st, rep, now)
+    intake_auto.create_repairs(cfg, st, rep, now)
     _cleanup(cfg, st, rep, now)
     return rep

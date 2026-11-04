@@ -1,6 +1,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """build-step, step 3: turn the runner's result.json and .deb into a pending candidate (contract 7.3).
 
+Two kinds of task do not end in a candidate here: an AI mode task (its deliverables stay in builds.out/<id>/ai/
+for intake-step) and the verification build of an intake task (the deb is stored, intake-adopt turns it into
+the first candidate once a person has accepted the recipe).
+
 Everything under builds.out/<id>/ was produced by the build VM through the runner and is untrusted
 data: sizes are checked, the deb is hashed, its control data is read with dpkg-deb (never installed or
 run) and the candidate then goes through the same inspect, diff and dependency checks as any intake.
@@ -21,8 +25,18 @@ COLLECT_ERRORS = (trackers.TrackError, debinfo.DebError, checks.CheckError, Stat
 ACTIVE = ("ready", "building", "collecting")
 
 
+RESULT_CLASSES = ("ok", "recipe", "infra", "timeout", "model")
+AI_DIR = "ai"
+AI_TEXT_FILES = ("recipe.yaml", "app.yaml", "upstream.yaml", "vendor.yaml", "NOTES.md")
+AI_MAX_TEXT_BYTES = 256 << 10
+
+
 class CollectError(Exception):
-    """The task failed; the message goes into its record."""
+    """The task failed; the message goes into its record, `klass` (a RESULT_CLASSES value or None) too."""
+
+    def __init__(self, message, klass="recipe"):
+        super().__init__(message)
+        self.klass = klass
 
 
 def _read_result(path, now):
@@ -36,7 +50,7 @@ def _read_result(path, now):
             return None
         if age < PARTIAL_GRACE:
             return None
-        raise CollectError("result.json is unreadable: %s" % e) from e
+        raise CollectError("result.json is unreadable: %s" % e, "infra") from e
     if not isinstance(data, dict):
         raise CollectError("result.json is not an object")
     return data
@@ -78,22 +92,84 @@ def _checked_file(cfg, rec, name, sha, size):
     return path
 
 
-def _ingest(cfg, st, rec, path, name, sha):
+def _target(cfg, rec):
+    return trackers.Target(rec["app"], None, {"package": rec["package"], "arch": cfg.arch})
+
+
+def _store(cfg, path, name, sha):
+    """Copy the deb into paths.downloads; (stored path, size)."""
     stored, stored_sha, size = fetch.store_file(path, cfg.downloads, name)
     if stored_sha != sha:
         os.unlink(stored)
         raise CollectError("the deb changed while it was copied")
+    return stored, size
+
+
+def candidate_from_deb(cfg, st, rec, stored, sha, size):
+    """Inspect, diff and dependency-check the stored deb of task `rec` and add it as a pending candidate with
+    origin.type built. Returns (artifact, candidate name). Callers hold the state lock."""
     dl = fetch.Download(rec["repo"], stored, sha, size, os.path.basename(stored), None, None)
-    target = trackers.Target(rec["app"], None, {"package": rec["package"], "arch": cfg.arch})
     origin = {"type": "built", "source_url": rec["repo"], "source_ref": rec["tag"],
               "source_commit": rec["commit"], "build_job": rec["id"]}
-    candidate = trackers.ingest(cfg, st, target, dl, rec["repo"], origin, rec["version"])
+    candidate = trackers.ingest(cfg, st, _target(cfg, rec), dl, rec["repo"], origin, rec["version"])
     return {"file": os.path.basename(stored), "sha256": sha, "size": size}, os.path.basename(candidate["_path"])[:-5]
+
+
+def _ingest(cfg, st, rec, path, name, sha):
+    stored, size = _store(cfg, path, name, sha)
+    return candidate_from_deb(cfg, st, rec, stored, sha, size)
+
+
+def _result_class(result):
+    value = result.get("class")
+    return value if value in RESULT_CLASSES else None
+
+
+def _verify_outcome(cfg, rec, result):
+    """The verification build of an intake task: keep the deb (checked like any built deb), make no candidate."""
+    name, sha, size = _the_deb(result)
+    path = _checked_file(cfg, rec, name, sha, size)
+    try:
+        trackers.verify_fields(_target(cfg, rec).vendor, debinfo.control_fields(path), rec["version"])
+        stored, size = _store(cfg, path, name, sha)
+    except COLLECT_ERRORS as e:
+        raise CollectError("the deb was refused: %s" % builds.clean_error(e)) from e
+    return {"artifact": {"file": os.path.basename(stored), "sha256": sha, "size": size}, "candidate": None}
+
+
+def _ai_file_ok(cfg, rec, name):
+    """True when builds.out/<id>/ai/<name> is a regular file of an acceptable size."""
+    directory = os.path.join(builds.out_dir(cfg, rec["id"]), AI_DIR)
+    path = os.path.join(directory, name)
+    try:
+        if os.path.islink(directory) or os.path.islink(path):
+            return False
+        info = os.lstat(path)
+    except OSError:
+        return False
+    if not os.path.isfile(path):
+        return False
+    limit = AI_MAX_TEXT_BYTES if name in AI_TEXT_FILES else min(cfg.builds_max_artifact_mib << 20, cfg.max_deb_bytes)
+    return info.st_size <= limit
+
+
+def _ai_outcome(cfg, rec, result):
+    """An AI mode task: the delivered files that exist and are on the whitelist; recipe.yaml is required."""
+    names = [n for n in result.get("files") or [] if isinstance(n, str)
+             and (n in AI_TEXT_FILES or DEB_NAME_RE.match(n)) and _ai_file_ok(cfg, rec, n)]
+    names = list(dict.fromkeys(names))
+    if "recipe.yaml" not in names:
+        raise CollectError("the agent delivered no recipe.yaml")
+    return {"ai_files": names, "artifact": None, "candidate": None}
 
 
 def _outcome(cfg, st, rec, result):
     if result.get("ok") is not True:
-        raise CollectError(_failure_text(result))
+        raise CollectError(_failure_text(result), _result_class(result))
+    if rec.get("mode") == "ai":
+        return _ai_outcome(cfg, rec, result)
+    if rec.get("verify"):
+        return _verify_outcome(cfg, rec, result)
     name, sha, size = _the_deb(result)
     path = _checked_file(cfg, rec, name, sha, size)
     try:
@@ -111,13 +187,15 @@ def _collect_one(cfg, st, rec_id, result, rep):
         now = debinfo.utc_now()
         st.save_build(dict(rec, status="collecting"))
         try:
-            changes = dict(_outcome(cfg, st, rec, result), status="done", error="")
-            rep.add("collected %s: %s %s -> candidate %s" % (rec_id, rec["app"], rec["version"], changes["candidate"]))
+            changes = dict(_outcome(cfg, st, rec, result), status="done", error="", **{"class": "ok"})
+            rep.add("collected %s: %s %s -> %s" % (rec_id, rec["app"], rec["version"],
+                                                  "candidate %s" % changes["candidate"] if changes["candidate"]
+                                                  else "done"))
         except CollectError as e:
-            changes = {"status": "failed", "error": builds.clean_error(e)}
+            changes = {"status": "failed", "error": builds.clean_error(e), "class": e.klass}
             rep.fail("failed %s: %s" % (rec_id, changes["error"]))
         except Exception as e:  # noqa: BLE001 - a task must never stay in collecting because of a bug
-            changes = {"status": "failed", "error": "internal error: %s" % type(e).__name__}
+            changes = {"status": "failed", "error": "internal error: %s" % type(e).__name__, "class": "infra"}
             rep.fail("failed %s: %s" % (rec_id, changes["error"]))
         st.save_build(dict(rec, finished=now, **changes))
 
@@ -138,7 +216,7 @@ def collect_results(cfg, st, rep, now):
                 fresh = st.build(rec["id"])
                 if fresh is not None and fresh.get("status") in ACTIVE:
                     st.save_build(dict(fresh, status="failed", finished=debinfo.utc_now(),
-                                       error=builds.clean_error(e)))
+                                       error=builds.clean_error(e), **{"class": e.klass}))
                     rep.fail("failed %s: %s" % (rec["id"], builds.clean_error(e)))
             continue
         if result is not None:

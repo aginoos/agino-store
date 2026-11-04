@@ -73,6 +73,34 @@ def commit(root, rel, message):
     return head(root)
 
 
+def check_clean_paths(root, rels):
+    """The checkout must be a git repository and none of `rels` may have uncommitted changes."""
+    head(root)
+    if run(root, ["status", "--porcelain", "--", *rels]).strip():
+        raise GitError("%s has uncommitted changes in the content checkout" % ", ".join(rels))
+
+
+def commit_paths(root, rels, message):
+    """Commit only the paths `rels` (new or changed files); returns the new HEAD."""
+    try:
+        run(root, ["add", "--", *rels])
+        run(root, ["commit", "--no-verify", "-m", message, "--only", "--", *rels])
+    except GitError:
+        run(root, ["reset", "-q", "HEAD", "--", *rels], check=False)
+        raise
+    return head(root)
+
+
+def publish_paths(root, rels, message, push_enabled, ssh_command):
+    """commit_paths and, when push_enabled, push it. Returns the warning lines to print."""
+    previous = head(root)
+    commit_paths(root, rels, message)
+    if not push_enabled:
+        return [PUSH_OFF_WARNING]
+    push(root, ssh_command, previous, message)
+    return []
+
+
 def undo(root, previous, message):
     """Drop our commit (a --keep reset: nothing else in the working tree is touched)."""
     subject = run(root, ["log", "-1", "--format=%s"], check=False).strip()

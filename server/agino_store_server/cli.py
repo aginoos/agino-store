@@ -18,8 +18,9 @@ import sys
 import tempfile
 import time
 
-from . import (approve_rules, build_step, builds, catalog, catalogwriter, config, content, content_edit, metrics_builds,
-               reports, sandboxqueue, shots_cmds, shots_import, shots_session, shots_store, shotsreq, status, upstreams)
+from . import (approve_rules, build_step, builds, catalog, catalogwriter, config, content, content_edit, intake,
+               intake_cmds, metrics_builds, reports, sandboxqueue, shots_cmds, shots_import, shots_session,
+               shots_store, shotsreq, status, upstreams)
 from .state import ID_RE, VERSION_RE, State, StateError, StateLocked
 
 EXIT_OK, EXIT_PROBLEM, EXIT_USAGE, EXIT_LOCKED = 0, 1, 2, 3
@@ -111,6 +112,26 @@ def _parser():
     p.add_argument("id")
     p.add_argument("--by", required=True, metavar="NAME")
     sub.add_parser("build-step", help="advance the build tasks (timer, every minute)")
+    p = sub.add_parser("intake-submit", help="ask the AI to package the software at an address")
+    p.add_argument("address", help="https URL of the project page or repository")
+    p.add_argument("--hint", default="", help="a note for the agent (at most 1000 characters)")
+    p.add_argument("--agent", default=None, choices=config.INTAKE_AGENTS, help="default: the first of [intake] agents")
+    p.add_argument("--allow-host", action="append", default=[], metavar="HOST",
+                   help="one more host the agent may download from (repeatable, at most 5)")
+    p.add_argument("--by", required=True, metavar="NAME")
+    p = sub.add_parser("intake-cancel", help="end an unfinished intake task")
+    p.add_argument("id")
+    p.add_argument("--by", required=True, metavar="NAME")
+    p.add_argument("--reject", action="store_true", help="mark it rejected (a recipe in review that is refused)")
+    p = sub.add_parser("intake-repair", help="ask the AI to adjust the recipe of APP for an upstream version")
+    p.add_argument("app")
+    p.add_argument("--version", required=True, help="upstream version seen by upstream-check")
+    p.add_argument("--by", required=True, metavar="NAME")
+    p = sub.add_parser("intake-adopt", help="accept the recipe of an intake task in review")
+    p.add_argument("id")
+    p.add_argument("--by", required=True, metavar="NAME")
+    p.add_argument("--auto-task", action="store_true", help="also build new upstream versions automatically")
+    sub.add_parser("intake-step", help="advance the intake tasks (timer, every minute)")
     sub.add_parser("build", help="build and publish the catalog").add_argument("--if-changed", action="store_true")
     sub.add_parser("metrics", help="write the Prometheus text file")
     p = sub.add_parser("status", help="read-only state overview for the admin console (needs --json)")
@@ -611,6 +632,9 @@ COMMANDS = {"track": cmd_track, "check": cmd_check, "intake": cmd_intake, "pendi
             "content-edit": content_edit.cmd_edit, "content-confirm": content_edit.cmd_confirm,
             "upstream-check": cmd_upstream_check, "build-request": cmd_build_request,
             "build-cancel": cmd_build_cancel, "build-step": cmd_build_step,
+            "intake-submit": intake_cmds.cmd_submit, "intake-cancel": intake_cmds.cmd_cancel,
+            "intake-repair": intake_cmds.cmd_repair, "intake-adopt": intake_cmds.cmd_adopt,
+            "intake-step": intake_cmds.cmd_step,
             "build": cmd_build, "metrics": cmd_metrics, "status": cmd_status}
 # Commands whose implementation lives in modules written separately: any failure there is reported, not traced.
 GUARDED = ("track", "check", "intake")
@@ -630,7 +654,7 @@ def main(argv=None):
     st = State(cfg.state)
     try:
         return COMMANDS[args.command](cfg, st, args)
-    except (UsageError, shots_cmds.ShotsUsage, builds.BuildUsage) as e:
+    except (UsageError, shots_cmds.ShotsUsage, builds.BuildUsage, intake.IntakeUsage) as e:
         print("error: %s" % e, file=sys.stderr)
         return EXIT_USAGE
     except StateLocked as e:
@@ -639,7 +663,8 @@ def main(argv=None):
     except content.ContentError as e:
         print("store-content is invalid:\n%s" % e, file=sys.stderr)
         return EXIT_PROBLEM
-    except (StateError, shots_store.ShotsError, content_edit.EditError, builds.BuildError, OSError) as e:
+    except (StateError, shots_store.ShotsError, content_edit.EditError, builds.BuildError, intake.IntakeError,
+            OSError) as e:
         print("error: %s" % e, file=sys.stderr)
         return EXIT_PROBLEM
     except Exception as e:  # noqa: BLE001 - see GUARDED

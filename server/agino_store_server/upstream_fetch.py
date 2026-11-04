@@ -38,7 +38,19 @@ _CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 
 
 class UpstreamError(Exception):
-    """A fetch failed; the message is already cleaned of control characters."""
+    """A fetch failed; the message is already cleaned of control characters.
+
+    `klass` tells build-step whose fault it is: "infra" (network, the upstream host) or "recipe" (what the
+    recipe points at is gone or no longer matches its sha256), see RecipeSourceError.
+    """
+
+    klass = "infra"
+
+
+class RecipeSourceError(UpstreamError):
+    """The recipe's own source is missing or does not match the pinned checksum: a repair can fix it."""
+
+    klass = "recipe"
 
 
 def _clean(value):
@@ -115,21 +127,89 @@ def list_tags(cfg, repo, workdir):
     return parse_ls_remote(out)
 
 
-def _git_source(cfg, repo, tag, commit, work, raw_tar, max_bytes):
-    if not TAG_RE.match(tag or "") or not COMMIT_RE.match(commit or ""):
+def git_checkout_tar(cfg, repo, ref, pin, work, raw_tar, max_bytes):
+    """Shallow-fetch `ref` (a tag name or a full commit id) of `repo` and write `git archive` of it to `raw_tar`.
+
+    `pin` is the commit the task is fixed to (None: not known yet, the commit found is accepted). Returns the
+    commit that was archived. UpstreamError if the tag moved; RecipeSourceError if the ref does not exist.
+    """
+    if COMMIT_RE.match(ref or ""):
+        refspec, rev = ref, ref + "^{commit}"
+    elif TAG_RE.match(ref or "") and ".." not in ref:
+        refspec, rev = "+refs/tags/%s:refs/tags/%s" % (ref, ref), "refs/tags/%s^{commit}" % ref
+    else:
+        raise UpstreamError("bad tag or commit in the task")
+    if pin is not None and not COMMIT_RE.match(pin):
         raise UpstreamError("bad tag or commit in the task")
     check_repo(cfg, repo)
     work_repo = os.path.join(work, "repo")
     _git(cfg, ["init", "--quiet", "--template=", work_repo], work, work, 60)
-    refspec = "+refs/tags/%s:refs/tags/%s" % (tag, tag)
-    _git(cfg, ["fetch", "--quiet", "--depth", "1", "--no-tags", "--no-recurse-submodules", repo, refspec],
-         work_repo, work, FETCH_TIMEOUT, fsize=max_bytes)
-    head = _git(cfg, ["rev-parse", "--verify", "--quiet", "refs/tags/%s^{commit}" % tag],
-                work_repo, work, 60).strip()
-    if head != commit:
-        raise UpstreamError("tag %s now points to %s, the task is pinned to %s" % (tag, head[:12], commit[:12]))
-    _git(cfg, ["archive", "--format=tar", "--output=" + raw_tar, commit], work_repo, work, ARCHIVE_TIMEOUT,
+    try:
+        _git(cfg, ["fetch", "--quiet", "--depth", "1", "--no-tags", "--no-recurse-submodules", repo, refspec],
+             work_repo, work, FETCH_TIMEOUT, fsize=max_bytes)
+    except UpstreamError as e:
+        if "couldn't find remote ref" in str(e) or "not our ref" in str(e):
+            raise RecipeSourceError(str(e)) from e
+        raise
+    head = _git(cfg, ["rev-parse", "--verify", "--quiet", rev], work_repo, work, 60).strip()
+    if pin is not None and head != pin:
+        raise UpstreamError("tag %s now points to %s, the task is pinned to %s" % (ref, head[:12], pin[:12]))
+    _git(cfg, ["archive", "--format=tar", "--output=" + raw_tar, head], work_repo, work, ARCHIVE_TIMEOUT,
          fsize=max_bytes * 2)
+    return head
+
+
+def git_head_tar(cfg, repo, work, raw_tar, max_bytes):
+    """Shallow-fetch the default branch of `repo` and write `git archive` of it to `raw_tar`; returns the commit.
+    Reading material for an AI agent only: nothing is built from it."""
+    check_repo(cfg, repo)
+    work_repo = os.path.join(work, "repo")
+    _git(cfg, ["init", "--quiet", "--template=", work_repo], work, work, 60)
+    _git(cfg, ["fetch", "--quiet", "--depth", "1", "--no-tags", "--no-recurse-submodules", repo, "HEAD"],
+         work_repo, work, FETCH_TIMEOUT, fsize=max_bytes)
+    head = _git(cfg, ["rev-parse", "--verify", "--quiet", "FETCH_HEAD^{commit}"], work_repo, work, 60).strip()
+    if not COMMIT_RE.match(head):
+        raise UpstreamError("the repository has no default branch to read")
+    _git(cfg, ["archive", "--format=tar", "--output=" + raw_tar, head], work_repo, work, ARCHIVE_TIMEOUT,
+         fsize=max_bytes * 2)
+    return head
+
+
+def git_tag_diffstat(cfg, repo, old_tag, new_tag, work, max_bytes=1 << 20):
+    """`git diff --stat` between two tags of `repo` (both fetched shallow; the trees are compared). Text."""
+    for tag in (old_tag, new_tag):
+        if not TAG_RE.match(tag or "") or ".." in tag:
+            raise UpstreamError("bad tag")
+    check_repo(cfg, repo)
+    work_repo = os.path.join(work, "diff-repo")
+    _git(cfg, ["init", "--quiet", "--template=", work_repo], work, work, 60)
+    for tag in (old_tag, new_tag):
+        _git(cfg, ["fetch", "--quiet", "--depth", "1", "--no-tags", "--no-recurse-submodules", repo,
+                   "+refs/tags/%s:refs/tags/%s" % (tag, tag)], work_repo, work, FETCH_TIMEOUT, fsize=64 << 20)
+    return _git(cfg, ["diff", "--stat", "--no-color", "--no-ext-diff", "refs/tags/%s" % old_tag,
+                      "refs/tags/%s" % new_tag], work_repo, work, 120, max_stdout=max_bytes)
+
+
+def _git_source(cfg, repo, tag, commit, work, raw_tar, max_bytes):
+    if not TAG_RE.match(tag or "") or not COMMIT_RE.match(commit or ""):
+        raise UpstreamError("bad tag or commit in the task")
+    git_checkout_tar(cfg, repo, tag, commit, work, raw_tar, max_bytes)
+
+
+def download_verified(cfg, url, sha256, filename, work, max_bytes):
+    """Download `url` (https, every hop on an allowed host) into a private directory below `work` and check its
+    sha256. Returns the path. RecipeSourceError when the content is not the pinned one or has gone."""
+    interval = 0.0 if cfg.allow_insecure else max(cfg.min_interval_seconds, MIN_HOST_INTERVAL)
+    fetcher = fetch.Fetcher(dataclasses.replace(cfg, min_interval_seconds=interval), cfg.upstream_allowed_hosts)
+    try:
+        got = fetcher.download(url, os.path.join(work, "download-" + sha256[:12]), filename=filename,
+                               max_bytes=max_bytes, expected_sha256=sha256)
+    except fetch.FetchError as e:
+        text = _clean(e)
+        if "sha256 mismatch" in text or text.startswith(("HTTP 404", "HTTP 410")):
+            raise RecipeSourceError(text) from e
+        raise UpstreamError(text) from e
+    return got.path
 
 
 def _tarball(cfg, source, work, max_bytes):
@@ -232,6 +312,15 @@ def _scan(tar, max_bytes):
             raise UpstreamError("the source exceeds the size limit")
     _check_tree(entries)
     return entries
+
+
+def verify_tar(path, max_bytes):
+    """Check a finished tar with the same rules normalise_tar applies (UpstreamError when it breaks one)."""
+    try:
+        with tarfile.open(path, "r:*") as tar:
+            return len(_scan(tar, max_bytes))
+    except (tarfile.TarError, EOFError, OSError, UnicodeError, ValueError) as e:
+        raise UpstreamError("the source archive is not usable (%s)" % type(e).__name__) from e
 
 
 def _strip_prefix(entries):

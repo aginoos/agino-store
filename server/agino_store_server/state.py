@@ -15,6 +15,7 @@ ID_RE = re.compile(r"\A[a-z0-9][a-z0-9.+-]*\Z")
 VERSION_RE = re.compile(r"\A(?:[0-9]+:)?[0-9][A-Za-z0-9.+~-]*\Z")
 SHA256_RE = re.compile(r"\A[0-9a-f]{64}\Z")
 BUILD_ID_RE = re.compile(r"\A[0-9a-f]{16}\Z")
+INTAKE_ID_RE = BUILD_ID_RE
 LOCK_NAME_RE = re.compile(r"\A[a-z][a-z-]{0,31}\Z")
 LOCK_POLL = 0.25
 
@@ -157,6 +158,47 @@ class State:
         if not isinstance(build_id, str) or not BUILD_ID_RE.match(build_id):
             raise StateError("bad build id: %r" % (build_id,))
         write_json_atomic(self._path("builds", build_id + ".json"), record)
+
+    # Intake tasks (state/intake/<id>.json; working files of a task live in the directory state/intake/<id>/)
+
+    def new_intake_id(self):
+        while True:
+            intake_id = secrets.token_hex(8)
+            if not os.path.lexists(self._path("intake", intake_id + ".json")):
+                return intake_id
+
+    def intake(self, intake_id):
+        """The intake record, or None."""
+        if not isinstance(intake_id, str) or not INTAKE_ID_RE.match(intake_id):
+            raise StateError("bad intake id: %r" % (intake_id,))
+        return read_json(self._path("intake", intake_id + ".json"), None)
+
+    def intakes(self):
+        """All intake records, oldest first (by created, then id); damaged files raise StateError."""
+        base = self._path("intake")
+        out = []
+        for name in sorted(os.listdir(base)) if os.path.isdir(base) else []:
+            if not name.endswith(".json") or name.startswith(".") or not INTAKE_ID_RE.match(name[:-5]):
+                continue
+            rec = read_json(os.path.join(base, name), None)
+            if isinstance(rec, dict):
+                out.append(rec)
+        return sorted(out, key=lambda r: (str(r.get("created") or ""), str(r.get("id"))))
+
+    def save_intake(self, record):
+        intake_id = record.get("id")
+        if not isinstance(intake_id, str) or not INTAKE_ID_RE.match(intake_id):
+            raise StateError("bad intake id: %r" % (intake_id,))
+        write_json_atomic(self._path("intake", intake_id + ".json"), record)
+
+    def intake_dir(self, intake_id, create=False):
+        """state/intake/<id>/ (the task's working files: inputs, delivery); created on request."""
+        if not isinstance(intake_id, str) or not INTAKE_ID_RE.match(intake_id):
+            raise StateError("bad intake id: %r" % (intake_id,))
+        path = self._path("intake", intake_id)
+        if create:
+            os.makedirs(path, mode=0o750, exist_ok=True)
+        return path
 
     # Candidates
 
