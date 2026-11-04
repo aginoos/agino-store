@@ -14,6 +14,7 @@ import tarfile
 import tempfile
 
 from . import debinfo, upstream_fetch
+from .intake_materials import clean_block
 
 PROMPT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "intake_prompts")
 PROMPT_FILES = ("TASK.md", "CLAUDE.md", "AGENTS.md")
@@ -107,7 +108,7 @@ def build(cfg, record, inputs_tar, dest, feedback=None, previous=None):
             if "inputs" not in names:
                 _dir(out, "inputs")
             if feedback:
-                _file(out, "inputs/" + feedback[0], debinfo.clean_text(feedback[1])[:MAX_FEEDBACK_BYTES].encode("utf-8"))
+                _file(out, "inputs/" + feedback[0], clean_block(feedback[1])[:MAX_FEEDBACK_BYTES].encode("utf-8"))
             if previous:
                 _dir(out, "inputs/previous")
                 for name, data in sorted(previous.items()):
