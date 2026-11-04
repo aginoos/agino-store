@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Build output directory `out/<id>/`: status.json, result.json, build.log, <name>.deb.
+"""Build output directory `out/<id>/`: status.json, result.json, build.log, <name>.deb (AI tasks: ai/<file>...).
 
 Owner agino-sandbox, group agino-store (inherited from the setgid `out` directory, never set here: the units
 run with RestrictSUIDSGID, so no chmod may carry the setgid bit), directories 0750 and files 0640. Everything the
@@ -24,6 +24,8 @@ TERMINAL_STATES = ("done", "failed", "cancelled")
 STATUS_FILE = "status.json"
 RESULT_FILE = "result.json"
 LOG_FILE = "build.log"
+AI_DIR = "ai"
+FAILURE_CLASSES = ("ok", "recipe", "infra", "timeout", "model")
 # C0 controls other than \n and \t, DEL, C1 controls, line/paragraph separators, bidi overrides, BOM, non-characters.
 _BAD_CHARS = re.compile("[\x00-\x08\x0b-\x1f\x7f-\x9f  ‪-‮⁦-⁩﻿￾￿]")
 
@@ -149,8 +151,30 @@ class OutDir:
         self.write_json(STATUS_FILE, {"id": self.id, "state": state, "started": started, "updated": now(),
                                       "step": step, "steps_total": steps_total, "error": error[:300]})
 
-    def write_result(self, ok, error, steps, artifacts):
-        self.write_json(RESULT_FILE, {"ok": bool(ok), "error": error[:300], "steps": steps, "artifacts": artifacts})
+    def write_result(self, ok, error, steps, artifacts, klass=None, files=None):
+        """result.json. `klass` is the failure class (ok, recipe, infra, timeout, model; by default ok or infra);
+        `files` (AI tasks only) lists the delivered files in ai/."""
+        if ok:
+            klass = "ok"
+        elif klass not in FAILURE_CLASSES or klass == "ok":
+            klass = "infra"
+        doc = {"ok": bool(ok), "error": error[:300], "steps": steps, "artifacts": artifacts, "class": klass}
+        if files is not None:
+            doc["files"] = list(files)
+        self.write_json(RESULT_FILE, doc)
+
+    def ai_directory(self):
+        """out/<id>/ai/ (0750 through the umask), created on first use; returns its path."""
+        path = os.path.join(self.directory, AI_DIR)
+        old = os.umask(0o027)
+        try:
+            os.makedirs(path, mode=DIR_MODE, exist_ok=True)
+        finally:
+            os.umask(old)
+        return path
+
+    def ai_artifact(self, name):
+        return ArtifactWriter(self.ai_directory(), name)
 
     def artifact(self, name):
         return ArtifactWriter(self.directory, name)
@@ -171,6 +195,22 @@ def read_status(out_root, task_id):
     except (OSError, UnicodeDecodeError, ValueError, RecursionError):
         return None
     return doc if isinstance(doc, dict) else None
+
+
+def _remove_ai_dir(path):
+    """Unlink the regular files of out/<id>/ai/ (the only subdirectory we create), then the directory itself."""
+    try:
+        names = sorted(os.listdir(path))
+    except OSError:
+        return
+    for name in names:
+        entry = os.path.join(path, name)
+        if not os.path.isdir(entry) or os.path.islink(entry):
+            _unlink(entry)
+    try:
+        os.rmdir(path)
+    except OSError:
+        pass
 
 
 def cleanup_old(out_root, queue, wall=time.time):
@@ -203,6 +243,9 @@ def cleanup_old(out_root, queue, wall=time.time):
             continue
         for entry in entries:
             path = os.path.join(directory, entry)
+            if entry == AI_DIR and os.path.isdir(path) and not os.path.islink(path):
+                _remove_ai_dir(path)
+                continue
             if os.path.isdir(path) and not os.path.islink(path):
                 continue
             if keep_tombstone and entry == STATUS_FILE:

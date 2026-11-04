@@ -17,6 +17,8 @@ SCRIPT_DIR = "/opt/agino-build"
 RUN_STEP = SCRIPT_DIR + "/run-step.sh"
 LOGGED = SCRIPT_DIR + "/logged.sh"
 PACKAGE = SCRIPT_DIR + "/package.sh"
+PLACE_FILE = SCRIPT_DIR + "/place-file.sh"
+RUN_TEST = SCRIPT_DIR + "/run-test.sh"
 HOME = "/home/builder"
 SRC_TAR = HOME + "/source.tar"
 SRC_DIR = HOME + "/src"
@@ -84,16 +86,39 @@ rm -f /home/builder/out/pkg.deb
 dpkg-deb --root-owner-group -Zxz --build pkgroot /home/builder/out/pkg.deb
 """
 
+# Recipe v2 `files`: one file under the source root, written as the unprivileged user (the source tree came from the
+# untrusted upstream, root must never follow its links). $1 relative path (validated by the host), $2 mode, the
+# content arrives on stdin.
+PLACE_FILE_SCRIPT = """#!/bin/sh
+set -eu
+cd /home/builder/src
+mkdir -p -- "$(dirname -- "$1")"
+cat > "$1"
+chmod "$2" "$1"
+"""
+
+# Recipe v2 `test`: one command under a virtual X server as the unprivileged user: $1 log, $2 seconds, $3 the command.
+RUN_TEST_SCRIPT = """#!/bin/sh
+exec >>"$1" 2>&1
+cd /home/builder || exit 125
+exec /usr/bin/timeout -k 10 "$2" /usr/bin/xvfb-run -a /bin/sh -c "$3"
+"""
+
 SCRIPTS = ((LOGGED, LOGGED_SCRIPT), (RUN_STEP, RUN_STEP_SCRIPT), (PACKAGE, PACKAGE_SCRIPT))
+EXTRA_SCRIPTS = ((PLACE_FILE, PLACE_FILE_SCRIPT), (RUN_TEST, RUN_TEST_SCRIPT))
 _SHA_LINE = re.compile(r"\A([0-9a-f]{64})  ")
 
 
 class BuildStepError(SandboxError):
-    """The build itself failed (as opposed to the sandbox): a step, the packaging or the artifact is bad."""
+    """The build itself failed (as opposed to the sandbox): a step, the packaging or the artifact is bad.
 
-    def __init__(self, message, exitcode=1):
+    `klass` is the failure class of result.json: "recipe" (the default: a step, test, packaging or source problem),
+    "infra" (VM, resources), "timeout" or "model"."""
+
+    def __init__(self, message, exitcode=1, klass="recipe"):
         super().__init__(message)
         self.exitcode = exitcode
+        self.klass = klass
 
 
 def render_control(task):
@@ -107,9 +132,9 @@ def render_control(task):
     return "\n".join(lines) + "\n"
 
 
-def as_builder(inner):
-    """argv that runs `inner` as the unprivileged user with a fixed minimal environment."""
-    return [RUNUSER, "-u", "builder", "--", ENV_BIN, "-i", *USER_ENV, *inner]
+def as_builder(inner, env=()):
+    """argv that runs `inner` as the unprivileged user with a fixed minimal environment (plus `NAME=value` items)."""
+    return [RUNUSER, "-u", "builder", "--", ENV_BIN, "-i", *USER_ENV, *env, *inner]
 
 
 class GuestBuild:
@@ -117,14 +142,15 @@ class GuestBuild:
 
     def __init__(self, qga, sink, check, clock=time.monotonic, sleep=time.sleep):
         self.qga, self.sink, self.check, self.clock, self.sleep = qga, sink, check, clock, sleep
+        self.apt_updated = False
 
     # ---- setup ----
 
-    def prepare(self, control_text, apt_source):
+    def prepare(self, control_text, apt_source, extra_scripts=()):
         res = self.qga.sh(PREPARE_SCRIPT, timeout=60)
         if not res.ok:
             raise InfraError("cannot prepare the build guest (exit %d)" % res.exitcode)
-        for path, text in SCRIPTS:
+        for path, text in SCRIPTS + tuple(extra_scripts):
             self.qga.write_file(path, text.encode("utf-8"), "755")
         self.qga.write_file(CONTROL, control_text.encode("utf-8"), "644")
         self.qga.write_file(APT_LIST, ("deb " + apt_source + "\n").encode("utf-8"), "644")
@@ -142,6 +168,16 @@ class GuestBuild:
         if not res.ok:
             self.sink.feed(res.out + res.err)
             raise BuildStepError("cannot unpack the source tarball (exit %d)" % res.exitcode, res.exitcode)
+
+    def place_files(self, files):
+        """Recipe v2 `files`: write each into /home/builder/src as the unprivileged user and set its mode."""
+        for item in files:
+            argv = as_builder([PLACE_FILE, item.path, item.mode])
+            res = self.qga.exec(argv, 60, input_data=item.content.encode("utf-8"))
+            if not res.ok:
+                self.sink.feed(res.out + res.err)
+                raise BuildStepError("cannot write the recipe file %s (exit %d)" % (item.path[:100], res.exitcode),
+                                     res.exitcode)
 
     # ---- logged commands ----
 
@@ -197,12 +233,39 @@ class GuestBuild:
             res = self.exec_logged(wrapped, log_path, timeout + 60)
             if not res.ok:
                 return label, res
+            self.apt_updated = self.apt_updated or label == "update"
         return None, None
 
-    def run_step(self, n, cmd, timeout):
+    def run_step(self, n, cmd, timeout, env=()):
         """One recipe step as the builder user; the text is a single argv element of `sh -c`."""
         log_path = "%s/step-%d.log" % (USER_LOGS, n)
-        argv = as_builder([RUN_STEP, log_path, str(int(timeout)), cmd])
+        argv = as_builder([RUN_STEP, log_path, str(int(timeout)), cmd], env)
+        return self.exec_logged(argv, log_path, timeout + 60)
+
+    def install_package(self, timeout):
+        """Test phase: install the built deb as root (dependencies from the one configured source).
+
+        Returns (label, ExecResult) of the first failing apt call, else (None, None)."""
+        base = [APT_GET, "-o", "Dir::Etc::sourcelist=" + APT_LIST, "-o", "Dir::Etc::sourceparts=-",
+                "-o", "Acquire::Languages=none"]
+        calls = [] if self.apt_updated else [("update", base + ["update"])]
+        calls.append(("install-package", base + ["-o", "APT::Sandbox::User=root", "install", "-y",
+                                                 "--no-install-recommends", ARTIFACT]))
+        for label, argv in calls:
+            log_path = "%s/apt-%s.log" % (ROOT_LOGS, label)
+            wrapped = [LOGGED, log_path, "/usr/bin/timeout", "-k", "10", str(int(timeout)), ENV_BIN, "-i",
+                       *ROOT_ENV, *argv]
+            self.sink.note("== apt-get %s ==" % label)
+            res = self.exec_logged(wrapped, log_path, timeout + 60)
+            if not res.ok:
+                return label, res
+            self.apt_updated = self.apt_updated or label == "update"
+        return None, None
+
+    def run_test(self, n, cmd, timeout, env=()):
+        """One recipe `test` command under xvfb-run as the builder user."""
+        log_path = "%s/test-%d.log" % (USER_LOGS, n)
+        argv = as_builder([RUN_TEST, log_path, str(int(timeout)), cmd], env)
         return self.exec_logged(argv, log_path, timeout + 60)
 
     def package(self, timeout):
