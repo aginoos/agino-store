@@ -173,6 +173,66 @@ class ServeTests(unittest.TestCase):
         chown.assert_not_called()
         self.assertTrue(os.path.isdir(app_dir))
 
+    def test_write_publishes_the_complete_file_atomically(self):
+        path = os.path.join(self.tmp.name, "token.once")
+        seen = []
+        real_rename = os.rename
+
+        def spy(src, dst):
+            # at the instant of publication the final name is still absent and the temporary file is complete
+            seen.append((os.path.exists(dst), read(src), os.path.dirname(src) == os.path.dirname(dst)))
+            real_rename(src, dst)
+
+        with mock.patch("os.rename", spy):
+            SS._write(path, b"x" * 65 + b"\n", 0o600, exclusive=True)
+        self.assertEqual(seen, [(False, b"x" * 65 + b"\n", True)])
+        self.assertEqual(read(path), b"x" * 65 + b"\n")
+        self.assertEqual(stat.S_IMODE(os.stat(path).st_mode), 0o600)
+        self.assertEqual(os.listdir(self.tmp.name), ["token.once"])
+
+    def test_exclusive_write_refuses_a_leftover_temporary_file(self):
+        path = os.path.join(self.tmp.name, "token.once")
+        with open(path + ".tmp", "w") as f:
+            f.write("planted")
+        with self.assertRaises(FileExistsError):
+            SS._write(path, b"data", 0o600, exclusive=True)
+        self.assertFalse(os.path.exists(path))
+
+    def test_failed_write_leaves_no_temporary_file(self):
+        path = os.path.join(self.tmp.name, "token.once")
+        with mock.patch("os.rename", side_effect=OSError("boom")):
+            with self.assertRaises(OSError):
+                SS._write(path, b"data", 0o600, exclusive=True)
+        self.assertEqual(os.listdir(self.tmp.name), [])
+
+    def test_session_id_is_in_place_before_the_token_appears(self):
+        order = []
+        real_rename = os.rename
+
+        def spy(src, dst):
+            order.append(os.path.basename(dst))
+            real_rename(src, dst)
+
+        result = []
+        with mock.patch("os.rename", spy):
+            t = threading.Thread(target=lambda: result.append(SS.serve(self.cfg, "vm0", self.deps, 1)))
+            t.start()
+            self.wait(lambda: "token.once" in order, "token.once")
+            self.assertLess(order.index("session.id"), order.index("token.once"))
+            token = bytes.fromhex(read(os.path.join(self.app_dir, "token.once")).decode().strip())
+            s, f = self.ctl(token)
+            self.ask(f, {"op": "end"})
+            t.join(10)
+        self.assertEqual(result, [0])
+
+    def test_stale_temporary_files_are_removed(self):
+        os.makedirs(os.path.join(self.app_dir, "private"))
+        for name in ("token.once.tmp", "session.id.tmp"):
+            with open(os.path.join(self.app_dir, name), "w") as f:
+                f.write("old")
+        SS.prepare_dirs(self.cfg.session, "vm0")
+        self.assertEqual(sorted(os.listdir(self.app_dir)), ["private"])
+
     def test_status_command(self):
         private = os.path.join(self.app_dir, "private")
         os.makedirs(private)

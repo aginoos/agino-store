@@ -21,7 +21,7 @@ FAILED_LINGER = 60
 CLOSE_GRACE = 0.5  # lets the reply to `end` reach the platform before the sockets are shut
 STATUS_FILE = "status.json"
 STATUS_EVERY = 5.0
-STALE_NAMES = ("web.sock", "token.once", "session.id")
+STALE_NAMES = ("web.sock", "token.once", "session.id", "token.once.tmp", "session.id.tmp")
 CAPTURE_TMP_RE = re.compile(r"\A\.[A-Za-z0-9._-]+\.tmp\Z")
 DIR_RE = re.compile(r"\A[0-9a-f]{16}\Z")
 
@@ -34,19 +34,26 @@ def _group_id(name):
 
 
 def _write(path, data, mode, exclusive=False, gid=None):
-    """Create path with `mode` (never wider, whatever the umask) and `data`; atomically replaced unless exclusive."""
-    target = path if exclusive else path + ".tmp"
+    """Create path with `mode` (never wider, whatever the umask) and `data`, atomically.
+
+    The data goes to path + ".tmp" in the same directory and is renamed over path once complete, so a reader
+    never sees a partial file. exclusive: the temporary file must not exist yet (O_EXCL).
+    """
+    target = path + ".tmp"
     flags = os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | (os.O_EXCL if exclusive else os.O_TRUNC)
     fd = os.open(target, flags, mode)
-    with os.fdopen(fd, "wb") as f:
-        os.fchmod(f.fileno(), mode)
-        if gid is not None:
-            err = give_group(f.fileno(), gid)
-            if err is not None:
-                log("cannot give %s to group %d: %s" % (path, gid, err.strerror))
-        f.write(data)
-    if not exclusive:
-        os.replace(target, path)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            os.fchmod(f.fileno(), mode)
+            if gid is not None:
+                err = give_group(f.fileno(), gid)
+                if err is not None:
+                    log("cannot give %s to group %d: %s" % (path, gid, err.strerror))
+            f.write(data)
+        os.rename(target, path)
+    except BaseException:
+        _unlink(target)
+        raise
 
 
 def prepare_dirs(scfg, slot):
