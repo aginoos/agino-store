@@ -409,21 +409,27 @@ class Session:
         threading.Thread(target=self._install_thread, daemon=True).start()
 
     def _install_thread(self):
+        """Install and start the app, then give up the operation lock and only then publish the outcome, so that a
+        client that sees `running` (or `failed_app`) can use the next operation at once."""
+        failure = None
         try:
             self._install_and_launch()
+        except _Stopped:
+            failure = ""
+        except (SandboxError, OSError) as e:
+            failure = str(e) or type(e).__name__
+        except Exception as e:  # noqa: BLE001 - a bug here must not leave the session stuck in installing
+            log("session %s: unexpected %s while installing: %s" % (self.id, type(e).__name__, e))
+            failure = "internal error: %s" % type(e).__name__
+        finally:
+            self._op.release()
+        if failure is None:
             with self._lock:
                 self._phase_end = None
                 self.last_input = self.d.clock()
             self.set_state("running")
-        except _Stopped:
-            pass
-        except (SandboxError, OSError) as e:
-            self._app_failed(str(e) or type(e).__name__)
-        except Exception as e:  # noqa: BLE001 - a bug here must not leave the session stuck in installing
-            log("session %s: unexpected %s while installing: %s" % (self.id, type(e).__name__, e))
-            self._app_failed("internal error: %s" % type(e).__name__)
-        finally:
-            self._op.release()
+        elif failure:
+            self._app_failed(failure)
 
     def _install_and_launch(self):
         job, vm = self.job, self.vm
