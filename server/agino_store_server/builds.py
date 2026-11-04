@@ -10,7 +10,7 @@ import os
 import re
 import tempfile
 
-from . import debinfo
+from . import debinfo, recipe_v2, source_assembly
 from .content_builds import UPSTREAM_VERSION_RE
 from .state import StateError
 
@@ -19,6 +19,7 @@ BY_RE = re.compile(r"\A[A-Za-z0-9._-]{1,32}\Z")
 CANCEL_FILE = "cancel"
 TASK_FILE = "task.json"
 SOURCE_FILE = "source.tar"
+WORKSPACE_FILE = "workspace.tar"
 MAX_ERROR = 500
 
 
@@ -75,15 +76,29 @@ def check_version(version):
 
 
 def new_record(st, up, recipe, version, entry, attempt, by, now):
-    return {
-        "id": st.new_build_id(), "app": up.app, "version": "%s+agino%d" % (version, attempt),
-        "upstream_version": version, "tag": entry["tag"], "commit": entry["commit"], "attempt": attempt,
+    return build_record(st, up.app, up.repo, recipe, version, entry["tag"], entry["commit"], attempt, by, now)
+
+
+def build_record(st, app, repo, recipe, version, tag, commit, attempt, by, now, **extra):
+    """A queued task record. The recipe is stored as the plain task data (placeholders of a v2 recipe replaced);
+    BuildError when a placeholder cannot be replaced. `extra` adds fields (verification tasks of intake)."""
+    try:
+        task_recipe = recipe.as_task(version, tag, commit)
+    except recipe_v2.ExpandError as e:
+        raise BuildError(str(e)) from e
+    record = {
+        "id": st.new_build_id(), "app": app, "version": "%s+agino%d" % (version, attempt),
+        "upstream_version": version, "tag": tag, "commit": commit, "attempt": attempt,
         "status": "queued", "by": by, "created": now, "started": None, "finished": None, "error": "",
         "artifact": None, "candidate": None,
         # not part of the contract's task record: what build-step needs later
-        "repo": up.repo, "package": recipe.package["name"], "limits": recipe.limits.as_dict(),
-        "recipe": recipe.as_task(), "source": None,
+        "mode": "build", "repo": repo, "package": recipe.package["name"], "limits": recipe.limits.as_dict(),
+        "recipe": task_recipe, "source": None,
     }
+    if recipe.is_v2:
+        record["pins"] = source_assembly.pin_map(task_recipe["sources"], repo, tag, commit)
+    record.update(extra)
+    return record
 
 
 def request(cfg, st, content, app, version, by, now=None):
@@ -99,7 +114,7 @@ def request(cfg, st, content, app, version, by, now=None):
         raise BuildError("version %s of %s has not been seen by upstream-check" % (version, app))
     if any(m.get("version") == version for m in memo.get("tag_moved") or []):
         raise BuildError("the tag of %s %s moved to another commit; not building it" % (app, version))
-    existing = [b for b in st.builds(app=app) if b.get("upstream_version") == version]
+    existing = [b for b in st.builds(app=app) if b.get("upstream_version") == version and b.get("mode") != "ai"]
     unfinished = [b for b in existing if not is_terminal(b)]
     if unfinished:
         raise BuildError("%s %s already has an unfinished build (%s)" % (app, version, unfinished[0].get("id")))
@@ -145,11 +160,33 @@ def cancel(cfg, st, build_id, by, now=None):
 
 
 def task_document(record, source_sha256, source_size):
-    """The task.json the build runner reads. The runner rejects unknown keys: only these may appear."""
-    return {
-        "id": record["id"], "app": record["app"], "version": record["version"],
-        "upstream_version": record["upstream_version"], "tag": record["tag"], "commit": record["commit"],
-        "attempt": record["attempt"], "by": record["by"], "created": record["created"],
+    """The task.json the build runner reads. The runner rejects unknown keys: only these may appear.
+
+    `recipe` carries the v2 keys (sources, files, test, evidence, recipe_version, derived_from) only when the
+    recipe has them; a git source's pinned commit is not in it (the commit is part of source.tar already)."""
+    doc = {
+        "id": record["id"], "app": record["app"], "version": record["version"], "mode": "build",
+        "upstream_version": record["upstream_version"], "attempt": record["attempt"], "by": record["by"],
+        "created": record["created"],
         "source": {"file": SOURCE_FILE, "sha256": source_sha256, "size": source_size},
         "recipe": record["recipe"], "limits": record["limits"],
     }
+    for key in ("tag", "commit"):
+        if record.get(key):
+            doc[key] = record[key]
+    return doc
+
+
+def ai_task_document(record):
+    """task.json of an AI mode task (contract 10.2): no recipe and no source, `ai` instead; the workspace
+    travels as workspace.tar in the same directory. app and version are placeholders for an import."""
+    doc = {
+        "id": record["id"], "app": record["app"], "version": record["version"], "mode": "ai",
+        "upstream_version": record["upstream_version"], "attempt": record["attempt"], "by": record["by"],
+        "created": record["created"],
+        "ai": {"agent": record["agent"], "kind": record["kind"], "minutes": record["minutes"]},
+    }
+    for key in ("tag", "commit"):
+        if record.get(key):
+            doc[key] = record[key]
+    return doc
