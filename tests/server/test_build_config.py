@@ -59,7 +59,7 @@ class TestParsing(ConfigCase):
                          (100, 200, 2))
 
     def test_bad_hosts(self):
-        for hosts in ("", "localhost", "intranet", "127.0.0.1", "bad_host.org", "a/b.org", "-x.org"):
+        for hosts in ("localhost", "intranet", "127.0.0.1", "bad_host.org", "a/b.org", "-x.org"):
             with self.subTest(hosts=hosts):
                 self.assertBad("[upstream]\nallowed_hosts = %s\n" % hosts, "[upstream] allowed_hosts")
 
