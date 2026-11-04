@@ -72,14 +72,15 @@ def deliverable_kind(name):
 
 def parse_listing(raw):
     """[(name, size)] from the collect script's output; anything malformed or not white-listed is dropped."""
-    found = []
+    found, seen = [], set()
     for record in raw.split(b"\0")[:MAX_LISTED]:
         size, tab, name = record.partition(b"\t")
         try:
             text_name = name.decode("ascii")
         except UnicodeDecodeError:
             continue
-        if tab and size.isdigit() and len(size) < 16 and deliverable_kind(text_name):
+        if tab and size.isdigit() and len(size) < 16 and deliverable_kind(text_name) and text_name not in seen:
+            seen.add(text_name)  # the first record of a name wins
             found.append((text_name, int(size)))
     return found
 

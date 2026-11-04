@@ -9,13 +9,16 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from build_helpers import (DEB, Clock, VmFactory, builder_cfg, read_json,  # noqa: E402
-                           task_doc, write_task)
+from build_helpers import (DEB, Clock, VmFactory, ai_task_doc, builder_cfg, read_json,  # noqa: E402
+                           task_doc, write_ai_task, write_task)
+from test_build_ai import DELIVERED, deliver  # noqa: E402
 
+from agino_store_sandbox import build_ai  # noqa: E402
 from agino_store_sandbox import build_job as J  # noqa: E402
 from agino_store_sandbox import build_out as O  # noqa: E402
 from agino_store_sandbox import build_serve as S  # noqa: E402
 from agino_store_sandbox import cli  # noqa: E402
+from agino_store_sandbox.build_task import read_task_file  # noqa: E402
 from agino_store_sandbox.util import SandboxError  # noqa: E402
 
 IDS = ["%016x" % n for n in (0xa1, 0xa2, 0xa3, 0xa4)]
@@ -254,6 +257,199 @@ class RunTests(ServeCase):
         d.run()
         self.assertEqual(self.status(IDS[0])["state"], "failed")
         self.assertEqual(self.result(IDS[0])["error"], "the build runner was stopped")
+
+
+class AiQueueTests(ServeCase):
+    """AI tasks (workspace.tar, own slot pool) next to regular builds."""
+
+    def gated(self, gate):
+        return lambda c, t, s: FakeJob(c, t, s, gate=gate)
+
+    def test_an_ai_task_needs_workspace_tar_not_source_tar(self):
+        cfg = self.cfg()
+        write_ai_task(cfg, IDS[0])
+        write_ai_task(cfg, IDS[1], workspace=None)  # workspace.tar missing: still being written
+        write_task(cfg, IDS[2], source=None, workspace=b"w")  # a build needs source.tar
+        d = self.daemon(once=False)
+        d.wall = lambda: time.time() + 3600
+        self.assertEqual(d.candidates(), [IDS[0]])
+
+    def test_an_ai_task_may_come_with_a_source_tar_too(self):
+        cfg = self.cfg()
+        write_task(cfg, IDS[0], doc=ai_task_doc(), workspace=b"w")
+        self.assertEqual(self.daemon().candidates(), [IDS[0]])
+
+    def test_ai_task_files_must_be_quiet_before_pickup(self):
+        cfg = self.cfg()
+        write_ai_task(cfg, IDS[0])
+        d = self.daemon(once=False)
+        self.assertEqual(d.candidates(), [])
+        old = time.time() - 3600
+        base = os.path.join(cfg.builder.queue, IDS[0])
+        os.utime(os.path.join(base, "task.json"), (old, old))
+        self.assertEqual(d.candidates(), [])  # workspace.tar is still young
+        os.utime(os.path.join(base, "workspace.tar"), (old, old))
+        self.assertEqual(d.candidates(), [IDS[0]])
+
+    def test_unreadable_task_json_counts_as_a_build(self):
+        cfg = self.cfg()
+        write_task(cfg, IDS[0], raw=b"{broken", source=None, workspace=b"w")
+        write_task(cfg, IDS[1], raw=b"{broken")
+        self.assertEqual(self.daemon().candidates(), [IDS[1]])
+
+    def test_a_build_and_an_ai_task_run_side_by_side_on_their_own_slots(self):
+        cfg = self.cfg()
+        write_task(cfg, IDS[0])
+        write_ai_task(cfg, IDS[1])
+        gate = threading.Event()
+        d = self.daemon(factory=self.gated(gate))
+        d.tick()
+        self.assertEqual({k: v[2] for k, v in d.active.items()}, {IDS[0]: 0, IDS[1]: 1})
+        self.assertEqual((d.free_slots, d.ai_free_slots), ([], []))
+        time.sleep(0.1)  # both job threads are waiting at the gate
+        gate.set()
+        d.run()
+        self.assertEqual(FakeJob.peak, 2)
+        self.assertEqual((d.free_slots, d.ai_free_slots), ([0], [1]))
+        for task_id in IDS[:2]:
+            self.assertEqual(self.status(task_id)["state"], "done")
+
+    def test_a_waiting_ai_task_does_not_hold_back_builds(self):
+        cfg = self.cfg()
+        write_ai_task(cfg, IDS[0])
+        write_ai_task(cfg, IDS[1])
+        write_task(cfg, IDS[2])
+        gate = threading.Event()
+        d = self.daemon(factory=self.gated(gate))
+        d.tick()
+        self.assertEqual(sorted(d.active), [IDS[0], IDS[2]])  # the second AI task waits for the AI slot
+        self.assertEqual(self.status(IDS[1]), {})
+        time.sleep(0.1)
+        gate.set()
+        d.run()
+        self.assertEqual(FakeJob.peak, 2)
+        for task_id in IDS[:3]:
+            self.assertEqual(self.status(task_id)["state"], "done")
+
+    def test_a_waiting_build_does_not_take_the_ai_slot(self):
+        cfg = self.cfg()
+        write_task(cfg, IDS[0])
+        write_task(cfg, IDS[1])
+        gate = threading.Event()
+        d = self.daemon(factory=self.gated(gate))
+        d.tick()
+        self.assertEqual([v[2] for v in d.active.values()], [0])
+        self.assertEqual(d.ai_free_slots, [1])
+        gate.set()
+        d.run()
+
+    def test_several_ai_slots(self):
+        cfg = self.cfg(ai_slot=2, ai_max_concurrent=2)
+        for task_id in IDS[:3]:
+            write_ai_task(cfg, task_id)
+        gate = threading.Event()
+        d = self.daemon(factory=self.gated(gate))
+        d.tick()
+        self.assertEqual(sorted(v[2] for v in d.active.values()), [2, 3])
+        self.assertEqual(d.free_slots, [0])
+        gate.set()
+        d.run()
+        self.assertEqual(d.ai_free_slots, [2, 3])
+        self.assertEqual(self.status(IDS[2])["state"], "done")
+
+    def test_invalid_ai_tasks_are_recorded_without_a_slot(self):
+        cfg = self.cfg()
+        write_ai_task(cfg, IDS[0], doc=ai_task_doc(ai={"agent": "gpt", "kind": "import"}))
+        write_ai_task(cfg, IDS[1], doc={"mode": "ai"})
+        d = self.daemon()
+        self.assertEqual(d.run(), 1)
+        for task_id in IDS[:2]:
+            self.assertEqual(self.status(task_id)["state"], "failed")
+            self.assertTrue(self.result(task_id)["error"].startswith("invalid task:"))
+            self.assertEqual(self.result(task_id)["class"], "infra")
+        self.assertEqual(FakeJob.slots, [])
+
+    def test_ai_minutes_above_the_configured_ceiling_are_invalid(self):
+        cfg = self.cfg(ai_limits="minutes=10")
+        write_ai_task(cfg, IDS[0])  # asks for 30
+        self.daemon().run()
+        self.assertIn("ai.minutes", self.result(IDS[0])["error"])
+
+    def test_cancel_before_the_start_and_while_running(self):
+        cfg = self.cfg()
+        base = write_ai_task(cfg, IDS[0])
+        open(os.path.join(base, "cancel"), "w").close()
+        d = self.daemon()
+        d.run()
+        self.assertEqual(self.status(IDS[0])["state"], "cancelled")
+        self.assertEqual(FakeJob.slots, [])
+        base = write_ai_task(cfg, IDS[1])
+        gate = threading.Event()
+        d = self.daemon(factory=self.gated(gate))
+        d.tick()
+        job = d.active[IDS[1]][0]
+        open(os.path.join(base, "cancel"), "w").close()
+        d.tick()
+        self.assertEqual((job.stop_state, job.stop_reason), ("cancelled", "cancelled"))
+        d.run()
+        self.assertEqual(d.ai_free_slots, [1])
+
+    def test_the_default_job_class_follows_the_mode(self):
+        cfg = self.cfg()
+        write_ai_task(cfg, IDS[0])
+        write_task(cfg, IDS[1])
+        d = S.BuildDaemon(cfg, once=True)
+        b = cfg.builder
+        ai = read_task_file(b.queue, IDS[0], b.limits, b.ai_limits)
+        build = read_task_file(b.queue, IDS[1], b.limits, b.ai_limits)
+        self.assertIsInstance(d.job_factory(cfg, ai, 1), build_ai.AiJob)
+        job = d.job_factory(cfg, build, 0)
+        self.assertIs(type(job), J.BuildJob)
+
+    def test_a_queued_ai_task_becomes_files(self):
+        cfg = self.cfg()
+        write_ai_task(cfg, IDS[0])
+        clock = Clock()
+        factory = VmFactory(deliver())
+        deps = J.Deps(factory, clock, clock.sleep, lambda path: 1 << 50)
+        d = S.BuildDaemon(cfg, once=True, deps=deps, sleep=lambda s: time.sleep(0.005))
+        self.assertEqual(d.run(), 0)
+        self.assertEqual(self.status(IDS[0])["state"], "done")
+        res = self.result(IDS[0])
+        self.assertEqual((res["ok"], res["class"]), (True, "ok"))
+        self.assertEqual(sorted(res["files"]), sorted(DELIVERED))
+        self.assertEqual(factory.vms[0].slot, 1)
+        self.assertEqual(sorted(os.listdir(os.path.join(cfg.builder.out, IDS[0], "ai"))), sorted(DELIVERED))
+        d2 = S.BuildDaemon(cfg, once=True, deps=deps, sleep=lambda s: time.sleep(0.005))
+        d2.run()
+        self.assertEqual(factory.calls, 1)  # never run twice
+
+    def test_a_failed_ai_task_makes_once_exit_nonzero(self):
+        cfg = self.cfg()
+        write_ai_task(cfg, IDS[0])
+        clock = Clock()
+        deps = J.Deps(VmFactory(deliver(files={})), clock, clock.sleep, lambda path: 1 << 50)
+        d = S.BuildDaemon(cfg, once=True, deps=deps, sleep=lambda s: time.sleep(0.005))
+        self.assertEqual(d.run(), 1)
+        self.assertEqual(self.result(IDS[0])["class"], "recipe")
+
+    def test_a_real_build_and_a_real_ai_task_do_not_disturb_each_other(self):
+        cfg = self.cfg()
+        write_task(cfg, IDS[0])
+        write_ai_task(cfg, IDS[1])
+        clock = Clock()
+        factory = VmFactory(deliver())
+        deps = J.Deps(factory, clock, clock.sleep, lambda path: 1 << 50)
+        d = S.BuildDaemon(cfg, once=True, deps=deps, sleep=lambda s: time.sleep(0.005))
+        self.assertEqual(d.run(), 0)
+        self.assertEqual(sorted(vm.slot for vm in factory.vms), [0, 1])
+        self.assertEqual(self.result(IDS[0])["artifacts"][0]["size"], len(DEB))
+        self.assertNotIn("files", self.result(IDS[0]))
+        self.assertEqual(self.result(IDS[1])["artifacts"], [])
+        self.assertEqual(sorted(self.result(IDS[1])["files"]), sorted(DELIVERED))
+        self.assertFalse(os.path.exists(os.path.join(cfg.builder.out, IDS[0], "ai")))
+        self.assertTrue(all(vm.stopped for vm in factory.vms))
+        self.assertEqual((d.free_slots, d.ai_free_slots), ([0], [1]))
 
 
 class OrphanTests(ServeCase):
