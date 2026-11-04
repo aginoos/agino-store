@@ -5,7 +5,7 @@ import re
 import time
 
 from . import shots_scene
-from .guest import USER, WINDOW_RE
+from .guest import UID, USER, WINDOW_RE
 from .util import InfraError, clean
 
 DEMO_TAR = "/var/tmp/sbx/demo.tar"
@@ -38,6 +38,23 @@ runuser -u tester -- mkdir -p /home/tester/Demo || exit 4
 [ $# -eq 0 ] && exit 0
 runuser -u tester -- tar -xf /var/tmp/sbx/demo.tar -C /home/tester/Demo --no-same-owner --no-same-permissions -- "$@"
 """
+
+
+# --- whole-desktop language switch (docs/sandbox.md section 9): four layers, then the display manager ---
+DESKTOP_LOCALES = tuple(shots_scene.LOCALES.values())  # the only values that ever reach the guest
+LOCALE_VARS = ("LANG", "LC_ADDRESS", "LC_IDENTIFICATION", "LC_MEASUREMENT", "LC_MONETARY", "LC_NAME", "LC_NUMERIC",
+               "LC_PAPER", "LC_TELEPHONE", "LC_TIME")
+# the locale is $1 (a whitelisted constant), never part of the script text
+SET_LOCALE_FILES = r"""
+for f in /etc/default/locale /etc/locale.conf; do
+    [ -f "$f" ] || continue
+    sed -i -E "s/^(LANG|LC_[A-Z_]+)=.*/\1=$1/" "$f" || exit 1
+    grep -qxF "LANG=$1" "$f" || printf 'LANG=%s\n' "$1" >> "$f" || exit 2
+done
+"""
+DESKTOP_STEP_TIMEOUT = 30
+DESKTOP_RESTART_TIMEOUT = 90
+ACCOUNTS_USER = "/org/deepin/dde/Accounts1/User1000"
 
 
 def hex_id(value):
@@ -101,6 +118,33 @@ class ShotsGuest:
         return self.qga.start(["/usr/bin/timeout", "-k", "5", str(int(timeout)), "/usr/sbin/runuser", "-u", USER, "--",
                                "/usr/bin/env", *session, *env,
                                "/bin/sh", "-c", 'exec "$@" ' + redirect + APP_ERR, "sh", *argv])
+
+    def switch_desktop_locale(self, locale):
+        """Change the language of the whole desktop session without rebooting: the locale files, the Accounts
+        service, the system manager and the (lingering) user manager environments, then restart lightdm so the
+        tester session logs in again. Every command is fixed here; only `locale` varies and it must be one of
+        DESKTOP_LOCALES. InfraError names the step that failed. The caller waits for the new session."""
+        if locale not in DESKTOP_LOCALES:
+            raise InfraError("locale %r is not allowed" % (locale,))
+        env = ["%s=%s" % (name, locale) for name in LOCALE_VARS]
+        steps = (
+            ("locale files", lambda: self.qga.sh(SET_LOCALE_FILES, [locale], timeout=DESKTOP_STEP_TIMEOUT)),
+            ("accounts", lambda: self.qga.exec(
+                ["/usr/bin/busctl", "--system", "call", "org.deepin.dde.Accounts1", ACCOUNTS_USER,
+                 "org.deepin.dde.Accounts1.User", "SetLocale", "s", locale], DESKTOP_STEP_TIMEOUT)),
+            ("system manager", lambda: self.qga.exec(
+                ["/usr/bin/systemctl", "set-environment", *env], DESKTOP_STEP_TIMEOUT)),
+            ("user manager", lambda: self.qga.exec(
+                ["/usr/sbin/runuser", "-u", USER, "--", "/usr/bin/env", "XDG_RUNTIME_DIR=/run/user/" + UID,
+                 "/usr/bin/systemctl", "--user", "set-environment", *env], DESKTOP_STEP_TIMEOUT)),
+            ("display manager", lambda: self.qga.exec(
+                ["/usr/bin/systemctl", "restart", "lightdm"], DESKTOP_RESTART_TIMEOUT)),
+        )
+        for name, run in steps:
+            res = run()
+            if not res.ok:
+                raise InfraError("switching the desktop language failed at the %s (exit %d%s)" % (
+                    name, res.exitcode, ", timed out" if res.timed_out else ""))
 
     def diagnose(self, base_pids):
         """What the app left behind when no window appeared: what still runs, then its stderr tail
