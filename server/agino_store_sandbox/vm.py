@@ -111,15 +111,41 @@ def build_argv(cfg, slot, files, deb_path, sandbox, demo_path=None, *, drive="ov
 PROBE_QMP = b'{"execute": "qmp_capabilities"}\n{"execute": "quit"}\n'
 
 
-def probe_sandbox(cfg):
-    """True if this qemu build accepts -sandbox on (a machine-less dry run)."""
+PROBE_ATTEMPTS = 3
+PROBE_DELAY = 2.0
+PROBE_TIMEOUT = 15
+
+
+def _probe_once(cfg):
+    """None if this qemu build accepts -sandbox on (a machine-less dry run), else the reason it did not."""
     try:
         done = subprocess.run([cfg.qemu, "-sandbox", "on,obsolete=deny,elevateprivileges=deny,spawn=deny,"
                                "resourcecontrol=deny", "-machine", "none", "-S", "-display", "none", "-nodefaults",
-                               "-no-user-config", "-qmp", "stdio"], input=PROBE_QMP, capture_output=True, timeout=15)
-    except (OSError, subprocess.TimeoutExpired):
-        return False
-    return done.returncode == 0
+                               "-no-user-config", "-qmp", "stdio"], input=PROBE_QMP, capture_output=True,
+                              timeout=PROBE_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return "timed out after %d s" % PROBE_TIMEOUT
+    except OSError as e:
+        return "cannot run %s: %s" % (cfg.qemu, e.strerror or type(e).__name__)
+    if done.returncode == 0:
+        return None
+    tail = (done.stderr or b"").decode("utf-8", "replace").strip().splitlines()[-1:]
+    return "exit status %d%s" % (done.returncode, ": " + tail[0][:200] if tail else "")
+
+
+def probe_sandbox(cfg, attempts=PROBE_ATTEMPTS, delay=PROBE_DELAY, sleep=time.sleep):
+    """True if this qemu build accepts -sandbox on; a failing probe is retried before the answer is False.
+
+    Every failed attempt is logged with its reason: a silent False means qemu runs without seccomp.
+    """
+    for attempt in range(1, attempts + 1):
+        reason = _probe_once(cfg)
+        if reason is None:
+            return True
+        log("qemu -sandbox probe failed (attempt %d of %d): %s" % (attempt, attempts, reason))
+        if attempt < attempts:
+            sleep(delay)
+    return False
 
 
 class Vm:

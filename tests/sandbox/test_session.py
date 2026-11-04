@@ -5,6 +5,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -307,6 +308,22 @@ class BootTests(Harness):
         self.spawn(session)
         self.wait_for(session, "failed")
         self.assertIn("qemu did not start", session.error)
+
+    def test_session_refuses_to_start_without_seccomp(self):
+        cfg = session_cfg(self.tmp.name, {"qemu_sandbox": "auto"})
+        with mock.patch("agino_store_sandbox.runner.probe_sandbox", return_value=False):
+            session = self.make(cfg=cfg, sandbox_flag=S.session_sandbox_flag)
+            self.spawn(session)
+            self.wait_for(session, "failed")
+        self.assertEqual(session.error, "seccomp sandbox unavailable")
+        self.assertEqual(FakeVm.instances, [])  # qemu was never started
+
+    def test_session_with_qemu_sandbox_off_starts_without_seccomp(self):
+        flags = []
+        session = self.make(sandbox_flag=lambda c: flags.append(S.session_sandbox_flag(c)) or flags[-1])
+        self.spawn(session)
+        self.wait_for(session, "idle")
+        self.assertEqual(flags, [False])
 
     def test_snapshot_failure_fails_the_session(self):
         def make_fail(*a):

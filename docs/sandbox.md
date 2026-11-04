@@ -34,7 +34,7 @@ agino-store-sandbox [--config …] session cleanup
 | `base_vars` | `/srv/store/sandbox/base/current.vars` | 基础镜像自己的 UEFI NVRAM（含安装时的启动项），每次运行复制成 `vars.fd`；不要用空白的 OVMF_VARS 模板 |
 | `key` | `/etc/agino-store-sandbox/report.pem` | Ed25519 私钥（PEM）；必须是当前用户拥有的 0600 普通文件 |
 | `qemu` / `qemu_img` | | 可执行文件名或路径 |
-| `qemu_sandbox` | `auto` | `auto` 先试探 qemu 是否支持 `-sandbox on`；`on`/`off` 强制 |
+| `qemu_sandbox` | `auto` | `auto` 先试探 qemu 是否支持 `-sandbox on`（失败记日志含原因，最多试 3 次、间隔 2 秒）；`on`/`off` 强制。试探仍失败时：批量检查记警告后不带 seccomp 运行；**交互会话拒绝启动**（`failed`，错误 `seccomp sandbox unavailable`），只有显式 `off` 才允许会话不带 seccomp |
 | `slots` | 4 | 1..4，对应 tap `agsbx-t0`..`agsbx-t3`、MAC `52:54:00:5b:00:0N` |
 | `memory_mb` / `cpus` | 4096 / 4 | 每台 VM |
 

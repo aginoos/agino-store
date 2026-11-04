@@ -36,8 +36,21 @@ def slot_lock(cfg, slots):
 
 
 def _sandbox_flag(cfg):
+    """Batch checks: `auto` falls back to no seccomp when the probe fails (loudly: the probe logs why)."""
     if cfg.qemu_sandbox == "auto":
-        return probe_sandbox(cfg)
+        if probe_sandbox(cfg):
+            return True
+        log("WARNING: seccomp sandbox unavailable, qemu runs without -sandbox (set qemu_sandbox = off to silence)")
+        return False
+    return cfg.qemu_sandbox == "on"
+
+
+def session_sandbox_flag(cfg):
+    """Interactive sessions: fail closed. Only an explicit `qemu_sandbox = off` runs qemu without seccomp."""
+    if cfg.qemu_sandbox == "auto":
+        if not probe_sandbox(cfg):
+            raise SandboxError("seccomp sandbox unavailable")
+        return True
     return cfg.qemu_sandbox == "on"
 
 

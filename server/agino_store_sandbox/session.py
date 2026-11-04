@@ -21,7 +21,7 @@ import time
 from . import jobs, shots_job, shots_scene
 from .guest import Guest
 from .qga import Qga
-from .runner import _sandbox_flag, slot_lock
+from .runner import session_sandbox_flag, slot_lock
 from .session_capture import Capturer, CaptureStore, CaptureError, GuestLocator
 from .session_vm import SessionVm
 from .shots_guest import ShotsGuest
@@ -110,7 +110,7 @@ class Deps:
     install: object = shots_job.install
     locator_factory: object = GuestLocator
     find_job: object = find_job
-    sandbox_flag: object = _sandbox_flag
+    sandbox_flag: object = session_sandbox_flag
     tap_bytes: object = tap_bytes
     free_bytes: object = lambda path: shutil.disk_usage(path).free  # noqa: E731
     clock: object = time.monotonic
