@@ -132,3 +132,42 @@ class Qga:
                 raise InfraError("cannot write %s in the guest" % path) from None
         if not self.exec(["/bin/chmod", mode, path], 10).ok:
             raise InfraError("cannot chmod %s in the guest" % path)
+
+    def write_stream(self, path, reader, mode="644", chunk=1 << 16):
+        """Create path in the guest from the file object `reader` in chunks (guest-file-*, no cat fallback: the
+        data can be hundreds of MiB), then chmod it. Used for the build source tarball."""
+        handle = self._call("guest-file-open", {"path": path, "mode": "w"})
+        try:
+            while True:
+                data = reader.read(chunk)
+                if not data:
+                    break
+                self._call("guest-file-write", {"handle": handle, "buf-b64": base64.b64encode(data).decode()})
+        finally:
+            self._call("guest-file-close", {"handle": handle})
+        if not self.exec(["/bin/chmod", mode, path], 10).ok:
+            raise InfraError("cannot chmod %s in the guest" % path)
+
+    def read_chunk(self, path, offset, count):
+        """Up to `count` bytes of the guest file at `offset` (b"" at or past the end). The file is opened afresh
+        for every call, so a file that is still growing can be followed without a sticky end-of-file."""
+        handle = self._call("guest-file-open", {"path": path, "mode": "r"})
+        try:
+            if offset:
+                self._call("guest-file-seek", {"handle": handle, "offset": int(offset), "whence": 0})
+            ret = self._call("guest-file-read", {"handle": handle, "count": int(count)}, 60)
+        finally:
+            try:
+                self._call("guest-file-close", {"handle": handle})
+            except InfraError:
+                pass
+        buf = ret.get("buf-b64") if isinstance(ret, dict) else None
+        if not isinstance(buf, str):
+            raise InfraError("guest-file-read returned no data field")
+        try:
+            data = base64.b64decode(buf, validate=True)
+        except (binascii.Error, ValueError):
+            raise InfraError("guest-file-read returned invalid base64") from None
+        if len(data) > count:
+            raise InfraError("guest-file-read returned more than requested")
+        return data

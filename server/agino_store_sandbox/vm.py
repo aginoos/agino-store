@@ -61,19 +61,34 @@ def mac_address(slot):
     return "52:54:00:5b:00:%02x" % slot
 
 
+def builder_tap_name(slot):
+    """Build VMs have their own tap devices, apart from the check and session ones (agsbx-t*)."""
+    return "agsbx-b%d" % slot
+
+
+def builder_mac_address(slot):
+    return "52:54:00:5b:01:%02x" % slot
+
+
 def blockdev(**spec):
     """A `-blockdev` argument pair; JSON keeps file names with commas or equal signs intact."""
     return ["-blockdev", json.dumps(spec, separators=(",", ":"))]
 
 
 def build_argv(cfg, slot, files, deb_path, sandbox, demo_path=None, *, drive="overlay.qcow2", vars_name="vars.fd",
-               drive_opts="", extra=(), snapshot_vm=False):
+               drive_opts="", extra=(), snapshot_vm=False, builder=None):
     """qemu arguments. `snapshot_vm` (sessions only) opens the OVMF variables as a qcow2 `-blockdev` node and names
     the system disk node `sysn`, so that QMP snapshot-save / snapshot-load can cover both; everything else
-    (raw pflash drives, plain `-drive`) is unchanged for the normal runs."""
+    (raw pflash drives, plain `-drive`) is unchanged for the normal runs.
+
+    `builder` (build VMs only) is an object with `memory_mb` and `cpus`: it replaces the configured memory and
+    CPU count and switches the VM name, tap device and MAC address to the build-only ones."""
+    memory_mb, cpus = (cfg.memory_mb, cfg.cpus) if builder is None else (builder.memory_mb, builder.cpus)
+    name, tap, mac = ("agsbx-%d" % slot, tap_name(slot), mac_address(slot)) if builder is None else \
+        ("agsbx-b%d" % slot, builder_tap_name(slot), builder_mac_address(slot))
     machine = "q35,accel=kvm,pflash0=code,pflash1=vars" if snapshot_vm else "q35,accel=kvm"
-    argv = [cfg.qemu, "-name", "agsbx-%d" % slot, "-enable-kvm", "-machine", machine, "-cpu", "host",
-            "-m", str(cfg.memory_mb), "-smp", str(cfg.cpus), "-display", "none", "-no-user-config", "-nodefaults",
+    argv = [cfg.qemu, "-name", name, "-enable-kvm", "-machine", machine, "-cpu", "host",
+            "-m", str(memory_mb), "-smp", str(cpus), "-display", "none", "-no-user-config", "-nodefaults",
             "-device", "virtio-vga,xres=%d,yres=%d" % tuple(cfg.screen), "-rtc", "base=utc", "-no-reboot"]
     if snapshot_vm:
         argv += blockdev(**{"node-name": "code", "driver": "raw", "read-only": True,
@@ -94,8 +109,8 @@ def build_argv(cfg, slot, files, deb_path, sandbox, demo_path=None, *, drive="ov
     if demo_path is not None:
         argv += ["-drive", "file=%s,format=raw,if=none,readonly=on,id=demo" % demo_path,
                  "-device", "virtio-blk-pci,drive=demo,serial=sbxdemo"]
-    argv += ["-netdev", "tap,id=n0,ifname=%s,script=no,downscript=no" % tap_name(slot),
-             "-device", "virtio-net-pci,netdev=n0,mac=%s" % mac_address(slot),
+    argv += ["-netdev", "tap,id=n0,ifname=%s,script=no,downscript=no" % tap,
+             "-device", "virtio-net-pci,netdev=n0,mac=%s" % mac,
              "-device", "virtio-serial-pci",
              "-chardev", "socket,id=qga,path=%s,server=on,wait=off" % files.path("qga.sock"),
              "-device", "virtserialport,chardev=qga,name=org.qemu.guest_agent.0",
