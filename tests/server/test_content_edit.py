@@ -220,10 +220,13 @@ class TestValidation(EditCase):
         self.assertIn("store-content is invalid", err)
         self.assertEqual(slurp(self.gimp), before)
 
-    def test_uncommitted_change_in_the_app_file_is_refused(self):
+    def test_staged_change_in_the_app_file_is_refused(self):
+        # an uncommitted change under apps/ is recovered before the edit (test_content_repair); this
+        # is the remaining guard of check_clean, used when the file still differs once the edit starts
         with open(self.gimp, "a", encoding="utf-8") as f:
             f.write("# hand edit\n")
-        code, _, err = self.edit({"license": "MIT"})
+        with mock.patch.object(content_edit, "_repair_checkout"):
+            code, _, err = self.edit({"license": "MIT"})
         self.assertEqual(code, 1)
         self.assertIn("uncommitted", err)
         self.assertIn("# hand edit", slurp(self.gimp).decode())
@@ -309,11 +312,15 @@ class TestGitEnvironment(unittest.TestCase):
         with mock.patch.object(content_git.subprocess, "run") as run:
             run.return_value = mock.Mock(returncode=0, stdout="", stderr="")
             content_git.run("/x", ["status"], "ssh")
-        argv = run.call_args.args[0]
-        self.assertEqual(argv[:3], ["git", "-C", "/x"])
-        self.assertEqual(run.call_args.kwargs["timeout"], 60)
-        self.assertNotIn("shell", run.call_args.kwargs)
-        self.assertEqual(run.call_args.kwargs["env"]["GIT_SSH_COMMAND"], "ssh")
+            argv = run.call_args.args[0]
+            self.assertEqual(argv[:3], ["git", "-C", "/x"])
+            self.assertEqual(run.call_args.kwargs["timeout"], 30)
+            self.assertNotIn("shell", run.call_args.kwargs)
+            self.assertEqual(run.call_args.kwargs["env"]["GIT_SSH_COMMAND"], "ssh")
+            content_git.run("/x", ["push", "origin", "HEAD:main"], "ssh")
+            self.assertEqual(run.call_args.kwargs["timeout"], 120)
+            content_git.run("/x", ["pull", "--rebase", "origin", "main"], "ssh")
+            self.assertEqual(run.call_args.kwargs["timeout"], 60)
 
 
 if __name__ == "__main__":

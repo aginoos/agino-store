@@ -1,13 +1,16 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The git side of content-edit and content-confirm (docs/server.md section 13).
 
-Every command is a fixed argv run without a shell, with a 60 second timeout and an environment reduced to
-PATH, HOME and (for the network) GIT_SSH_COMMAND. Hooks are switched off for the checkout."""
+Every command is a fixed argv run without a shell, with a timeout (push 120 s, pull 60 s, anything else
+30 s) and an environment reduced to PATH, HOME and (for the network) GIT_SSH_COMMAND. Hooks are switched off
+for the checkout."""
 
 import os
 import subprocess
 
-TIMEOUT = 60
+TIMEOUT_PUSH = 120
+TIMEOUT_PULL = 60
+TIMEOUT_DEFAULT = 30
 AUTHOR = ("agino-store", "agino-store@localhost")
 BRANCH = "main"
 PUSH_OFF_WARNING = "not pushed (content.push is off)"
@@ -26,15 +29,20 @@ def _env(ssh_command):
     return env
 
 
+def _timeout(args):
+    return {"push": TIMEOUT_PUSH, "pull": TIMEOUT_PULL}.get(args[0], TIMEOUT_DEFAULT)
+
+
 def run(root, args, ssh_command="", check=True):
     """`git -C root ...`; returns stdout. GitError on a non-zero exit (unless check is False) or a timeout."""
     argv = ["git", "-C", root, "-c", "user.name=" + AUTHOR[0], "-c", "user.email=" + AUTHOR[1],
             "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", *args]
+    limit = _timeout(args)
     try:
         done = subprocess.run(argv, env=_env(ssh_command), stdin=subprocess.DEVNULL, capture_output=True,
-                              text=True, errors="replace", timeout=TIMEOUT)
+                              text=True, errors="replace", timeout=limit)
     except subprocess.TimeoutExpired as e:
-        raise GitError("git %s timed out after %d s" % (args[0], TIMEOUT)) from e
+        raise GitError("git %s timed out after %d s" % (args[0], limit)) from e
     except OSError as e:
         raise GitError("cannot run git: %s" % e.strerror) from e
     if check and done.returncode != 0:
@@ -65,16 +73,16 @@ def commit(root, rel, message):
     return head(root)
 
 
-def _undo(root, previous, message):
+def undo(root, previous, message):
     """Drop our commit (a --keep reset: nothing else in the working tree is touched)."""
     subject = run(root, ["log", "-1", "--format=%s"], check=False).strip()
     target = "HEAD~1" if subject == message.splitlines()[0] else previous
     run(root, ["reset", "--keep", target])
 
 
-def push(root, ssh_command, previous, message):
+def push_retry(root, ssh_command):
     """Push HEAD to origin main. A rejected push gets one `pull --rebase` and one more try; if that fails
-    too, our commit is undone and GitError raised."""
+    too, an unfinished rebase is aborted and GitError raised (nothing else is touched)."""
     refspec = "HEAD:" + BRANCH
     try:
         run(root, ["push", "origin", refspec], ssh_command)
@@ -87,12 +95,35 @@ def push(root, ssh_command, previous, message):
         return
     except GitError as second:
         problem = GitError("%s; after pull --rebase: %s" % (problem, second))
-    run(root, ["rebase", "--abort"], check=False)
+    abort_operations(root)
+    raise problem
+
+
+def push(root, ssh_command, previous, message):
+    """push_retry; when it fails our commit is undone and GitError raised."""
     try:
-        _undo(root, previous, message)
-    except GitError as e:
-        raise GitError("%s; and the local commit could not be undone: %s" % (problem, e)) from e
-    raise GitError("%s; the local commit was undone" % problem)
+        push_retry(root, ssh_command)
+    except GitError as problem:
+        try:
+            undo(root, previous, message)
+        except GitError as e:
+            raise GitError("%s; and the local commit could not be undone: %s" % (problem, e)) from e
+        raise GitError("%s; the local commit was undone" % problem) from problem
+
+
+def abort_operations(root):
+    """Abort an unfinished rebase or merge (best effort; each is a no-op when none is running)."""
+    for args in (["rebase", "--abort"], ["merge", "--abort"]):
+        try:
+            run(root, args, check=False)
+        except GitError:
+            pass   # a timeout or a missing git: the caller reports what is left
+
+
+def unpushed(root):
+    """Number of local commits not on origin/main, by the local tracking ref (0 when it is unknown)."""
+    out = run(root, ["rev-list", "--count", "origin/%s..HEAD" % BRANCH], check=False).strip()
+    return int(out) if out.isdigit() else 0
 
 
 def publish(root, rel, message, push_enabled, ssh_command):

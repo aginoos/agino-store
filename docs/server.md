@@ -19,7 +19,7 @@ server/agino_store_server/
   debinfo.py     读 deb：control、maintainer 脚本、文件清单
   checks.py      依赖检查（dose-debcheck）、和上一版的差异
   reports.py     导入沙箱报告
-  content_edit.py / content_patch.py / content_git.py   content-edit、content-confirm：补丁校验、写回 app.yaml、提交和推送（第 13 节）
+  content_edit.py / content_patch.py / content_git.py / content_repair.py   content-edit、content-confirm：补丁校验、写回 app.yaml、提交和推送（第 13 节）
   buildcfg.py / content_builds.py   [upstream]/[builds] 设置；upstreams/<id>.yaml 和 apps/<id>/build.yaml 的校验（第 14 节）
   upstream_fetch.py / upstream_tags.py / upstreams.py   受控抓取、标签到版本、upstream-check（第 14 节）
   builds.py / build_step.py / build_collect.py / approve_rules.py   编译任务：request/cancel、build-step、产物取回、built 候选的放行规则（第 14 节）
@@ -515,8 +515,10 @@ milkyway 里的应用不进沙箱队列，已通过沙箱的候选也不会再�
 - 写回用 `yaml.safe_dump(sort_keys=False, allow_unicode=True, default_flow_style=False, width=1000000)`（宽度取很大，长段落不会被折行）。现有 store-content 的 `app.yaml` 里只有一处与它不同：`l10n` 的行内列表 `[a]` 会被展开成块列表，含义相同；测试用样例文件验证其余文件逐字节一致。
 - 然后用 `content.load` 校验整个内容仓库；失败则恢复原文件，退出码 1，输出错误。
 - git（`content_git.py`，在 `paths.content` 里）：开始前要求它是 git 检出且 `apps/<id>/app.yaml` 没有未提交的改动；`git add apps/<id>/app.yaml`，`git -c user.name=agino-store -c user.email=agino-store@localhost commit -m "info(<APP>): <改动的键> by <EDITOR>" -- apps/<id>/app.yaml`（只提交这个文件；关闭钩子和签名）。`[content] push = yes` 时 `git push origin HEAD:main`；被拒绝则做**一次** `git pull --rebase --autostash origin main` 再推；还是失败就撤销这次提交（`git reset --keep`，回到我们提交之前，已拉下来的别人的提交保留），不改别的，退出码 1，补丁留着。`push = no`（默认）只在本地提交，并输出 `warning: not pushed (content.push is off)`。
-- 所有 git 命令用固定的参数列表、不经 shell、60 秒超时，环境只保留 `PATH`、`HOME`、`GIT_SSH_COMMAND`（取自 `push_ssh_command`，空则不设）和 `GIT_TERMINAL_PROMPT=0`。
+- 所有 git 命令用固定的参数列表、不经 shell，超时：`push` 120 秒、`pull` 60 秒、其余 30 秒；环境只保留 `PATH`、`HOME`、`GIT_SSH_COMMAND`（取自 `push_ssh_command`，空则不设）和 `GIT_TERMINAL_PROMPT=0`。
 - 锁：全局 `state/.lock`（和 `track`、`build`、其他修改互斥，被占用退出码 3）。
+- 被信号打断（`content_edit.interruptible`）：`content-edit` 和 `content-confirm` 在拿锁前安装 SIGTERM / SIGINT 处理器，把信号变成 `Interrupted`（退出码 1，输出 `interrupted by SIGTERM; …`）并走回滚：终止正在跑的 git 子进程、`rebase --abort` / `merge --abort`、清掉它留下的 `.git/index.lock`、撤销已做的提交、恢复 `app.yaml`。回滚期间后续信号被忽略。
+- 启动时的检查（`content_repair.py`，拿到全局锁之后、校验之前）：内容仓库不是 git 检出则跳过（后面的流程照常报错）。若有 `.git/index.lock`、`rebase-merge`、`rebase-apply`、`MERGE_HEAD` 且 `/proc` 里有别的 git 进程在这个目录工作 → 退出码 1，什么都不动。`index.lock` 超过 10 分钟才算陈旧并删除，更新的报错让人稍后重试；有 rebase / merge 中间态则 `git rebase --abort` / `git merge --abort`（仍在则报错）。`apps/` 下有已跟踪文件的未提交改动（不是本次命令产生的）→ 先把差异打到 stderr 并存到 `state/content-recovered/<时间>.diff`，再 `git checkout HEAD -- apps`。`push = yes` 且本地比 `origin/main` 多出未推送的提交 → 先推（被拒绝同样做一次 `pull --rebase` 再推）；失败则退出码 1 并说明，**不丢弃**这些提交；`push = no` 时本地提交是预期状态，不处理。
 - 回退：在内容仓库里 `git revert` 对应提交，下一次 `build` 恢复。
 
 **`content-confirm APP --editor NAME`**：把 `description_source` 设为 `confirmed`，`description_confirmed` 设为 `{by, at}`（来源原本是 `ai`、`submitter` 或 `official` 都行），按上面的 git 流程提交 `info(<APP>): confirm description by <EDITOR>`。已经是 `confirmed` 则输出 `description of APP is already confirmed`，退出码 0，不提交。同样拿全局锁。

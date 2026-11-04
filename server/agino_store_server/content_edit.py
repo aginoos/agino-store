@@ -5,12 +5,14 @@ checkout, validate the whole repository, commit and optionally push. Both run un
 
 import contextlib
 import os
+import signal
 import tempfile
 
 import yaml
 
 from . import catalogwriter, content, shots_cmds, shots_store
 from . import content_git as git
+from . import content_repair
 from . import content_patch as patch_mod
 
 EDITOR_RE = content.EDITOR_RE
@@ -23,6 +25,34 @@ class EditUsage(shots_cmds.ShotsUsage):
 
 class EditError(Exception):
     """The edit cannot be done or was undone (exit code 1)."""
+
+
+class Interrupted(EditError):
+    """SIGTERM or SIGINT arrived; raised in the main thread so the rollback paths below run."""
+
+
+SIGNALS = (signal.SIGTERM, signal.SIGINT)
+
+
+@contextlib.contextmanager
+def interruptible():
+    """Turn SIGTERM / SIGINT into Interrupted for the duration of the command. After the first signal further
+    ones are ignored, so the rollback in progress is not cut short."""
+    def handler(signum, _frame):
+        for sig in SIGNALS:
+            signal.signal(sig, signal.SIG_IGN)
+        raise Interrupted("interrupted by %s; the content checkout was put back" % signal.Signals(signum).name)
+
+    try:
+        saved = {sig: signal.signal(sig, handler) for sig in SIGNALS}
+    except ValueError:   # not the main thread: nothing to install
+        yield
+        return
+    try:
+        yield
+    finally:
+        for sig, old in saved.items():
+            signal.signal(sig, old)
 
 
 def dump(data):
@@ -62,6 +92,15 @@ def _write_atomic(path, data):
         raise
 
 
+def _repair_checkout(cfg):
+    """Fix what an interrupted run left in the content checkout (see content_repair)."""
+    try:
+        content_repair.repair(os.path.abspath(cfg.content), cfg.state, _stamp(), cfg.content_push,
+                              cfg.content_push_ssh_command)
+    except git.GitError as e:
+        raise EditError("content checkout: %s" % e) from e
+
+
 def _load_checked(cfg):
     try:
         return content.load(cfg.content, allow_insecure=cfg.allow_insecure, policy=cfg.build_policy())
@@ -80,10 +119,13 @@ def _commit_change(cfg, app, original, new_data, message):
         previous = git.head(root)
     except git.GitError as e:
         raise EditError("content checkout: %s" % e) from e
-    _write_atomic(path, dump(new_data).encode("utf-8"))
     try:
+        _write_atomic(path, dump(new_data).encode("utf-8"))
         _load_checked(cfg)
         return git.publish(root, rel, message, cfg.content_push, cfg.content_push_ssh_command)
+    except Interrupted:
+        _rollback(root, path, original, previous, message)
+        raise
     except EditError as e:
         _write_atomic(path, original)
         raise EditError("the edit makes the content invalid and was undone:\n%s" % e) from e
@@ -92,8 +134,23 @@ def _commit_change(cfg, app, original, new_data, message):
             _write_atomic(path, original)   # nothing was committed (or it was undone): put the file back
         raise EditError(str(e)) from e
     except BaseException:
-        _write_atomic(path, original)
+        _rollback(root, path, original, previous, message)
         raise
+
+
+def _rollback(root, path, original, previous, message):
+    """After an interrupt or an unexpected error: abort a rebase in progress, drop our commit and put the
+    file back, as far as the checkout allows (each step is best effort)."""
+    try:
+        content_repair.release(root)   # the killed git child may have left index.lock or a rebase
+    except (OSError, git.GitError):
+        pass
+    try:
+        if _commit_exists(root, previous):
+            git.undo(root, previous, message)
+    except git.GitError:
+        return   # the commit stays, so the file must stay as committed
+    _write_atomic(path, original)
 
 
 def _commit_exists(root, previous):
@@ -135,7 +192,8 @@ def cmd_edit(cfg, st, args):
     app, editor = args.app, args.editor
     _check_args(cfg, app, editor)
     name = shots_cmds.check_match(args.patch, patch_mod.PATCH_NAME_RE, "patch file name")
-    with st.lock():
+    with interruptible(), st.lock():
+        _repair_checkout(cfg)
         current = _load_checked(cfg)
         patch = _read_patch(cfg, name)
         try:
@@ -162,7 +220,8 @@ def cmd_edit(cfg, st, args):
 def cmd_confirm(cfg, st, args):
     app, editor = args.app, args.editor
     _check_args(cfg, app, editor)
-    with st.lock():
+    with interruptible(), st.lock():
+        _repair_checkout(cfg)
         _load_checked(cfg)
         original, data = _load_app(cfg, app)
         if data.get("description_source") == "confirmed":
