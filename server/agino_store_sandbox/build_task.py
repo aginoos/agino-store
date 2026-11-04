@@ -170,8 +170,13 @@ def read_task_file(queue, task_id, ceiling):
         fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except OSError as e:
         raise TaskError("cannot read task.json: %s" % e.strerror) from None
-    with os.fdopen(fd, "rb") as f:
-        if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):  # before fdopen: it refuses directories with an exception
             raise TaskError("task.json is not a regular file")
-        raw = f.read(MAX_TASK_BYTES + 1)
+        with os.fdopen(fd, "rb") as f:
+            fd = -1
+            raw = f.read(MAX_TASK_BYTES + 1)
+    finally:
+        if fd >= 0:
+            os.close(fd)
     return parse_task(task_id, raw, ceiling)
