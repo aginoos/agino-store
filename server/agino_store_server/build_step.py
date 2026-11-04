@@ -23,14 +23,16 @@ from .state import write_json_atomic
 from .status_io import SMALL_READ, ReadError, read_json
 
 LOCK_WAIT = 60.0
-TIMEOUT_MARGIN_MINUTES = 15
+TIMEOUT_MARGIN_MINUTES = 35   # the runner allows cpu_minutes + 25 minutes (packaging, retrieval) plus its start-up wait
 KEEP_QUEUE_SECONDS = 3600
 STALE_FETCH_SECONDS = 86400
 FETCH_PREFIX = ".fetch-"
 STATUS_FILE = "status.json"
 UTC_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 UTC_RE = re.compile(r"\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\Z")
-RUNNING_WORDS = ("building", "running")
+RUNNING_STATES = ("starting", "installing_deps", "building", "packaging", "collecting")   # all mean `building` here
+STOPPED_STATES = ("failed", "cancelled")
+STATUS_GRACE = 300   # seconds a stopped runner status may stand without a result.json
 
 
 def _epoch(stamp):
@@ -64,7 +66,7 @@ def _fail(st, build_id, allowed, message, rep, now):
 # 1. fetch
 
 def _write_task(cfg, record, directory, sha, size):
-    write_json_atomic(os.path.join(directory, builds.TASK_FILE), builds.task_document(cfg, record, sha, size))
+    write_json_atomic(os.path.join(directory, builds.TASK_FILE), builds.task_document(record, sha, size))
     os.chmod(os.path.join(directory, builds.TASK_FILE), 0o640)
     os.chmod(os.path.join(directory, builds.SOURCE_FILE), 0o640)
     os.chmod(directory, 0o750)
@@ -136,17 +138,29 @@ def _read_out(cfg, build_id, name):
     return data if isinstance(data, dict) else None
 
 
+def _status_age(cfg, build_id, now):
+    try:
+        return now - os.lstat(os.path.join(builds.out_dir(cfg, build_id), STATUS_FILE)).st_mtime
+    except OSError:
+        return 0.0
+
+
 def _sync_status(cfg, st, rep, now):
+    """Follow builds.out/<id>/status.json: {id, state, started, updated, step, steps_total, error}."""
     for record in st.builds():
-        if record.get("status") != "ready":
+        if record.get("status") not in ("ready", "building"):
             continue
         data = _read_out(cfg, record["id"], STATUS_FILE)
-        if data is None or data.get("status") not in RUNNING_WORDS:
-            continue
-        started = data.get("started") if isinstance(data.get("started"), str) and UTC_RE.match(data["started"]) else _iso(now)
-        with st.lock(wait=LOCK_WAIT):
-            if _transition(st, record["id"], ("ready",), status="building", started=started) is not None:
-                rep.add("building %s: %s %s" % (record["id"], record["app"], record["version"]))
+        state = (data or {}).get("state")
+        if state in RUNNING_STATES and record["status"] == "ready":
+            started = data.get("started") if isinstance(data.get("started"), str) and UTC_RE.match(data["started"]) else _iso(now)
+            with st.lock(wait=LOCK_WAIT):
+                if _transition(st, record["id"], ("ready",), status="building", started=started) is not None:
+                    rep.add("building %s: %s %s" % (record["id"], record["app"], record["version"]))
+        elif state in STOPPED_STATES and _status_age(cfg, record["id"], now) > STATUS_GRACE:
+            if not os.path.lexists(os.path.join(builds.out_dir(cfg, record["id"]), build_collect.RESULT_FILE)):
+                error = data.get("error") if isinstance(data.get("error"), str) and data["error"].strip() else state
+                _fail(st, record["id"], ("ready", "building"), "the runner stopped: %s" % error, rep, now)
 
 
 # 4. timeouts

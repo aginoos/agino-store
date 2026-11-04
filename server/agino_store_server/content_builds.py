@@ -54,9 +54,9 @@ class Recipe:
     limits: Limits          # effective: the recipe's value, else the global ceiling
 
     def as_task(self):
-        """The recipe as plain JSON data for task.json."""
-        return {"base": self.base, "source": dict(self.source), "build_depends": list(self.build_depends),
-                "steps": list(self.steps),
+        """The recipe as plain JSON data for task.json (only keys the build runner knows; no nulls)."""
+        return {"base": self.base, "source": {k: v for k, v in self.source.items() if v is not None},
+                "build_depends": list(self.build_depends), "steps": list(self.steps),
                 "package": dict(self.package, depends=list(self.package["depends"])),
                 "limits": self.limits.as_dict()}
 

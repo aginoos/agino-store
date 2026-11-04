@@ -144,14 +144,12 @@ def cancel(cfg, st, build_id, by, now=None):
     return updated
 
 
-def task_document(cfg, record, source_sha256, source_size):
-    """The task.json the build runner reads (see docs/server.md section 14)."""
+def task_document(record, source_sha256, source_size):
+    """The task.json the build runner reads. The runner rejects unknown keys: only these may appear."""
     return {
-        "schema": 1, "id": record["id"], "app": record["app"], "version": record["version"],
+        "id": record["id"], "app": record["app"], "version": record["version"],
         "upstream_version": record["upstream_version"], "tag": record["tag"], "commit": record["commit"],
-        "repo": record["repo"], "created": record["created"], "recipe": record["recipe"],
-        "limits": record["limits"],
+        "attempt": record["attempt"], "by": record["by"], "created": record["created"],
         "source": {"file": SOURCE_FILE, "sha256": source_sha256, "size": source_size},
-        "max_source_mib": cfg.builds_max_source_mib, "max_artifact_mib": cfg.builds_max_artifact_mib,
-        "max_log_mib": cfg.builds_max_log_mib,
+        "recipe": record["recipe"], "limits": record["limits"],
     }
