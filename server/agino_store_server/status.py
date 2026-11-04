@@ -7,16 +7,18 @@ Never takes state/.lock, writes nothing, runs no sudo and uses no network.
 import datetime
 import json
 
-from . import status_apps, status_sandbox, status_shots, status_state
+from . import status_apps, status_builds, status_sandbox, status_shots, status_state
 from .status_io import Errors, sanitize
 
-SCHEMA = 1
-SECTIONS = ("apps", "candidates", "approved", "vendors", "catalog", "sandbox", "timers", "shots", "categories")
-FUTURE_SECTIONS = ("upstreams", "submissions", "sessions", "builds")
+SCHEMA = 2
+SECTIONS = ("apps", "candidates", "approved", "vendors", "catalog", "sandbox", "timers", "shots", "categories",
+            "upstreams", "builds", "builder")
+FUTURE_SECTIONS = ("submissions", "sessions")
 MAX_BYTES = 8 << 20
 # (section, path inside the section) of the lists the size guard may shorten; newest or most important first.
 TRUNCATABLE = (("apps", ()), ("shots", ()), ("candidates", ()), ("approved", ("log",)), ("vendors", ()),
-               ("sandbox", ("queue",)), ("sandbox", ("jobs",)), ("sandbox", ("reports",)))
+               ("sandbox", ("queue",)), ("sandbox", ("jobs",)), ("sandbox", ("reports",)), ("builds", ()),
+               ("upstreams", ()))
 
 
 class UnknownSection(ValueError):
@@ -39,11 +41,12 @@ def _now():
 
 
 def _collect(cfg, wanted, errors):
-    needs_content = {"apps", "vendors", "shots", "categories"} & set(wanted)
+    needs_content = {"apps", "vendors", "shots", "categories", "upstreams"} & set(wanted)
     content = status_apps.load_content(cfg, errors) if needs_content else None
     candidates = (status_state.load_candidates(cfg, errors)
                   if {"apps", "candidates"} & set(wanted) else [])
     approved = status_state.read_approved(cfg, errors) if {"apps", "approved"} & set(wanted) else {}
+    records = status_builds.load_records(cfg, errors) if {"builds", "builder"} & set(wanted) else []
     makers = {
         "apps": lambda: status_apps.section(cfg, content, approved, status_state.newest_status(candidates), errors),
         "candidates": lambda: candidates,
@@ -54,6 +57,9 @@ def _collect(cfg, wanted, errors):
         "timers": lambda: status_sandbox.timers_section(errors),
         "shots": lambda: status_shots.section(cfg, content, errors),
         "categories": lambda: status_apps.categories_section(content),
+        "upstreams": lambda: status_builds.upstreams_section(cfg, content, errors),
+        "builds": lambda: status_builds.builds_section(records),
+        "builder": lambda: status_builds.builder_section(records),
     }
     out = {}
     for name in wanted:

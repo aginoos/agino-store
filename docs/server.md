@@ -20,6 +20,10 @@ server/agino_store_server/
   checks.py      依赖检查（dose-debcheck）、和上一版的差异
   reports.py     导入沙箱报告
   content_edit.py / content_patch.py / content_git.py   content-edit、content-confirm：补丁校验、写回 app.yaml、提交和推送（第 13 节）
+  buildcfg.py / content_builds.py   [upstream]/[builds] 设置；upstreams/<id>.yaml 和 apps/<id>/build.yaml 的校验（第 14 节）
+  upstream_fetch.py / upstream_tags.py / upstreams.py   受控抓取、标签到版本、upstream-check（第 14 节）
+  builds.py / build_step.py / build_collect.py / approve_rules.py   编译任务：request/cancel、build-step、产物取回、built 候选的放行规则（第 14 节）
+  status_builds.py   status 的 upstreams / builds / builder 段
 tests/server/    unittest；fixture 在测试里现场生成（gpg 临时密钥、dpkg-deb 打的小包、本地 http 服务）
 ```
 
@@ -78,6 +82,19 @@ max_index_bytes = 134217728
 # with this set unless the environment variable AGINO_STORE_SERVER_TESTS=1 is present.
 allow_insecure = false
 
+[upstream]                             # 可选，整段可省略（第 14 节）
+allowed_hosts = github.com gitlab.com codeberg.org invent.kde.org gitlab.gnome.org   # 上游仓库和 tarball 允许的主机（默认即此）
+check_interval_hours = 6               # 仅供参考：agino-store-upstream-check.timer 的间隔，1..336
+
+[builds]                               # 可选，整段可省略（第 14 节）
+queue = /srv/store/build-queue         # agino-store 写（task.json、source.tar），组 agino-sandbox 可读（0750）
+out = /srv/store/build-out             # 构建运行器写，agino-store 组可读（0750），控制台经 ACL 只读
+max_concurrent = 1                     # 1..16（运行器同样读它）
+limits = cpu_minutes=90 memory_gib=8 disk_gib=20   # 上限；配方只能在上限内下调
+max_source_mib = 512                   # source.tar 上限，1..4096
+max_artifact_mib = 1024                # 单个 deb 上限，1..8192
+max_log_mib = 8                        # 日志上限（运行器用），1..64
+
 [reports]
 keys = /etc/agino-store-server/sandbox-keys   # 沙箱公钥目录：每个 *.pub 一行，原始 32 字节 Ed25519 公钥的 base64
 ```
@@ -97,6 +114,8 @@ apps/<id>/promo/…                                  （可选）厂商宣传图
 demo/<name>/…                                      （可选）自动截图用的演示数据
 vendors/<vendor-id>.yaml
 vendors/keys/<name>.asc                            厂商 apt 源的公钥（审核后入库，不在运行时下载）
+upstreams/<app-id>.yaml                            （可选）开源项目跟踪，格式见第 14 节
+apps/<id>/build.yaml                               （可选）编译配方，格式见第 14 节；不进 content_digest
 ```
 
 `id`、`vendor-id`：`^[a-z0-9][a-z0-9.+-]*$`，即目录名。
@@ -230,6 +249,9 @@ approved.json                {<app-id>: {version, sha256, candidate, approved_at
 approvals.log                每次 approve/reject 追加一行 JSON
 milkyway.json                {<package>: {version, first_seen, size, installed_size}}
 catalog.json                 {serial, inputs_sha256, built_at, revision}
+upstreams/<app-id>.json      上游跟踪记录（第 14 节）
+builds/<id>.json             编译任务记录（第 14 节）
+.lock                        全局锁；.build-step.lock 只有 build-step 用（互斥两次 build-step，不挡其他命令）
 ```
 
 候选版本：
@@ -255,7 +277,7 @@ catalog.json                 {serial, inputs_sha256, built_at, revision}
 }
 ```
 
-- `origin.type`：`apt`（带 `signed_by`、`inrelease_sha256`）、`https`（带 `url`）、`manual`（带 `by`、`url`：人工下载的来源页）。
+- `origin.type`：`apt`（带 `signed_by`、`inrelease_sha256`）、`https`（带 `url`）、`manual`（带 `by`、`url`：人工下载的来源页）、`built`（带 `source_url`、`source_ref`＝标签、`source_commit`、`build_job`＝编译任务 id；候选的 `vendor` 为 null，版本是 `<上游版本>+agino<N>`）。
 - `status`：`awaiting-upload` → `pending` → `approved` | `rejected` | `superseded` | `revoked`（同一应用有更新的候选被放行后，旧的 pending 自动变 superseded；`revoke` 撤销放行后变 revoked）。
 - `checks.sandbox.status`：`missing` | `pass` | `fail`；导入报告后带 `report`（报告文件名）和 `summary`。
 - maintainer 脚本原文和文件清单存在 `candidates/<app-id>/<version>_<sha12>.inspect/`（`control/` 目录 + `files.txt`），供 diff 和人工查看。
@@ -291,7 +313,7 @@ class State:
 | `check [--app ID]` | 拉 milkyway Packages，更新 `milkyway.json`，重查 pending 和已放行候选的依赖，A 类包不存在的报出来 | `checks.run_check(cfg, st, content, app=None) -> list[dict]`（返回问题列表） |
 | `intake VENDOR FILE [--url 来源页]` | 人工下载的 deb 入库：包名、架构必须对，版本必须等于 awaiting-upload 的版本（没有就必须高于已放行的） | `trackers.intake(cfg, st, content, vendor, path, url) -> dict` |
 | `pending [--json]` | 列出 pending / awaiting-upload：版本、大小、各项检查、diff 摘要 | cli |
-| `approve APP[@VERSION] \| all [--no-sandbox] [--include-flagged] [--description-reviewed] [--note 文字]` | 放行。介绍来源（`description_source`）是 `ai` 时拒绝（退出码 1，"the description is AI-generated and not confirmed; confirm it or pass --description-reviewed"），给 `--description-reviewed` 才放行，`approvals.log` 的该行记 `"description_reviewed": true`（没给则为 false）；`all` 一律跳过并列出这类应用，`all` 不接受 `--description-reviewed`（退出码 2，要按名字放行）；其他来源不受影响。依赖失败的不能放行；沙箱不是 pass 的要 `--no-sandbox`（记入 log）。`all` 跳过不满足条件的并列出，也跳过有 inspect flags、`diff.scripts_changed` 或 `diff.flags_added` 的候选，除非给 `--include-flagged`；单个应用照常放行，但会先打印它放行的 flags 和改动的脚本 | cli |
+| `approve APP[@VERSION] \| all [--no-sandbox] [--include-flagged] [--description-reviewed] [--note 文字]` | 放行。介绍来源（`description_source`）是 `ai` 时拒绝（退出码 1，"the description is AI-generated and not confirmed; confirm it or pass --description-reviewed"），给 `--description-reviewed` 才放行，`approvals.log` 的该行记 `"description_reviewed": true`（没给则为 false）；`all` 一律跳过并列出这类应用，`all` 不接受 `--description-reviewed`（退出码 2，要按名字放行）；其他来源不受影响。依赖失败的不能放行；沙箱不是 pass 的要 `--no-sandbox`（记入 log）。`origin.type` 为 `built` 的候选更严（第 14 节）：沙箱必须 pass 且不接受 `--no-sandbox`，必须带非空 `--note`，有 inspect flags、新增 flags 或脚本改动时必须 `--include-flagged`（单个应用也一样，`all` 也一样），log 多记 `origin`、`source_commit`、`build_job`。`all` 跳过不满足条件的并列出，也跳过有 inspect flags、`diff.scripts_changed` 或 `diff.flags_added` 的候选，除非给 `--include-flagged`；单个应用照常放行，但会先打印它放行的 flags 和改动的脚本 | cli |
 | `revoke APP[@VERSION] [--note]` | 撤销放行：从 `approved.json` 删除该应用，对应候选记为 `revoked`，写入 `approvals.log`；下一次 `build` 不再包含它 | cli |
 | `reject APP@VERSION [--note]` | 拒绝 | cli |
 | `reports-ingest` | 导入 `paths.reports` 下的新报告 | `reports.ingest(cfg, st) -> list[dict]` |
@@ -304,13 +326,17 @@ class State:
 | `shots-remove APP --lang L --file NN-scene.png --reviewer NAME` | 把图移到 `.prev`，从 `meta.json` 去掉 | `shots_cmds.cmd_remove` |
 | `content-edit APP --patch NAME.json --editor NAME` | 取 `paths.shots_staging/NAME.json` 的 JSON 补丁改 `apps/APP/app.yaml`，校验整个内容仓库，提交（可选推送）；全局锁；见第 13 节 | `content_edit.cmd_edit` |
 | `content-confirm APP --editor NAME` | 把介绍标为人工确认（`description_source: confirmed` + `description_confirmed {by, at}`），提交（可选推送）；已确认则什么都不做（退出码 0）；全局锁；见第 13 节 | `content_edit.cmd_confirm` |
+| `upstream-check [--app ID]` | 抓每个上游的标签，更新 `state/upstreams/<id>.json`；`auto_task` 开着且出现新版本就创建任务（`by` 为 `auto`）。已见标签的提交变了退出码 1。输出每个上游一行。第 14 节 | `upstreams.check_all` |
+| `build-request APP --version V --by NAME` | 为上游版本 V 创建编译任务，打印任务 id。第 14 节 | `builds.request` |
+| `build-cancel ID --by NAME` | 取消未完成的任务。第 14 节 | `builds.cancel` |
+| `build-step` | 定时器每分钟：取源码、跟踪运行器状态、取回产物生成候选、超时、清理。第 14 节 | `build_step.step` |
 | `build [--if-changed]` | 生成并签名目录；`--if-changed`：输入没变且距上次不到 `renew_after_hours` 就什么都不做（输入没变但该续期了就只换 serial 和有效期） | `catalog.build(cfg, st, content, if_changed=False) -> dict` |
-| `metrics` | 写 `agino_store_server.prom` | cli |
+| `metrics` | 写 `agino_store_server.prom`；有上游或编译任务时多出 `agino_store_upstream_last_ok_timestamp_seconds{app}`、`agino_store_upstream_last_error{app}`、`agino_store_upstream_tag_moved{app}`（条数）和 `agino_store_builds{status}`（各状态的任务数） | cli、`metrics_builds.lines` |
 | `status --json [--section 名称 ...]` | 只读状态总览，给管理后台用（第 11 节）；不拿锁、不写、不联网 | cli、`status.build(cfg, sections, clean) -> str` |
 
 `allow_insecure = true` 时命令行直接退出（码 2），除非环境变量 `AGINO_STORE_SERVER_TESTS=1`（测试设置它）。`pending` 和各命令输出里，厂商或候选提供的字符串会去掉控制字符（制表符、换行除外）。
 
-退出码：0 成功；1 有问题需要人看（检查失败、跟踪出错、补丁或内容无效、推送失败）；2 用法或配置错误；3 锁被占用（`shots-*` 命令是某个应用的截图锁被占用；`content-*` 用全局锁）。
+退出码：0 成功；1 有问题需要人看（检查失败、跟踪出错、补丁或内容无效、推送失败、上游标签被移动、`build-request` 被拒、`build-step` 有任务失败）；2 用法或配置错误（含 `build-request` 的参数、`upstream-check --app` 没有上游、`build-cancel` 的 id 不存在）；3 锁被占用（`shots-*` 命令是某个应用的截图锁被占用；`content-*` 用全局锁；`build-step` 等不到全局锁超过 60 秒；另一个 `build-step` 在跑时它自己静默退出码 0）。
 
 ## 6. 跟踪和下载
 
@@ -422,21 +448,24 @@ milkyway 里的应用不进沙箱队列，已通过沙箱的候选也不会再�
 
 `agino-store-server status --json [--section NAME ...]` 是管理后台（agino-store-admin）读状态的唯一接口，后台不解析内部文件格式。严格只读：不拿 `state/.lock`（所以和任何写命令并行都行），不写文件，不调用 sudo，不联网。状态 JSON 是原子替换的，每个文件只打开读一次（`O_NOFOLLOW`，必须是普通文件，最大 8 MiB）；文件缺失、读到一半或 JSON 无效时，记入 `errors` 后继续。退出码 0（有 `errors` 也是 0）；`--json` 缺失或段名未知退出码 2。
 
-输出一个 JSON 对象（ensure_ascii，示例见 `docs/status-schema.md`）：`{"schema": 1, "generated": "<UTC>", "sections": {…}, "errors": [{"section", "detail"}]}`。`--section` 可重复，默认全部。已实现：`apps`、`candidates`、`approved`、`vendors`、`catalog`、`sandbox`、`timers`、`shots`、`categories`；`upstreams`、`submissions`、`sessions`、`builds` 是预留名，现在接受但输出里没有这一段。
+输出一个 JSON 对象（ensure_ascii，示例见 `docs/status-schema.md`）：`{"schema": 2, "generated": "<UTC>", "sections": {…}, "errors": [{"section", "detail"}]}`。`--section` 可重复，默认全部。已实现：`apps`、`candidates`、`approved`、`vendors`、`catalog`、`sandbox`、`timers`、`shots`、`categories`、`upstreams`、`builds`、`builder`；`submissions`、`sessions` 是预留名，现在接受但输出里没有这一段。schema 版本 2（相对 1 新增了 `upstreams`、`builds`、`builder` 三段，候选的 `origin` 对 `built` 多几个键，`timers` 多四个单元）。
 
 | 段 | 内容 |
 |---|---|
 | `apps` | 列表，每项：`id`、`name`、`summary`（`{zh_CN, en_US}`）、`description`（`{zh_CN: [段落…], en_US: […]}`，全文）、`license`、`categories`、`source`、`kind`、`package`、`vendor`、`proprietary`、`developer`（`{zh_CN, en_US}`）、`homepage`、`maintainer`、`launchable`、`has_icon`、`description_source`（缺省 `submitter`）、`description_confirmed`（`{by, at}` 或 null）、`l10n`（布尔）、`shots`（`{state: none\|draft\|approved, scenes, langs, counts: {draft, approved, rejected}}`，来自 `paths.screenshots/<应用>/meta.json`；至少一张 approved 的图就是 approved，否则有 draft 为 draft，否则 none；`scenes`、`langs` 只数没被 rejected 的图）、`approved`（`{version, approved_at, by}` 或 null）、`current_candidate_status`（版本最高的候选的状态）。内容仓库校验失败时这一段为空，每条问题记入 `errors` |
-| `candidates` | 全部候选，按 `found` 从新到旧：`id`（`<应用>/<文件名去 .json>`）、`app`、`vendor`、`package`、`version`、`size`、`installed_size`、`found`、`status`、`origin`（`type`，apt 带 `signed_by`）、`source_class`（`official`＝apt/https，`personal`＝manual/built，否则 `unknown`）、`checks`（`deps{ok,detail}`、`inspect{flags}`、`diff{against,scripts_changed,flags_added,summary}`、`sandbox{status,summary,report}`）、`decided`。不含脚本原文和文件清单 |
+| `candidates` | 全部候选，按 `found` 从新到旧：`id`（`<应用>/<文件名去 .json>`）、`app`、`vendor`、`package`、`version`、`size`、`installed_size`、`found`、`status`、`origin`（`type`，apt 带 `signed_by`，built 带 `source_url`、`source_ref`、`source_commit`、`build_job`）、`source_class`（`official`＝apt/https，`personal`＝manual/built，否则 `unknown`）、`checks`（`deps{ok,detail}`、`inspect{flags}`、`diff{against,scripts_changed,flags_added,summary}`、`sandbox{status,summary,report}`）、`decided`。不含脚本原文和文件清单 |
 | `approved` | `{apps: approved.json 原样, log: approvals.log 最后 50 行解析后的对象（坏行跳过）}` |
 | `vendors` | 每个厂商：`id`、`name`（厂商包名）、`in_content`、`last_check`、`last_ok`、`last_error`、`seen_version`；内容仓库里的和 `state/vendors/` 里有记录的取并集 |
 | `catalog` | `{state: {serial, revision, built_at, inputs_sha256, apps}, published: {serial, revision, created, expires, valid_until, apps, signature_present} 或 null}`；`published` 读 `paths.preview/current/` 的 `manifest.json` 和 `catalog.json`，只看签名文件在不在，不验签 |
 | `sandbox` | `{queue: [{job, mode(check\|shots), app, version, size, created}], jobs: [{job, status, result, attempts, reason, report, updated}]（`paths.sandbox_state/*.json`）, reports: 最新 30 份（`paths.reports/` 和 `done/`）[{name, location, app, version, result, finished, at, summary}]}` |
 | `shots` | 内容仓库里每个应用一项：`id`、`counts`（`{draft, approved, rejected}`）、`images`（按语言、文件名排序，每张图是 `meta.json` 里的完整记录：`lang`、`file`、`scene`、`width`、`height`、`size`、`sha256`、`source`、`status`、`reviewer`、`reviewed`、`note`、`origin`），管理后台一次调用读全部。目录或 `meta.json` 缺失时 `images` 为空，`meta.json` 损坏记入 `errors`（段名 `shots`） |
 | `categories` | `categories.yaml` 的列表：`[{id, name: {zh_CN, en_US}}]`，顺序同文件；内容仓库校验失败时为空列表（问题记入 `errors`，段名 `apps`） |
-| `timers` | `agino-store-{track,check,build,sandbox,reports}.{service,timer}` 十个单元的 `systemctl show`（固定参数，不经 shell，每个 5 秒超时）：`unit`、`LoadState`、`ActiveState`、`SubState`、`Result`、`LastTriggerUSec`、`NextElapseUSecRealtime`、`ExecMainStatus`。没有 systemctl 时为空列表并记入 `errors` |
+| `upstreams` | 每个上游一项（`upstreams/<id>.yaml` 和 `state/upstreams/` 取并集）：`app`、`repo`（不在内容仓库里为 null）、`in_content`、`auto_task`、`latest_version`、`last_check`、`last_ok`、`last_error`、`tag_moved`（条数）、`seen_count`、`versions`（已见版本，从新到旧，最多 30 个，供“新建编译任务”选版本）、`tag_moves`（最近 10 条 `{version, tag, old_commit, new_commit, at}`） |
+| `builds` | 最近 50 个任务（`created` 从新到旧）：`id`、`app`、`version`、`upstream_version`、`tag`、`commit`、`attempt`、`status`、`by`、`created`、`started`、`finished`、`error`、`artifact`（`{file, sha256, size}` 或 null）、`candidate`（`<版本>_<sha12>` 或 null）。不含配方和日志 |
+| `builder` | `{running: <building 状态的任务 id>|null, queued: <queued、fetching、ready 的任务数>}` |
+| `timers` | `agino-store-{track,check,build,sandbox,reports,upstream-check,build-step}.{service,timer}` 十四个单元的 `systemctl show`（固定参数，不经 shell，每个 5 秒超时）：`unit`、`LoadState`、`ActiveState`、`SubState`、`Result`、`LastTriggerUSec`、`NextElapseUSecRealtime`、`ExecMainStatus`。没有 systemctl 时为空列表并记入 `errors` |
 
-所有来自厂商、候选、沙箱和内容仓库的字符串先过 `pending` 用的控制字符清理（控制字符换成 `?`，包括键名）。文档超过 8 MiB 时，把最长的列表（`apps`、`candidates`、`approved.log`、`vendors`、`sandbox.*`）反复砍掉后一半，被砍的段名写进顶层 `"truncated"`。
+所有来自厂商、候选、沙箱和内容仓库的字符串先过 `pending` 用的控制字符清理（控制字符换成 `?`，包括键名）。文档超过 8 MiB 时，把最长的列表（`apps`、`candidates`、`approved.log`、`vendors`、`sandbox.*`）反复砍掉后一半（还有 `builds`、`upstreams`），被砍的段名写进顶层 `"truncated"`。
 
 `config.py` 新增可选键 `[paths] sandbox_state`（只有 `status` 用）。截图目录相关的键见第 12 节。
 
@@ -490,3 +519,71 @@ milkyway 里的应用不进沙箱队列，已通过沙箱的候选也不会再�
 - 回退：在内容仓库里 `git revert` 对应提交，下一次 `build` 恢复。
 
 **`content-confirm APP --editor NAME`**：把 `description_source` 设为 `confirmed`，`description_confirmed` 设为 `{by, at}`（来源原本是 `ai`、`submitter` 或 `official` 都行），按上面的 git 流程提交 `info(<APP>): confirm description by <EDITOR>`。已经是 `confirmed` 则输出 `description of APP is already confirmed`，退出码 0，不提交。同样拿全局锁。
+
+## 14. 开源项目跟踪和编译任务
+
+设计和威胁模型见 agino-store-admin 仓库 `docs/build-tasks.md`（本节是服务端的实现规格；第 7 节是唯一契约）。流程：`upstream-check` 发现新版本 → `build-request` 创建任务 → `build-step` 取源码交给构建运行器（`agino-store-sandbox build-run`，在虚拟机里编译，宿主机永不执行上游的任何东西）→ 产物 deb 作为 `origin.type = built` 的待审核候选，走和 `intake` 相同的检查和沙箱 → 人工放行（规则更严）。任何包都不会自动进目录。
+
+### 14.1 内容仓库
+
+`upstreams/<app-id>.yaml`（`<app-id>` 必须是已有应用）：
+
+```yaml
+app: gimp                    # 必须等于文件名
+repo: https://github.com/GNOME/gimp.git   # https，无凭据、查询、片段；主机必须在 [upstream] allowed_hosts；路径 2..6 段 [A-Za-z0-9._~-]
+track:
+  type: tag                  # tag | release（release 现在只通过校验，upstream-check 报“not implemented yet”）
+  match: '^GIMP_(\d+)_(\d+)_(\d+)$'   # ≤200 字符，1..6 个捕获组，拒绝嵌套量词；对整个标签做 fullmatch，捕获组用 "." 连成版本号
+  min_version: "3.0.0"       # 可选，必须加引号；版本按 Debian 规则比较
+build: apps/gimp/build.yaml  # 固定写法
+auto_task: false             # 缺省 false
+```
+
+`apps/<id>/build.yaml`（管理员写，上游自带的构建说明不被信任也不被执行）：
+
+```yaml
+base: debian-trixie                       # 目前只有这一个
+source: {kind: git, checksum: required}   # git：提交由任务固定；tarball：还要 url（https，允许的主机）和 sha256 的 checksum
+build_depends: [build-essential, meson]   # 0..100 项，Debian 包名
+steps: ["meson setup build --prefix=/usr", "meson compile -C build"]   # 1..40 条，每条单行 ≤512 字符
+package: {name: gimp-agino, section: graphics, depends: [libgtk-3-0], maintainer: "agino app store <store@aginoos.com>"}
+limits: {cpu_minutes: 90, disk_gib: 20, memory_gib: 8}   # 可选；每项 1..全局上限
+```
+
+未知键一律拒绝；整个内容仓库校验失败就是失败（和其他文件一样）。有 `build.yaml` 的应用，`app.yaml` 必须 `source: personal`、`package.kind: deb`、**不写** `package.vendor`、`package.name` 等于配方的 `package.name`，`maintainer` 必填。`build.yaml` 不进 `content_digest`（改配方不重新生成目录）。
+
+### 14.2 状态
+
+`state/upstreams/<app>.json`：`{last_check, last_ok, last_error, latest_version, seen: {<版本>: {tag, commit, found}}, tag_moved: [{version, tag, old_commit, new_commit, at}]}`。`seen` 最多留版本最高的 300 个；一个版本第一次见到时的提交就是固定值，之后标签指向别处只记进 `tag_moved`（最多 50 条），不改固定值。
+
+`state/builds/<id>.json`（`id` 是 16 位十六进制）：契约里的 `id、app、version（<上游版本>+agino<N>）、upstream_version、tag、commit、attempt、status、by、created、started、finished、error、artifact、candidate`，另有 `repo`、`package`、`limits`、`recipe`（创建任务时配方的快照，之后改配方不影响已有任务）和 `source`（`{sha256, size}`，取到源码后）。状态：`queued → fetching → ready → building → collecting → done`，任何未完成状态都可以变 `failed` 或 `cancelled`。
+
+### 14.3 命令
+
+- `upstream-check [--app ID]`：持全局锁，按 `track.match` 算版本。第一次成功检查只记基线；之后 `auto_task: true` 且出现比之前最新版更高的新版本时，只为其中最高的一个调用 `build-request`（`by` 记为 `auto`；被拒只在输出里提一句）。有新的标签移动或出错时退出码 1。
+- `build-request APP --version V --by NAME`：V 必须在该上游的 `seen` 里，该版本没有被移动过的标签，且没有未完成的任务；`attempt` = 该版本已有任务数 + 1。只打印任务 id。`V` 匹配 `^[0-9][0-9A-Za-z.+~-]{0,63}$`，`NAME` 匹配 `^[A-Za-z0-9._-]{1,32}$`。
+- `build-cancel ID --by NAME`：未完成的任务标 `cancelled`，如果 `builds.queue/<id>/` 已存在就在里面写 `cancel` 文件。
+- `build-step`：同一时间只有一个（`state/.build-step.lock`，另一个在跑就静默退出 0）。取源码时**不持**全局锁，每次改状态才短暂拿锁（等不到 60 秒退出码 3）并重读记录，所以抓取期间 `approve` 等命令不受影响。四步：
+  1. `queued` 任务：标 `fetching`，取源码（14.4），在 `builds.queue/.fetch-XXXX/` 里先写 `source.tar` 再写 `task.json`，整个目录 rename 成 `builds.queue/<id>/`（0750，文件 0640），任务变 `ready`；失败变 `failed`（不自动重试）；上次运行中途死掉留下的 `fetching` 会重新排队；取源码期间被取消的任务丢弃已取的源码。
+  2. `ready` 任务读 `builds.out/<id>/status.json`（运行器写；`state` 取 `starting|installing_deps|building|packaging|collecting` 都映射成 `building` 并记 `started`）；运行器报告 `failed`/`cancelled` 且 5 分钟内仍无 `result.json` 的任务标 `failed`。
+  3. 有 `result.json` 的未完成任务：`ok` 为假 → `failed`，`error` 取运行器的文字（去控制字符，≤500 字符）；`ok` 为真 → 恰好一个 `.deb`（文件名 `^[A-Za-z0-9][A-Za-z0-9._+~-]{0,198}\.deb$`，普通文件、不是符号链接，大小和 sha256 与 `result.json` 一致，不超过 `max_artifact_mib` 和 `max_deb_bytes`），复制进 `paths.downloads`，走 `trackers.ingest`（`dpkg-deb` 读 control：`Package` 等于配方包名、`Architecture` 是 `milkyway.arch` 或 `all`、`Version` 等于任务的 `version`；inspect、diff、依赖检查与其他候选相同），候选 `origin = {type: built, source_url, source_ref, source_commit, build_job}`，状态 `pending`，任务 `done`。`result.json` 读不出来但文件不到 5 分钟新，当作还在写。
+  4. 已开始的任务超过 `limits.cpu_minutes + 35 分钟` 仍无结果 → 写 `cancel`、标 `failed: timeout`（运行器自己最多给 cpu_minutes + 25 分钟）。尚未开始（`ready`）的任务不会超时。
+  然后清理：已结束超过 1 小时的任务删除 `builds.queue/<id>/`（`builds.out` 归运行器管），超过 1 天的 `.fetch-*` 残留目录删除。有任务在本次运行中变 `failed` 时退出码 1。
+
+### 14.4 受控抓取（`upstream_fetch.py`）
+
+- 标签列表：`git ls-remote --tags <repo>`（取 annotated 标签的 peeled 提交；输出限 8 MiB、标签最多 50000 个，标签名只收 `[A-Za-z0-9._+/-]`）。
+- 源码：`git init --template=` 的空仓库里 `git fetch --depth 1 --no-tags --no-recurse-submodules <repo> +refs/tags/<tag>:refs/tags/<tag>`，核对 `refs/tags/<tag>^{commit}` 等于任务里固定的提交（不等就失败，“tag moved”），再 `git archive` 出原始 tar。tarball 类型用 `fetch.Fetcher` 下载并核对 `checksum`（主机在 `allowed_hosts`、每一跳重定向都检查、限大小）。
+- git 的运行方式：参数列表，不经 shell，`cwd` 和 `HOME` 在私有临时目录，环境只有固定的 `PATH=/usr/bin:/bin`、`LANG=C`、`GIT_TERMINAL_PROMPT=0`、`GIT_ASKPASS=/bin/false`、`GIT_CONFIG_GLOBAL=/dev/null`、`GIT_CONFIG_NOSYSTEM=1`、`GIT_ATTR_NOSYSTEM=1`、`GIT_NO_REPLACE_OBJECTS=1`、`GIT_ALLOW_PROTOCOL=https`；`-c` 设 `protocol.allow=never`、`protocol.https.allow=always`、`core.hooksPath=/dev/null`、`core.fsmonitor=false`、`http.followRedirects=false`（git 不跟随重定向，上游搬家要改配方）、`http.userAgent`＝`[fetch] user_agent`、`credential.helper=`、`transfer.fsckObjects` 和 `fetch.fsckObjects`、不递归子模块。资源限制同 `debinfo.run_tool`（地址空间 2 GiB、CPU 300 秒），单文件写入上限 `max_source_mib`，超时：`ls-remote` 120 秒、`fetch` 900 秒、`archive` 300 秒。同一主机的请求间隔 ≥ 2 秒。git 自己解析域名，没有 `fetch.py` 里“连接到的地址必须是公网地址”的保护（主机来自管理员维护的白名单）。
+- `source.tar`：只用 `tarfile` 读，不解压到磁盘，重新打包：只留普通文件、目录和符号链接；去掉属主、特殊位，文件权限只留 0644/0755，目录 0755；拒绝绝对路径、`..`、控制字符、设备文件、管道、硬链接、重复条目、写在符号链接或普通文件“下面”的条目，以及指向树外的符号链接（在整个树里模拟解析，包括链式和环）；条目数 ≤ 500000，总大小 ≤ `max_source_mib`。tarball 的唯一顶层目录会被去掉。
+- 失败信息里的不可信文字（git 的 stderr 最后一行、路径）先去控制字符并截到 300 字符。
+
+### 14.5 和构建运行器的文件约定
+
+- `builds.queue/<id>/task.json`（运行器拒绝未知键，所以只有这些）：`id、app、version、upstream_version、tag、commit、attempt、by、created`（信息性），`source: {file: "source.tar", sha256, size}`，`recipe: {base, source: {kind, checksum[, url]}, build_depends, steps, package: {name, section, depends, maintainer}, limits}`，`limits: {cpu_minutes, memory_gib, disk_gib}`（配方的值，没写就是全局上限）。运行器要求两个文件静默 3 秒后才接手；服务端是先备好整个目录再 rename，不会让它看到半成品。
+- `builds.out/<id>/status.json`（运行器写）：`{id, state, started, updated, step, steps_total, error}`；`result.json`：`{ok, error, steps: [{n, cmd, exit, seconds}], artifacts: [{file, sha256, size}]}`；`build.log`、`<name>.deb`。服务端把这些都当不可信数据，已结束且 `queue/<id>` 已不存在的任务不会被重建（运行器留 `status.json` 作墓碑）。
+- 取消：`builds.queue/<id>/cancel`。
+
+### 14.6 放行（`approve`）
+
+`origin.type == built` 的候选：沙箱必须 `pass`；不接受 `--no-sandbox`；`--note` 必须非空（理由，写进 `approved.json` 和 `approvals.log`）；`checks.inspect.flags`、`checks.diff.flags_added` 或 `checks.diff.scripts_changed` 非空时必须 `--include-flagged`（没有放行过的版本，所有脚本和标记都算新增）。单个应用和 `all` 都一样；`all` 跳过不满足的并列出原因。规则在 `approve_rules.py`，由 `cli.py` 的两条放行路径调用。

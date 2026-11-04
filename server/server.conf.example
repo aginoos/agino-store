@@ -38,3 +38,17 @@ allow_insecure = false
 # Directory of *.pub files, one per sandbox host: one line, base64 of the raw 32-byte Ed25519 public key.
 # Every report <name>.json needs <name>.json.sig (base64 signature over the raw JSON bytes).
 keys = /etc/agino-store-server/sandbox-keys
+
+[upstream]
+# Hosts an upstream repo (upstreams/<id>.yaml) or a tarball source may live on; https only (docs/server.md section 14).
+allowed_hosts = github.com gitlab.com codeberg.org invent.kde.org gitlab.gnome.org
+check_interval_hours = 6          # informational: the interval of agino-store-upstream-check.timer
+
+[builds]
+queue = /srv/store/build-queue    # agino-store writes task.json + source.tar; group agino-sandbox reads (0750)
+out = /srv/store/build-out        # the build runner (agino-sandbox) writes status.json, build.log, result.json, *.deb
+max_concurrent = 1
+limits = cpu_minutes=90 memory_gib=8 disk_gib=20   # ceilings; a recipe may only lower them
+max_source_mib = 512
+max_artifact_mib = 1024
+max_log_mib = 8

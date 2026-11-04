@@ -2,6 +2,7 @@
 import json
 import os
 import tempfile
+import time
 import unittest
 
 from agino_store_server import state
@@ -98,6 +99,54 @@ class TestState(unittest.TestCase):
             self.st.cache_dir("../evil")
         record = self.st.add_candidate(H.candidate())
         self.assertTrue(self.st.inspect_dir(record).endswith("_aaaaaaaaaaaa.inspect"))
+
+    def test_named_lock_is_independent_of_the_main_lock(self):
+        with self.st.lock():
+            with self.st.lock("build-step"):
+                with self.assertRaises(state.StateLocked):
+                    with state.State(self.root).lock("build-step"):
+                        pass
+        with self.assertRaises(state.StateError):
+            with self.st.lock("../x"):
+                pass
+
+    def test_lock_wait_gives_up(self):
+        with self.st.lock():
+            start = time.monotonic()
+            with self.assertRaises(state.StateLocked):
+                with state.State(self.root).lock(wait=0.6):
+                    pass
+            self.assertGreaterEqual(time.monotonic() - start, 0.5)
+
+    def test_upstream_memo_roundtrip(self):
+        self.assertEqual(self.st.upstream_memo("tool"), {})
+        self.st.save_upstream_memo("tool", {"latest_version": "1.0.0"})
+        self.assertEqual(self.st.upstream_memo("tool"), {"latest_version": "1.0.0"})
+        with self.assertRaises(state.StateError):
+            self.st.upstream_memo("../x")
+
+    def test_build_records(self):
+        self.assertEqual(self.st.builds(), [])
+        self.assertIsNone(self.st.build("0123456789abcdef"))
+        first, second = self.st.new_build_id(), self.st.new_build_id()
+        self.assertRegex(first, r"\A[0-9a-f]{16}\Z")
+        self.st.save_build({"id": second, "app": "tool", "created": "2026-11-04T10:00:00Z"})
+        self.st.save_build({"id": first, "app": "tool", "created": "2026-11-04T09:00:00Z"})
+        self.st.save_build({"id": "f" * 16, "app": "other", "created": "2026-11-04T11:00:00Z"})
+        self.assertEqual([r["id"] for r in self.st.builds()], [first, second, "f" * 16])
+        self.assertEqual([r["id"] for r in self.st.builds(app="tool")], [first, second])
+        self.assertEqual(self.st.build(first)["app"], "tool")
+        for bad in ("../x", "short", "G" * 16, None):
+            with self.subTest(bad=bad):
+                with self.assertRaises(state.StateError):
+                    self.st.build(bad)
+                with self.assertRaises(state.StateError):
+                    self.st.save_build({"id": bad})
+
+    def test_damaged_build_record_is_an_error(self):
+        H.write(os.path.join(self.root, "builds", "0123456789abcdef.json"), b"{not json")
+        with self.assertRaises(state.StateError):
+            self.st.builds()
 
 
 if __name__ == "__main__":

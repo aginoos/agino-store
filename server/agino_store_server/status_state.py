@@ -41,6 +41,8 @@ def trim_candidate(record, name):
                decided=record.get("decided"))
     if kind == "apt":
         out["origin"]["signed_by"] = origin.get("signed_by")
+    elif kind == "built":
+        out["origin"].update(pick(origin, ("source_url", "source_ref", "source_commit", "build_job")))
     return out
 
 

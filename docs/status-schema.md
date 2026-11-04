@@ -1,12 +1,12 @@
 # `agino-store-server status --json` example
 
-Schema version 1; field reference in `docs/server.md` section 11. All strings are sanitised, output is
-ASCII JSON. Sections not requested (or not implemented yet) are absent. This example is abridged
+Schema version 2; field reference in `docs/server.md` section 11. All strings are sanitised, output is
+ASCII JSON. Sections not requested (or not implemented yet: `submissions`, `sessions`) are absent. Schema 2 added `upstreams`, `builds` and `builder`. This example is abridged
 (lists have one entry) and pretty-printed; the real output is one line.
 
 ```json
 {
-  "schema": 1,
+  "schema": 2,
   "generated": "2026-11-03T08:00:00Z",
   "sections": {
     "apps": [{
@@ -60,6 +60,18 @@ ASCII JSON. Sections not requested (or not implemented yet) are absent. This exa
                            "reviewer": "alice", "reviewed": "2026-11-03T08:00:00Z", "note": "",
                            "origin": "chrome_0123456789ab"}]}],
     "categories": [{"id": "web", "name": {"zh_CN": "网络", "en_US": "Web"}}],
+    "upstreams": [{"app": "gimp", "repo": "https://github.com/GNOME/gimp.git", "in_content": true, "auto_task": false,
+                   "latest_version": "3.0.4", "last_check": "2026-11-04T06:00:00Z", "last_ok": "2026-11-04T06:00:00Z",
+                   "last_error": null, "tag_moved": 1, "seen_count": 12, "versions": ["3.0.4", "3.0.2", "3.0.0"],
+                   "tag_moves": [{"version": "3.0.2", "tag": "GIMP_3_0_2", "old_commit": "0123456789abcdef0123456789abcdef01234567",
+                                  "new_commit": "89abcdef0123456789abcdef0123456789abcdef", "at": "2026-11-04T06:00:00Z"}]}],
+    "builds": [{"id": "0123456789abcdef", "app": "gimp", "version": "3.0.4+agino1", "upstream_version": "3.0.4",
+                "tag": "GIMP_3_0_4", "commit": "0123456789abcdef0123456789abcdef01234567", "attempt": 1,
+                "status": "done", "by": "alice", "created": "2026-11-04T06:10:00Z", "started": "2026-11-04T06:12:00Z",
+                "finished": "2026-11-04T07:05:00Z", "error": "",
+                "artifact": {"file": "gimp-agino_3.0.4+agino1_amd64.deb", "sha256": "...", "size": 52428800},
+                "candidate": "3.0.4+agino1_0123456789ab"}],
+    "builder": {"running": null, "queued": 0},
     "timers": [{"unit": "agino-store-track.timer", "LoadState": "loaded", "ActiveState": "active",
                 "SubState": "waiting", "LastTriggerUSec": "Tue 2026-11-03 06:00:00 UTC",
                 "NextElapseUSecRealtime": "Tue 2026-11-03 12:00:00 UTC"}]
@@ -68,6 +80,11 @@ ASCII JSON. Sections not requested (or not implemented yet) are absent. This exa
   "truncated": ["candidates"]
 }
 ```
+
+A candidate built from source has `"origin": {"type": "built", "source_url": "https://github.com/...git",
+"source_ref": "GIMP_3_0_4", "source_commit": "<40 hex>", "build_job": "<16 hex>"}` and `"source_class": "personal"`.
+`builds` lists the 50 newest tasks (newest first; no recipe, no log); `builder.queued` counts tasks in
+`queued`, `fetching` and `ready`; `versions` in `upstreams` are the seen versions, newest first, at most 30.
 
 `description_source` is one of `ai`, `confirmed`, `submitter` (default), `official`; `description_confirmed` is
 `{by, at}` or `null`. Section `categories` lists `categories.yaml` in file order and is also a valid `--section`

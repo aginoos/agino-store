@@ -5,6 +5,8 @@ import configparser
 import shlex
 from dataclasses import dataclass
 
+from . import buildcfg
+
 DEFAULT_PATH = "/etc/agino-store-server/server.conf"
 DEFAULT_SANDBOX_QUEUE = "/srv/store/sandbox/queue"
 DEFAULT_SHOTS_OUT = "/srv/store/sandbox/shots-out"
@@ -14,6 +16,8 @@ DEFAULT_SCREENSHOTS = "/srv/store/screenshots"
 DEFAULT_SHOTS_STAGING = "/var/lib/agino-admin/shots-staging"
 DEFAULT_SHOTS_MAX_PER_LANG = 6
 DEFAULT_SHOTS_MIN_WIDTH = 900
+DEFAULT_BUILD_QUEUE = "/srv/store/build-queue"
+DEFAULT_BUILD_OUT = "/srv/store/build-out"
 
 
 class ConfigError(Exception):
@@ -55,6 +59,19 @@ class Config:
     shots_min_width: int = DEFAULT_SHOTS_MIN_WIDTH
     content_push: bool = False          # [content] push: content-edit/content-confirm also push to origin
     content_push_ssh_command: str = ""  # [content] push_ssh_command: GIT_SSH_COMMAND for those pushes
+    upstream_allowed_hosts: tuple = buildcfg.DEFAULT_UPSTREAM_HOSTS   # [upstream] allowed_hosts
+    upstream_check_interval_hours: int = 6                            # [upstream] check_interval_hours (timer hint)
+    builds_queue: str = DEFAULT_BUILD_QUEUE      # [builds] queue: task.json + source.tar, written by build-step
+    builds_out: str = DEFAULT_BUILD_OUT          # [builds] out: written by the build runner, read by build-step
+    builds_max_concurrent: int = 1               # [builds] max_concurrent (read by the runner's config too)
+    builds_limits: buildcfg.Limits = buildcfg.DEFAULT_LIMITS   # [builds] limits: the ceilings recipes may lower
+    builds_max_source_mib: int = 512
+    builds_max_artifact_mib: int = 1024
+    builds_max_log_mib: int = 8
+
+    def build_policy(self):
+        """What the content validation needs: the allowed upstream hosts and the global build limits."""
+        return buildcfg.Policy(self.upstream_allowed_hosts, self.builds_limits)
 
 
 def _get(cp, section, key, conv=str):
@@ -107,6 +124,36 @@ def _content_push(cp):
         raise ConfigError("bad value for [content] push: %r (yes or no)" % raw) from e
 
 
+def _section_int(cp, section, key, default, low, high):
+    raw = _opt(cp, section, key)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except ValueError as e:
+        raise ConfigError("bad value for [%s] %s: %r" % (section, key, raw)) from e
+    if not low <= value <= high:
+        raise ConfigError("[%s] %s must be between %d and %d" % (section, key, low, high))
+    return value
+
+
+def _upstream_hosts(cp, allow_insecure):
+    raw = _opt(cp, "upstream", "allowed_hosts")
+    if raw is None:
+        return buildcfg.DEFAULT_UPSTREAM_HOSTS
+    try:
+        return buildcfg.parse_hosts(raw, allow_insecure)
+    except ValueError as e:
+        raise ConfigError("bad value for [upstream] allowed_hosts: %s" % e) from e
+
+
+def _build_limits(cp):
+    try:
+        return buildcfg.parse_limits(_opt(cp, "builds", "limits"))
+    except ValueError as e:
+        raise ConfigError("bad value for [builds] limits: %s" % e) from e
+
+
 def _sign_command(raw):
     if not raw:
         return ()
@@ -123,6 +170,7 @@ def load(path=DEFAULT_PATH):
             cp.read_file(f)
     except OSError as e:
         raise ConfigError("cannot read %s: %s" % (path, e.strerror)) from e
+    insecure = _get(cp, "fetch", "allow_insecure", _bool)
     cfg = Config(
         content=_get(cp, "paths", "content"),
         state=_get(cp, "paths", "state"),
@@ -143,7 +191,7 @@ def load(path=DEFAULT_PATH):
         min_interval_seconds=_get(cp, "fetch", "min_interval_seconds", float),
         max_deb_bytes=_get(cp, "fetch", "max_deb_bytes", int),
         max_index_bytes=_get(cp, "fetch", "max_index_bytes", int),
-        allow_insecure=_get(cp, "fetch", "allow_insecure", _bool),
+        allow_insecure=insecure,
         milkyway_keyring=_opt(cp, "milkyway", "keyring"),
         milkyway_fingerprints=tuple((_opt(cp, "milkyway", "fingerprints") or "").split()),
         sign_command=_sign_command(_opt(cp, "catalog", "sign_command")),
@@ -157,6 +205,15 @@ def load(path=DEFAULT_PATH):
         shots_min_width=_shots_int(cp, "min_width", DEFAULT_SHOTS_MIN_WIDTH, 100, 4096),
         content_push=_content_push(cp),
         content_push_ssh_command=_opt(cp, "content", "push_ssh_command") or "",
+        upstream_allowed_hosts=_upstream_hosts(cp, insecure),
+        upstream_check_interval_hours=_section_int(cp, "upstream", "check_interval_hours", 6, 1, 24 * 14),
+        builds_queue=_opt(cp, "builds", "queue") or DEFAULT_BUILD_QUEUE,
+        builds_out=_opt(cp, "builds", "out") or DEFAULT_BUILD_OUT,
+        builds_max_concurrent=_section_int(cp, "builds", "max_concurrent", 1, 1, 16),
+        builds_limits=_build_limits(cp),
+        builds_max_source_mib=_section_int(cp, "builds", "max_source_mib", 512, 1, 4096),
+        builds_max_artifact_mib=_section_int(cp, "builds", "max_artifact_mib", 1024, 1, 8192),
+        builds_max_log_mib=_section_int(cp, "builds", "max_log_mib", 8, 1, 64),
     )
     if bool(cfg.key) == bool(cfg.sign_command):
         raise ConfigError("[catalog] exactly one of key and sign_command must be set")

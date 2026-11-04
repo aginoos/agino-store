@@ -7,11 +7,16 @@ import fcntl
 import json
 import os
 import re
+import secrets
 import tempfile
+import time
 
 ID_RE = re.compile(r"\A[a-z0-9][a-z0-9.+-]*\Z")
 VERSION_RE = re.compile(r"\A(?:[0-9]+:)?[0-9][A-Za-z0-9.+~-]*\Z")
 SHA256_RE = re.compile(r"\A[0-9a-f]{64}\Z")
+BUILD_ID_RE = re.compile(r"\A[0-9a-f]{16}\Z")
+LOCK_NAME_RE = re.compile(r"\A[a-z][a-z-]{0,31}\Z")
+LOCK_POLL = 0.25
 
 
 class StateError(Exception):
@@ -78,14 +83,22 @@ class State:
         return os.path.join(self.root, *parts)
 
     @contextlib.contextmanager
-    def lock(self):
+    def lock(self, name="", wait=0.0):
+        """Exclusive flock on state/.lock (or state/.<name>.lock); StateLocked if not free within `wait` seconds."""
+        if name and not LOCK_NAME_RE.match(name):
+            raise StateError("bad lock name: %r" % name)
         os.makedirs(self.root, exist_ok=True)
-        fd = os.open(self._path(".lock"), os.O_RDWR | os.O_CREAT, 0o644)
+        fd = os.open(self._path(".%s.lock" % name if name else ".lock"), os.O_RDWR | os.O_CREAT, 0o644)
         try:
-            try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError as e:
-                raise StateLocked("another agino-store-server task is running") from e
+            end = time.monotonic() + wait
+            while True:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError as e:
+                    if time.monotonic() >= end:
+                        raise StateLocked("another agino-store-server task is running") from e
+                    time.sleep(LOCK_POLL)
             yield self
         finally:
             os.close(fd)
@@ -99,6 +112,47 @@ class State:
     def save_vendor_memo(self, vendor_id, memo):
         _check_id(vendor_id, "vendor id")
         write_json_atomic(self._path("vendors", vendor_id + ".json"), memo)
+
+    # Upstream tracking memo (state/upstreams/<app>.json) and build tasks (state/builds/<id>.json)
+
+    def upstream_memo(self, app):
+        _check_id(app, "app id")
+        return read_json(self._path("upstreams", app + ".json"), {})
+
+    def save_upstream_memo(self, app, memo):
+        _check_id(app, "app id")
+        write_json_atomic(self._path("upstreams", app + ".json"), memo)
+
+    def new_build_id(self):
+        while True:
+            build_id = secrets.token_hex(8)
+            if not os.path.lexists(self._path("builds", build_id + ".json")):
+                return build_id
+
+    def build(self, build_id):
+        """The task record, or None."""
+        if not isinstance(build_id, str) or not BUILD_ID_RE.match(build_id):
+            raise StateError("bad build id: %r" % (build_id,))
+        return read_json(self._path("builds", build_id + ".json"), None)
+
+    def builds(self, app=None):
+        """All task records, oldest first (by created, then id); damaged files raise StateError."""
+        base = self._path("builds")
+        names = sorted(os.listdir(base)) if os.path.isdir(base) else []
+        out = []
+        for name in names:
+            if not name.endswith(".json") or name.startswith(".") or not BUILD_ID_RE.match(name[:-5]):
+                continue
+            rec = read_json(os.path.join(base, name), None)
+            if isinstance(rec, dict) and (app is None or rec.get("app") == app):
+                out.append(rec)
+        return sorted(out, key=lambda r: (str(r.get("created") or ""), str(r.get("id"))))
+
+    def save_build(self, record):
+        build_id = record.get("id")
+        if not isinstance(build_id, str) or not BUILD_ID_RE.match(build_id):
+            raise StateError("bad build id: %r" % (build_id,))
+        write_json_atomic(self._path("builds", build_id + ".json"), record)
 
     # Candidates
 
