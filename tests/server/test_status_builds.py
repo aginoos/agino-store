@@ -142,10 +142,10 @@ class TestCandidatesAndSchema(StatusBuildsCase):
 
     def test_schema_version_and_default_sections(self):
         doc = self.doc()
-        self.assertEqual(doc["schema"], 2)
-        for name in ("upstreams", "builds", "builder"):
+        self.assertEqual(doc["schema"], 3)
+        for name in ("upstreams", "builds", "builder", "intake"):
             self.assertIn(name, doc["sections"])
-        self.assertEqual(status.SCHEMA, 2)
+        self.assertEqual(status.SCHEMA, 3)
 
     def test_read_only_and_lock_free(self):
         self.add_task(status="building")

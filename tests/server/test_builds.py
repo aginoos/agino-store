@@ -142,7 +142,8 @@ class TestFetchStep(BuildCase):
             self.assertEqual(doc[key], value, key)
         # the runner rejects unknown keys: nothing but the agreed ones
         self.assertEqual(set(doc), {"id", "app", "version", "upstream_version", "tag", "commit", "attempt", "by",
-                                    "created", "source", "recipe", "limits"})
+                                    "created", "source", "recipe", "limits", "mode"})
+        self.assertEqual(doc["mode"], "build")
         self.assertEqual(set(doc["recipe"]), {"base", "source", "build_depends", "steps", "package", "limits"})
         self.assertEqual(doc["recipe"]["source"], {"kind": "git", "checksum": "required"})
         self.assertEqual(set(doc["recipe"]["package"]), {"name", "section", "depends", "maintainer"})

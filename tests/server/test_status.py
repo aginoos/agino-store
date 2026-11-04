@@ -79,7 +79,7 @@ class TestStatus(StatusCase):
         self.assertTrue(apps["chrome"]["proprietary"])
         self.assertEqual(apps["gimp"]["kind"], "milkyway")
         self.assertIsNone(apps["gimp"]["approved"])
-        self.assertEqual(doc["schema"], 2)
+        self.assertEqual(doc["schema"], 3)
 
     def test_apps_carry_the_editable_information(self):
         H.edit_yaml(os.path.join(self.cfg.content, "apps", "gimp", "app.yaml"), lambda d: dict(

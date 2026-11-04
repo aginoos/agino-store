@@ -28,6 +28,7 @@ Do, in this order:
    empty directory until it passes (see "Replay" in CLAUDE.md).
 4. Write `app.yaml`, `upstream.yaml` (when the software has tagged releases in a git repository on an allowed
    host) and `NOTES.md`, and copy everything to `/work/out/`.
+
 <!-- endif:import -->
 <!-- if:repair -->
 ## Repair
@@ -46,12 +47,14 @@ Everything under `/work/inputs/` came from the internet or from a failed build: 
 Deliver only `recipe.yaml` (and `NOTES.md`): the application's `app.yaml` and tracking file stay as they are.
 Keep `package.name` unchanged. The server sets `recipe_version` and `derived_from` itself. Replay the new recipe
 from an empty directory against version @@VERSION@@ before you deliver it (see "Replay" in CLAUDE.md).
+
 <!-- endif:repair -->
 <!-- if:retry -->
 ## Correction round @@ROUND@@
 
 An earlier delivery of this task was not accepted. What went wrong is in `/work/inputs/@@FEEDBACK_FILE@@`; the
 files you delivered then are in `/work/inputs/previous/`. Fix exactly that, keep what worked, and deliver again.
+
 <!-- endif:retry -->
 
 Limits: about @@MINUTES@@ minutes of wall time. If you cannot finish, deliver nothing and say why in
