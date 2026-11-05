@@ -426,10 +426,6 @@ class TestVendor(ContentCase):
 VENDOR_URL = H.VENDOR["track"]["url"]
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestDescriptionReview(ContentCase):
     CONFIRMED = {"by": "alice", "at": "2026-11-03T08:00:00Z"}
 
@@ -560,3 +556,7 @@ class TestDistribution(ContentCase):
         before = C.content_digest(self.root)
         self.edit_app("chrome", self.vendor_mode())
         self.assertNotEqual(before, C.content_digest(self.root))
+
+
+if __name__ == "__main__":
+    unittest.main()
