@@ -251,6 +251,13 @@ and `/opt` that belongs to the package. A recipe whose `test` list is empty need
 
 ## 6a. Screenshot scenes (`shots.yaml`)
 
+**`shots.yaml` is optional, and never a reason to withhold the rest.** If you cannot make a scene you trust (the program
+cannot be made to show its content from a fresh profile, needs an account, a licence key or a network service, or
+you could not check the result), deliver everything else without `shots.yaml` and say why in `NOTES.md`. A missing
+`shots.yaml` costs the store a picture that a person can add later; withholding `recipe.yaml`/`vendor.yaml`,
+`app.yaml` or the deb costs the whole import. For a program that only shows a start or selection screen, one scene
+of that screen is acceptable if its caption says so honestly (for example "Start screen").
+
 For a program with a window, deliver `shots.yaml`: the store takes its store pictures from it later, in another VM
 (you deliver no pictures). It lists up to 6 scenes; each scene starts the application fresh (no profile, no files,
 no network) and may press a few keys or click before the picture of the application window is taken, once with a
