@@ -251,6 +251,81 @@ class TestValidation(EditCase):
         self.assertEqual(self.edit(NEW_TEXT)[0], cli.EXIT_LOCKED)
 
 
+class TestDistributionEdit(EditCase):
+    PAGE = "https://example.org/download"
+    VENDOR = {"mode": "vendor", "page": PAGE, "direct": True}
+
+    def test_switch_to_vendor_and_back(self):
+        code, out, err = self.edit({"distribution": self.VENDOR}, app="chrome")
+        self.assertEqual((code, err), (0, ""))
+        self.assertIn("edited chrome: distribution", out)
+        self.assertEqual(self.app_data("chrome")["distribution"], self.VENDOR)
+        self.assertEqual(self.subject(), "info(chrome): distribution by alice")
+        self.assertEqual(content.load(self.content).app("chrome").distribution, self.VENDOR)
+        self.assertEqual(self.head(), self.origin_head())
+        code, _, err = self.edit({"distribution": {"mode": "store"}}, app="chrome", name="patch-0002.json")
+        self.assertEqual((code, err), (0, ""))
+        self.assertNotIn("distribution", self.app_data("chrome"))   # the whole key goes away
+        self.assertEqual(content.load(self.content).app("chrome").distribution, {"mode": "store"})
+
+    def test_distribution_does_not_touch_the_description_review(self):
+        self.set_app(lambda d: dict(d, description_source="ai"), app="chrome")
+        self.assertEqual(self.edit({"distribution": self.VENDOR}, app="chrome")[0], 0)
+        data = self.app_data("chrome")
+        self.assertEqual(data["description_source"], "ai")
+        self.assertNotIn("description_confirmed", data)
+
+    def test_commit_message_lists_distribution_with_other_keys(self):
+        self.assertEqual(self.edit({"license": "MIT", "distribution": self.VENDOR}, app="chrome")[0], 0)
+        self.assertEqual(self.subject(), "info(chrome): license, distribution by alice")
+
+    def test_store_on_a_store_app_is_a_no_op(self):
+        before = self.head()
+        code, out, _ = self.edit({"distribution": {"mode": "store"}}, app="chrome")
+        self.assertEqual(code, 0)
+        self.assertIn("no changes", out)
+        self.assertEqual(self.head(), before)
+
+    def test_same_vendor_value_is_a_no_op_even_without_direct(self):
+        self.set_app(lambda d: dict(d, distribution={"mode": "vendor", "page": self.PAGE, "direct": False}),
+                     app="chrome")
+        before = self.head()
+        code, out, _ = self.edit({"distribution": {"mode": "vendor", "page": self.PAGE}}, app="chrome")
+        self.assertEqual(code, 0)
+        self.assertIn("no changes", out)
+        self.assertEqual(self.head(), before)
+
+    def test_page_and_direct_change(self):
+        self.set_app(lambda d: dict(d, distribution={"mode": "vendor", "page": self.PAGE}), app="chrome")
+        self.assertEqual(self.edit({"distribution": self.VENDOR}, app="chrome")[0], 0)
+        self.assertTrue(self.app_data("chrome")["distribution"]["direct"])
+
+    def test_bad_values_are_refused(self):
+        for value, needle in (({"mode": "vendor"}, "required with mode vendor"),
+                              ({"mode": "vendor", "page": "http://example.org/"}, "https URL"),
+                              ({"mode": "vendor", "page": "https://u:p@example.org/"}, "https URL"),
+                              ({"mode": "vendor", "page": self.PAGE, "direct": "yes"}, "true or false"),
+                              ({"mode": "store", "page": self.PAGE}, "not allowed with mode store"),
+                              ({"mode": "x"}, "must be one of store, vendor"),
+                              ({"mode": "vendor", "page": self.PAGE, "host": "x"}, "unknown key"),
+                              ("vendor", "must be a mapping")):
+            with self.subTest(value=value):
+                before = self.head()
+                code, _, err = self.edit({"distribution": value}, app="chrome")
+                self.assertEqual(code, 1)
+                self.assertIn(needle, err)
+                self.assertEqual(self.head(), before)
+                self.assertNotIn("distribution", self.app_data("chrome"))
+
+    def test_vendor_for_a_milkyway_app_is_undone(self):
+        original, before = slurp(self.gimp), self.head()
+        code, _, err = self.edit({"distribution": self.VENDOR})
+        self.assertEqual(code, 1)
+        self.assertIn("undone", err)
+        self.assertIn("mode vendor needs package kind deb", err)
+        self.assertEqual((slurp(self.gimp), self.head()), (original, before))
+
+
 class TestConfirm(EditCase):
     def test_confirm_an_ai_description(self):
         self.set_app(lambda d: dict(d, description_source="ai"))
