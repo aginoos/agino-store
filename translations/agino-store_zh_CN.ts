@@ -485,6 +485,10 @@
         <translation>下载失败</translation>
     </message>
     <message>
+        <source>Download it from the vendor's website</source>
+        <translation>请从官网下载</translation>
+    </message>
+    <message>
         <source>The download doesn't match its checksum</source>
         <translation>下载的文件与校验值不符</translation>
     </message>
@@ -591,6 +595,29 @@
     <message>
         <source>Refresh now</source>
         <translation>立即刷新</translation>
+    </message>
+</context>
+<context>
+    <name>VendorDialog</name>
+    <message>
+        <source>Update %1</source>
+        <translation>更新 %1</translation>
+    </message>
+    <message>
+        <source>Install %1</source>
+        <translation>安装 %1</translation>
+    </message>
+    <message>
+        <source>This software's licence does not allow the store to distribute it. Please download and install it from the vendor's website.</source>
+        <translation>此软件的授权不允许商店分发，请从官网下载安装。</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>关闭</translation>
+    </message>
+    <message>
+        <source>Download from the vendor's website</source>
+        <translation>前往官网下载</translation>
     </message>
 </context>
 </TS>

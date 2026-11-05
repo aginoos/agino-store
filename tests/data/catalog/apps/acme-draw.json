@@ -1,0 +1,77 @@
+{
+  "id": "acme-draw",
+  "description": {
+    "zh_CN": [
+      "示例绘图：矢量绘图。",
+      "这是示例目录中的说明文字，用于界面和测试。"
+    ],
+    "en_US": [
+      "Acme Draw: Vector drawing.",
+      "This is sample text from the test catalog, used for the UI and tests."
+    ]
+  },
+  "developer": {
+    "zh_CN": "示例开发者",
+    "en_US": "Sample Developer"
+  },
+  "homepage": "https://example.invalid/acme-draw",
+  "maintainer": null,
+  "screenshots": {
+    "zh_CN": [
+      {
+        "image": "assets/5ec4a587521f88fc4476a519d4ea150d39b1cdb4fdd577016dbc54ea9e9dabee.svg",
+        "thumb": "assets/5ec4a587521f88fc4476a519d4ea150d39b1cdb4fdd577016dbc54ea9e9dabee.svg",
+        "width": 1280,
+        "height": 720
+      },
+      {
+        "image": "assets/b641fbe205276d7ab7914e50e1ffd9db69e2c569566d8408b6d3f169b3218ade.svg",
+        "thumb": "assets/b641fbe205276d7ab7914e50e1ffd9db69e2c569566d8408b6d3f169b3218ade.svg",
+        "width": 1280,
+        "height": 720
+      }
+    ],
+    "en_US": [
+      {
+        "image": "assets/24c53111314eeca9b1cea96e5f6723c88bd9a9de15f24933c3c310328affc049.svg",
+        "thumb": "assets/24c53111314eeca9b1cea96e5f6723c88bd9a9de15f24933c3c310328affc049.svg",
+        "width": 1280,
+        "height": 720
+      },
+      {
+        "image": "assets/d13e03a239c8e87e20e755710a535dd307ed7a5520cc54ed7d00462e10f77a9c.svg",
+        "thumb": "assets/d13e03a239c8e87e20e755710a535dd307ed7a5520cc54ed7d00462e10f77a9c.svg",
+        "width": 1280,
+        "height": 720
+      }
+    ]
+  },
+  "releases": [
+    {
+      "version": "1.0.0",
+      "date": "2026-10-31",
+      "notes": {
+        "zh_CN": [
+          "修复若干问题",
+          "性能改进"
+        ],
+        "en_US": [
+          "Fixed several issues",
+          "Performance improvements"
+        ]
+      }
+    },
+    {
+      "version": "0.9.0",
+      "date": "2026-07-01",
+      "notes": {
+        "zh_CN": [
+          "首个示例版本"
+        ],
+        "en_US": [
+          "First sample release"
+        ]
+      }
+    }
+  ]
+}

@@ -603,6 +603,78 @@
         }
       },
       "detail": "apps/hex-peek.json"
+    },
+    {
+      "id": "acme-draw",
+      "name": {
+        "zh_CN": "示例绘图",
+        "en_US": "Acme Draw"
+      },
+      "summary": {
+        "zh_CN": "矢量绘图",
+        "en_US": "Vector drawing"
+      },
+      "icon": "assets/affdd2a462a06aa046eb7fa315c465c88890a86498bc55a54f5fc6438e3890ab.svg",
+      "categories": [
+        "graphics"
+      ],
+      "source": "official",
+      "license": "LicenseRef-proprietary",
+      "proprietary": true,
+      "updated": "2026-10-31",
+      "package": {
+        "kind": "deb",
+        "name": "acme-draw",
+        "deb": {
+          "version": "1.0.0",
+          "vendor_url": "https://example.invalid/acme-draw",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "size": 1000000,
+          "installed_size": 5000000
+        },
+        "distribution": "vendor",
+        "download": {
+          "page": "https://example.invalid/acme-draw/download",
+          "direct": false
+        }
+      },
+      "detail": "apps/acme-draw.json"
+    },
+    {
+      "id": "acme-video",
+      "name": {
+        "zh_CN": "示例视频",
+        "en_US": "Acme Video"
+      },
+      "summary": {
+        "zh_CN": "视频剪辑",
+        "en_US": "Video editing"
+      },
+      "icon": "assets/20df12346100d4b641775d30e8f8841fa3f53ed25b307e9f82fa4d92907d527a.svg",
+      "categories": [
+        "media"
+      ],
+      "source": "official",
+      "license": "LicenseRef-proprietary",
+      "proprietary": true,
+      "updated": "2026-11-01",
+      "package": {
+        "kind": "deb",
+        "name": "acme-video",
+        "deb": {
+          "version": "1.0.0",
+          "vendor_url": "https://example.invalid/acme-video/download/acme-video-1.0.0.deb",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "size": 1000000,
+          "installed_size": 5000000
+        },
+        "distribution": "vendor",
+        "download": {
+          "page": "https://example.invalid/acme-video/download",
+          "direct": true
+        }
+      },
+      "detail": "apps/acme-video.json"
     }
   ]
 }

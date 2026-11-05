@@ -36,11 +36,25 @@ struct DebInfo {
     qint64 installedSize = 0;
 };
 
+// How the app's deb reaches the user: through the store (the helper downloads it) or from the
+// vendor's website (the licence does not allow the store to distribute it; docs/design.md 4.4).
+enum class Distribution { Store, Vendor };
+
 struct PackageRef {
     enum class Kind { Milkyway, Deb };
     Kind kind = Kind::Milkyway;
     QString name;
     std::optional<DebInfo> deb;   // set when kind == Deb
+    Distribution distribution = Distribution::Store;
+    // Vendor distribution only (https URLs). downloadPage is the vendor's download page;
+    // downloadDirect means deb->vendorUrl is the real address of the file for this version.
+    QString downloadPage;
+    bool downloadDirect = false;
+
+    bool isVendorDistributed() const { return distribution == Distribution::Vendor; }
+    // Where "download from the vendor" leads: deb->vendorUrl when downloadDirect and it is set,
+    // otherwise downloadPage. Empty for store distribution.
+    QString downloadUrl() const;
 };
 
 struct Category {
@@ -147,5 +161,9 @@ QStringList l10nPackagesFor(const QHash<QString, QStringList> &l10n, const QStri
 QStringList allL10nPackages(const QHash<QString, QStringList> &l10n);
 
 QString sourceToString(Source source);
+QString distributionToString(Distribution distribution);   // "store" | "vendor"
+
+// True for an absolute https URL with a host (the only kind the store opens or accepts).
+bool isHttpsUrl(const QString &url);
 
 } // namespace AginoStore

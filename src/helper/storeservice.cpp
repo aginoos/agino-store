@@ -305,6 +305,11 @@ void StoreService::enqueue(const QDBusMessage &msg, JobAction action, const QStr
                    QStringLiteral("%1 cannot be removed through the store").arg(app->package.name));
         return;
     }
+    if (action != JobAction::Remove && app->package.isVendorDistributed()) {
+        // The licence does not allow the store to distribute it. The client never asks for this.
+        replyError(msg, QStringLiteral("vendor-download"), QStringLiteral("the app must be downloaded from the vendor"));
+        return;
+    }
     if (action != JobAction::Remove && app->package.kind == PackageRef::Kind::Deb && !app->package.deb) {
         replyError(msg, QStringLiteral("unknown-app"), QStringLiteral("the app has no deb"));
         return;

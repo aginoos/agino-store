@@ -260,6 +260,10 @@ QVariantMap Store::app(const QString &id) const
     map.insert(QStringLiteral("installedSize"), deb ? a->package.deb->installedSize : 0);
     map.insert(QStringLiteral("checksum"), deb ? a->package.deb->sha256 : QString());
     map.insert(QStringLiteral("package"), a->package.name);
+    map.insert(QStringLiteral("distribution"), distributionToString(a->package.distribution));
+    map.insert(QStringLiteral("downloadPage"), a->package.downloadPage);
+    map.insert(QStringLiteral("downloadDirect"), a->package.downloadDirect);
+    map.insert(QStringLiteral("downloadUrl"), a->package.downloadUrl());
     map.insert(QStringLiteral("state"), appState(id));
     return map;
 }
@@ -361,7 +365,7 @@ qint64 Store::updatesDownloadBytes() const
     qint64 total = 0;
     for (auto it = m_updates.constBegin(); it != m_updates.constEnd(); ++it) {
         const AppSummary *a = m_loaded.catalog.app(it.key());
-        if (a && a->package.deb)
+        if (a && a->package.deb && !a->package.isVendorDistributed())
             total += a->package.deb->size;
     }
     return total;
@@ -399,6 +403,7 @@ QString Store::friendlyError(const QString &code, const QString &message)
         {QStringLiteral("protected-package"), tr("This package belongs to the system and can't be removed")},
         {QStringLiteral("busy"), tr("This app already has a task running")},
         {QStringLiteral("download-failed"), tr("Download failed")},
+        {QStringLiteral("vendor-download"), tr("Download it from the vendor's website")},
         {QStringLiteral("hash-mismatch"), tr("The download doesn't match its checksum")},
         {QStringLiteral("install-profile-invalid"), tr("The install settings are invalid")},
         {QStringLiteral("dependency-unresolvable"), tr("Dependencies can't be resolved")},

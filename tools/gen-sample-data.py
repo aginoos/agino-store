@@ -40,7 +40,14 @@ APPS = [
     ("pixel-forge", "graphics", "personal", "像素工坊", "Pixel Forge", "像素画编辑器", "Pixel art editor", "GPL-3.0-or-later", False, 650, "2026-09-12"),
     ("tg-lite", "chat", "personal", "轻聊", "TG Lite", "轻量聊天客户端", "Lightweight chat client", "Apache-2.0", False, 420, "2026-10-09"),
     ("hex-peek", "dev", "personal", "十六进制查看器", "Hex Peek", "二进制文件查看器", "Binary file viewer", "MIT", False, 310, "2026-08-30"),
+    # Vendor distribution (licence forbids the store to distribute the deb): see VENDOR_APPS.
+    ("acme-draw", "graphics", "official", "示例绘图", "Acme Draw", "矢量绘图", "Vector drawing", "LicenseRef-proprietary", True, 700, "2026-10-31"),
+    ("acme-video", "media", "official", "示例视频", "Acme Video", "视频剪辑", "Video editing", "LicenseRef-proprietary", True, 650, "2026-11-01"),
 ]
+
+# app id -> download.direct. acme-draw sends the user to the vendor's download page,
+# acme-video straight to the file (deb.vendor_url).
+VENDOR_APPS = {"acme-draw": False, "acme-video": True}
 
 PALETTE = ["#e5484d", "#f76b15", "#e5a000", "#30a46c", "#12a594", "#0091ff", "#3e63dd", "#8e4ec6", "#d6409f"]
 
@@ -113,6 +120,12 @@ def build(assets_out):
             package = {"kind": "deb", "name": aid, "deb": {
                 "version": "1.0.0", "url": DEB_URL % aid, "vendor_url": "https://example.invalid/" + aid,
                 "sha256": PLACEHOLDER_SHA, "size": 1000000, "installed_size": 5000000}}
+            if aid in VENDOR_APPS:
+                del package["deb"]["url"]
+                if VENDOR_APPS[aid]:
+                    package["deb"]["vendor_url"] = "https://example.invalid/%s/download/%s-1.0.0.deb" % (aid, aid)
+                package["distribution"] = "vendor"
+                package["download"] = {"page": "https://example.invalid/%s/download" % aid, "direct": VENDOR_APPS[aid]}
 
         detail = {
             "description": paragraphs(nzh, nen, szh, sen),

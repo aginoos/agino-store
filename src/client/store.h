@@ -90,6 +90,9 @@ public:
     Q_INVOKABLE void cancelTask(uint jobId);
     Q_INVOKABLE void launch(const QString &appId);
     Q_INVOKABLE void openSystemUpdates();
+    // Opens the vendor's download page (or direct address) of a vendor-distributed app in the
+    // browser; false when the app has none or the address is not https.
+    Q_INVOKABLE bool openVendorDownload(const QString &appId);
 
 signals:
     void catalogReloaded();
@@ -101,6 +104,9 @@ signals:
     // extraRemove (see storeactions.cpp).
     void confirmRequested(const QVariantMap &request);
     void toast(const QString &text);
+    // Install or update of a vendor-distributed app: the store does not distribute it, so no
+    // helper call is made. request: appIds, action, name.
+    void vendorDownloadRequested(const QVariantMap &request);
 
 private:
     explicit Store(QObject *parent = nullptr);

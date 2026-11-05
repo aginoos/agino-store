@@ -1,0 +1,77 @@
+{
+  "id": "acme-video",
+  "description": {
+    "zh_CN": [
+      "示例视频：视频剪辑。",
+      "这是示例目录中的说明文字，用于界面和测试。"
+    ],
+    "en_US": [
+      "Acme Video: Video editing.",
+      "This is sample text from the test catalog, used for the UI and tests."
+    ]
+  },
+  "developer": {
+    "zh_CN": "示例开发者",
+    "en_US": "Sample Developer"
+  },
+  "homepage": "https://example.invalid/acme-video",
+  "maintainer": null,
+  "screenshots": {
+    "zh_CN": [
+      {
+        "image": "assets/89237c46768e8db80bba15022a2b1bf8405a17ba1f0a7106d6a83da371d69f86.svg",
+        "thumb": "assets/89237c46768e8db80bba15022a2b1bf8405a17ba1f0a7106d6a83da371d69f86.svg",
+        "width": 1280,
+        "height": 720
+      },
+      {
+        "image": "assets/00a4d3a755688b4b0d6ed43e5a7374d28a243b0975bcf1e78af686261a451fe4.svg",
+        "thumb": "assets/00a4d3a755688b4b0d6ed43e5a7374d28a243b0975bcf1e78af686261a451fe4.svg",
+        "width": 1280,
+        "height": 720
+      }
+    ],
+    "en_US": [
+      {
+        "image": "assets/504d87fd1b18a4d3860a40373215161137e074aa77bc8f65bc8fdc714add639c.svg",
+        "thumb": "assets/504d87fd1b18a4d3860a40373215161137e074aa77bc8f65bc8fdc714add639c.svg",
+        "width": 1280,
+        "height": 720
+      },
+      {
+        "image": "assets/8604158632a4b5225810d7a6c024a2439e86f6b3b7f779a3691307dffed3d863.svg",
+        "thumb": "assets/8604158632a4b5225810d7a6c024a2439e86f6b3b7f779a3691307dffed3d863.svg",
+        "width": 1280,
+        "height": 720
+      }
+    ]
+  },
+  "releases": [
+    {
+      "version": "1.0.0",
+      "date": "2026-11-01",
+      "notes": {
+        "zh_CN": [
+          "修复若干问题",
+          "性能改进"
+        ],
+        "en_US": [
+          "Fixed several issues",
+          "Performance improvements"
+        ]
+      }
+    },
+    {
+      "version": "0.9.0",
+      "date": "2026-07-01",
+      "notes": {
+        "zh_CN": [
+          "首个示例版本"
+        ],
+        "en_US": [
+          "First sample release"
+        ]
+      }
+    }
+  ]
+}
