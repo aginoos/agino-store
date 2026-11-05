@@ -159,12 +159,14 @@ def _ai_file_ok(cfg, rec, name):
 
 
 def _ai_outcome(cfg, rec, result):
-    """An AI mode task: the delivered files that exist and are on the whitelist; recipe.yaml is required."""
+    """An AI mode task: the delivered files that exist and are on the whitelist; recipe.yaml or vendor.yaml is required.
+
+    Both present is not an error here: the intake validation sends such a delivery back to the agent."""
     names = [n for n in result.get("files") or [] if isinstance(n, str)
              and (n in AI_TEXT_FILES or n == AI_DEMO_TAR or DEB_NAME_RE.match(n)) and _ai_file_ok(cfg, rec, n)]
     names = list(dict.fromkeys(names))
-    if "recipe.yaml" not in names:
-        raise CollectError("the agent delivered no recipe.yaml")
+    if "recipe.yaml" not in names and "vendor.yaml" not in names:
+        raise CollectError("the agent delivered no recipe.yaml and no vendor.yaml")
     return {"ai_files": names, "artifact": None, "candidate": None}
 
 

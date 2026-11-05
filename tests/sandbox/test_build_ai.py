@@ -322,7 +322,7 @@ class ModelFailureTests(AiCase):
     def test_the_exit_code_decides(self):
         res = self.run_failure(retry(503), exit_code=0)
         self.assertEqual(res["class"], "recipe")
-        self.assertIn("left no recipe.yaml and no app.yaml", res["error"])
+        self.assertIn("left no recipe.yaml and no vendor.yaml and no app.yaml", res["error"])
 
     def test_a_model_failure_wins_over_a_partial_delivery(self):
         res = self.run_failure(retry(503), files=DELIVERED)
@@ -480,9 +480,27 @@ class DeliverableTests(AiCase):
         self.assertFailed("left no app.yaml", "recipe")
         self.assertEqual(self.result()["files"], ["NOTES.md", "recipe.yaml"])
 
+    def test_a_vendor_delivery_needs_no_recipe(self):
+        files = {"vendor.yaml": b"package: tool\n", "app.yaml": b"id: tool\n", "NOTES.md": b"# notes\n", DEBNAME: DEB}
+        res = self.delivered(files)
+        self.assertTrue(res["ok"])
+        self.assertEqual(sorted(res["files"]), sorted(files))
+        self.assertEqual(self.status()["state"], "done")
+
+    def test_the_vendor_file_alone_is_not_enough(self):
+        self.delivered({"vendor.yaml": b"package: tool\n", "NOTES.md": b"n"})
+        self.assertFailed("left no app.yaml", "recipe")
+
+    def test_recipe_and_vendor_together_are_not_judged_by_the_runner(self):
+        files = dict(DELIVERED)
+        files["vendor.yaml"] = b"package: tool\n"
+        res = self.delivered(files)
+        self.assertTrue(res["ok"])  # the server sends such a delivery back to the agent
+        self.assertIn("vendor.yaml", res["files"])
+
     def test_nothing_delivered(self):
         self.delivered({})
-        self.assertFailed("claude exited with code 0 and left no recipe.yaml and no app.yaml", "recipe")
+        self.assertFailed("claude exited with code 0 and left no recipe.yaml and no vendor.yaml and no app.yaml", "recipe")
         self.assertEqual(self.result()["files"], [])
 
     def test_the_agents_exit_code_alone_is_not_a_failure(self):

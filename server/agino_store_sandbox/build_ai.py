@@ -7,7 +7,7 @@ sets that up per tap, this code only picks the AI slot). The task ends with the 
 /work/out copied to out/<id>/ai/ and a result.json with `ok`, `files` and the failure `class`.
 
 Failure classes: timeout (the agent hit `ai.minutes`), model (the CLI died while the model service answered with
-401/402/429/5xx or the proxy was paused), recipe (it finished without a usable recipe.yaml and app.yaml), infra (VM,
+401/402/429/5xx or the proxy was paused), recipe (it finished without a usable recipe.yaml or vendor.yaml, plus app.yaml), infra (VM,
 guest agent, resources, a cancel).
 """
 
@@ -25,7 +25,8 @@ WORKSPACE_FILE = "workspace.tar"
 PREPARE_TIMEOUT = 900  # boot, guest agent, upload of the workspace
 AI_KILL_GRACE = 10  # `timeout -k` in the guest
 AI_BACKSTOP = 45  # extra host-side wait after the guest's own limit before the host gives up
-REQUIRED = ("recipe.yaml", "app.yaml")
+REQUIRED = ("app.yaml",)
+ONE_OF = ("recipe.yaml", "vendor.yaml")  # a recipe (repackaging) or a vendor tracking file (the vendor's own deb)
 
 
 class AiJob(BuildJob):
@@ -162,7 +163,9 @@ class AiJob(BuildJob):
             statuses = ",".join(str(s) for s in sorted(self.stream.retry_statuses))
             raise BuildStepError("the model service failed%s" % (" (status %s)" % statuses if statuses else ""),
                                  klass="model")
-        missing = [name for name in REQUIRED if name not in self.files]
+        missing = [name for name in ONE_OF if name not in self.files] if not any(
+            name in self.files for name in ONE_OF) else []
+        missing += [name for name in REQUIRED if name not in self.files]
         if missing:
             raise BuildStepError("%s exited with code %d and left no %s" % (agent, exit_code, " and no ".join(missing)),
                                  klass="recipe")

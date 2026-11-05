@@ -272,6 +272,15 @@ class TestAiTask(V2BuildCase):
         self.assertEqual(self.run_cli("build-step")[0], 1)
         task = self.task(build_id)
         self.assertEqual((task["status"], task["class"]), ("failed", "recipe"))
+        self.assertIn("no recipe.yaml and no vendor.yaml", task["error"])
+
+    def test_a_vendor_file_instead_of_a_recipe_is_collected(self):
+        build_id = self.ai_task()
+        self.deliver(build_id, {"vendor.yaml": b"package: tool\n", "app.yaml": b"y: 2\n", "NOTES.md": b"notes\n"})
+        self.assertEqual(self.run_cli("build-step")[0], 0)
+        task = self.task(build_id)
+        self.assertEqual((task["status"], task["class"], task["candidate"]), ("done", "ok", None))
+        self.assertEqual(task["ai_files"], ["NOTES.md", "app.yaml", "vendor.yaml"])
 
     def test_a_model_failure_keeps_its_class(self):
         build_id = self.ai_task()
