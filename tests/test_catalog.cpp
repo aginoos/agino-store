@@ -40,6 +40,34 @@ QByteArray catalogWithApp(const std::function<void(QJsonObject &)> &edit)
     return toJson(root);
 }
 
+// Applies edit to the "package" object of the app with this id and returns the serialized catalog.
+QByteArray catalogWithPackage(const QString &id, const std::function<void(QJsonObject &package)> &edit)
+{
+    QJsonObject root = sampleCatalogObject();
+    QJsonArray apps = root.value(QStringLiteral("apps")).toArray();
+    for (int i = 0; i < apps.size(); ++i) {
+        QJsonObject app = apps.at(i).toObject();
+        if (app.value(QStringLiteral("id")).toString() != id)
+            continue;
+        QJsonObject package = app.value(QStringLiteral("package")).toObject();
+        edit(package);
+        app.insert(QStringLiteral("package"), package);
+        apps.replace(i, app);
+    }
+    root.insert(QStringLiteral("apps"), apps);
+    return toJson(root);
+}
+
+// Applies edit to the "deb" object inside the package of the app with this id.
+QByteArray catalogWithDeb(const QString &id, const std::function<void(QJsonObject &deb)> &edit)
+{
+    return catalogWithPackage(id, [&edit](QJsonObject &package) {
+        QJsonObject deb = package.value(QStringLiteral("deb")).toObject();
+        edit(deb);
+        package.insert(QStringLiteral("deb"), deb);
+    });
+}
+
 QJsonObject sampleDetailObject(const QString &id)
 {
     return QJsonDocument::fromJson(readData(QStringLiteral("catalog/apps/") + id + QStringLiteral(".json"))).object();
@@ -89,6 +117,18 @@ private slots:
     void screenshotLanguage();
     void screenshotsFallBackToOtherSet();
     void statsParsing();
+
+    void vendorSampleShape();
+    void vendorNonVendorUnchanged();
+    void vendorDirectFallsBackToPage();
+    void vendorAcceptsUrl();
+    void vendorUrlOptionalOnlyForVendor_data();
+    void vendorUrlOptionalOnlyForVendor();
+    void vendorRejections_data();
+    void vendorRejections();
+    void vendorNonDirectIgnoresVendorUrl();
+    void httpsUrl_data();
+    void httpsUrl();
 };
 
 void TestCatalog::parsesSampleCatalog()
@@ -694,6 +734,202 @@ void TestCatalog::statsParsing()
     QVERIFY(parseStats(QByteArray("{}")).isEmpty());
     QVERIFY(parseStats(QByteArray("{\"downloads\":{\"a\":\"many\"}}")).isEmpty());
     QCOMPARE(parseStats(QByteArray("{\"downloads\":{\"a\":5}}")).value(QStringLiteral("a")), qint64(5));
+}
+
+void TestCatalog::vendorSampleShape()
+{
+    const auto cat = parseCatalog(readData(QStringLiteral("catalog/catalog.json")), nullptr);
+    QVERIFY(cat.has_value());
+
+    const AppSummary *draw = cat->app(QStringLiteral("acme-draw"));
+    QVERIFY(draw);
+    QVERIFY(draw->package.isVendorDistributed());
+    QCOMPARE(distributionToString(draw->package.distribution), QStringLiteral("vendor"));
+    QCOMPARE(draw->package.kind, PackageRef::Kind::Deb);
+    QVERIFY(draw->package.deb.has_value());
+    QVERIFY(draw->package.deb->url.isEmpty());
+    QCOMPARE(draw->package.deb->sha256.size(), 64);
+    QVERIFY(!draw->package.deb->vendorUrl.isEmpty());
+    QCOMPARE(draw->package.downloadPage, QStringLiteral("https://example.invalid/acme-draw/download"));
+    QVERIFY(!draw->package.downloadDirect);
+    // Not direct: always the page, even though vendor_url is set.
+    QCOMPARE(draw->package.downloadUrl(), draw->package.downloadPage);
+
+    const AppSummary *video = cat->app(QStringLiteral("acme-video"));
+    QVERIFY(video);
+    QVERIFY(video->package.isVendorDistributed());
+    QVERIFY(video->package.downloadDirect);
+    QCOMPARE(video->package.downloadUrl(),
+             QStringLiteral("https://example.invalid/acme-video/download/acme-video-1.0.0.deb"));
+    QCOMPARE(video->package.downloadUrl(), video->package.deb->vendorUrl);
+}
+
+void TestCatalog::vendorNonVendorUnchanged()
+{
+    const auto cat = parseCatalog(readData(QStringLiteral("catalog/catalog.json")), nullptr);
+    QVERIFY(cat.has_value());
+    int debApps = 0;
+    for (const AppSummary &a : cat->apps) {
+        if (a.id.startsWith(QStringLiteral("acme-")))
+            continue;
+        QVERIFY2(!a.package.isVendorDistributed(), qPrintable(a.id));
+        QCOMPARE(distributionToString(a.package.distribution), QStringLiteral("store"));
+        QVERIFY(a.package.downloadPage.isEmpty());
+        QVERIFY(!a.package.downloadDirect);
+        QVERIFY(a.package.downloadUrl().isEmpty());
+        if (a.package.kind == PackageRef::Kind::Deb) {
+            QVERIFY2(!a.package.deb->url.isEmpty(), qPrintable(a.id));
+            ++debApps;
+        }
+    }
+    QVERIFY(debApps > 0);
+}
+
+void TestCatalog::vendorDirectFallsBackToPage()
+{
+    const QByteArray json = catalogWithDeb(QStringLiteral("acme-video"), [](QJsonObject &deb) {
+        deb.remove(QStringLiteral("vendor_url"));
+    });
+    const auto cat = parseCatalog(json, nullptr);
+    QVERIFY(cat.has_value());
+    const AppSummary *video = cat->app(QStringLiteral("acme-video"));
+    QVERIFY(video->package.downloadDirect);
+    QCOMPARE(video->package.downloadUrl(), QStringLiteral("https://example.invalid/acme-video/download"));
+}
+
+void TestCatalog::vendorAcceptsUrl()
+{
+    // A url on a vendor app is allowed (the store ignores it).
+    const QByteArray json = catalogWithDeb(QStringLiteral("acme-draw"), [](QJsonObject &deb) {
+        deb.insert(QStringLiteral("url"), QStringLiteral("https://example.invalid/acme-draw.deb"));
+    });
+    QString error;
+    const auto cat = parseCatalog(json, &error);
+    QVERIFY2(cat.has_value(), qPrintable(error));
+    QVERIFY(cat->app(QStringLiteral("acme-draw"))->package.isVendorDistributed());
+}
+
+void TestCatalog::vendorUrlOptionalOnlyForVendor_data()
+{
+    QTest::addColumn<QString>("distribution");   // empty = no key
+    QTest::addColumn<bool>("accepted");
+    QTest::newRow("vendor") << QStringLiteral("vendor") << true;
+    QTest::newRow("no-key") << QString() << false;
+    QTest::newRow("store") << QStringLiteral("store") << false;
+    QTest::newRow("unknown-value") << QStringLiteral("mystery") << false;
+}
+
+void TestCatalog::vendorUrlOptionalOnlyForVendor()
+{
+    QFETCH(QString, distribution);
+    QFETCH(bool, accepted);
+    // acme-draw has no deb.url; only the distribution value changes.
+    const QByteArray json = catalogWithPackage(QStringLiteral("acme-draw"), [&distribution](QJsonObject &package) {
+        if (distribution.isEmpty())
+            package.remove(QStringLiteral("distribution"));
+        else
+            package.insert(QStringLiteral("distribution"), distribution);
+    });
+    QString error;
+    QCOMPARE(parseCatalog(json, &error).has_value(), accepted);
+    if (!accepted)
+        QVERIFY(error.contains(QStringLiteral("url")));
+    // A plain deb app without url is rejected too.
+    QVERIFY(!parseCatalog(catalogWithDeb(QStringLiteral("wps-office"), [](QJsonObject &deb) {
+                              deb.remove(QStringLiteral("url"));
+                          }),
+                          nullptr)
+                 .has_value());
+}
+
+void TestCatalog::vendorRejections_data()
+{
+    QTest::addColumn<QString>("what");
+    for (const char *name : {"no-download", "download-not-object", "no-page", "empty-page", "http-page",
+                             "file-page", "javascript-page", "hostless-page", "relative-page", "no-direct",
+                             "direct-not-bool", "direct-http-vendor-url"})
+        QTest::newRow(name) << QString::fromLatin1(name);
+}
+
+void TestCatalog::vendorRejections()
+{
+    QFETCH(QString, what);
+    const QByteArray json = catalogWithPackage(QStringLiteral("acme-video"), [&what](QJsonObject &package) {
+        QJsonObject download = package.value(QStringLiteral("download")).toObject();
+        const QString page = QStringLiteral("page");
+        if (what == QLatin1String("no-download")) {
+            package.remove(QStringLiteral("download"));
+            return;
+        }
+        if (what == QLatin1String("download-not-object")) {
+            package.insert(QStringLiteral("download"), QStringLiteral("https://example.invalid/x"));
+            return;
+        }
+        if (what == QLatin1String("no-page"))
+            download.remove(page);
+        else if (what == QLatin1String("empty-page"))
+            download.insert(page, QString());
+        else if (what == QLatin1String("http-page"))
+            download.insert(page, QStringLiteral("http://example.invalid/x"));
+        else if (what == QLatin1String("file-page"))
+            download.insert(page, QStringLiteral("file:///etc/passwd"));
+        else if (what == QLatin1String("javascript-page"))
+            download.insert(page, QStringLiteral("javascript:alert(1)"));
+        else if (what == QLatin1String("hostless-page"))
+            download.insert(page, QStringLiteral("https://"));
+        else if (what == QLatin1String("relative-page"))
+            download.insert(page, QStringLiteral("/download"));
+        else if (what == QLatin1String("no-direct"))
+            download.remove(QStringLiteral("direct"));
+        else if (what == QLatin1String("direct-not-bool"))
+            download.insert(QStringLiteral("direct"), QStringLiteral("true"));
+        else if (what == QLatin1String("direct-http-vendor-url")) {
+            QJsonObject deb = package.value(QStringLiteral("deb")).toObject();
+            deb.insert(QStringLiteral("vendor_url"), QStringLiteral("http://example.invalid/a.deb"));
+            package.insert(QStringLiteral("deb"), deb);
+        }
+        package.insert(QStringLiteral("download"), download);
+    });
+    QString error;
+    QVERIFY(!parseCatalog(json, &error).has_value());
+    QVERIFY(!error.isEmpty());
+}
+
+void TestCatalog::vendorNonDirectIgnoresVendorUrl()
+{
+    // vendor_url is only the download address when direct is true.
+    const QByteArray json = catalogWithDeb(QStringLiteral("acme-draw"), [](QJsonObject &deb) {
+        deb.insert(QStringLiteral("vendor_url"), QStringLiteral("http://example.invalid/not-used"));
+    });
+    const auto cat = parseCatalog(json, nullptr);
+    QVERIFY(cat.has_value());
+    QCOMPARE(cat->app(QStringLiteral("acme-draw"))->package.downloadUrl(),
+             QStringLiteral("https://example.invalid/acme-draw/download"));
+}
+
+void TestCatalog::httpsUrl_data()
+{
+    QTest::addColumn<QString>("url");
+    QTest::addColumn<bool>("ok");
+    QTest::newRow("https") << QStringLiteral("https://example.com/download") << true;
+    QTest::newRow("https-upper-scheme") << QStringLiteral("HTTPS://example.com/") << true;
+    QTest::newRow("https-port-query") << QStringLiteral("https://example.com:8443/a?b=c#d") << true;
+    QTest::newRow("http") << QStringLiteral("http://example.com/") << false;
+    QTest::newRow("file") << QStringLiteral("file:///tmp/x") << false;
+    QTest::newRow("ftp") << QStringLiteral("ftp://example.com/") << false;
+    QTest::newRow("javascript") << QStringLiteral("javascript:alert(1)") << false;
+    QTest::newRow("no-host") << QStringLiteral("https://") << false;
+    QTest::newRow("relative") << QStringLiteral("/download") << false;
+    QTest::newRow("no-scheme") << QStringLiteral("example.com/download") << false;
+    QTest::newRow("space") << QStringLiteral("https://exa mple.com/") << false;
+    QTest::newRow("empty") << QString() << false;
+}
+
+void TestCatalog::httpsUrl()
+{
+    QFETCH(QString, url);
+    QFETCH(bool, ok);
+    QCOMPARE(isHttpsUrl(url), ok);
 }
 
 QTEST_APPLESS_MAIN(TestCatalog)
