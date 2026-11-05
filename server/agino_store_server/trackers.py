@@ -329,6 +329,34 @@ def process_app(cfg, st, fetcher, target, found, memo):
     return _after_download(cfg, st, target, found, dl, approved)
 
 
+# Trial run (AI intake of a vendor application: does this tracking file really find and fetch the deb?)
+
+@dataclass(frozen=True)
+class Trial:
+    version: str              # Version of the deb that was downloaded
+    url: str                  # where it was found
+    origin: dict              # the origin a candidate of it would get (https type)
+    download: fetch.Download  # the file, in the content-addressed downloads directory
+    inspected: dict           # checks.inspect_package result
+    deps: dict                # checks.check_deps result
+
+
+def trial_run(cfg, st, target, workdir):
+    """Find, download and check the newest deb of `target` once, exactly as `track` would, but record nothing: no
+    candidate, no memo, and the inspect files go to `workdir`. The deb itself lands in cfg.downloads (content
+    addressed, so a later `track` reuses it). `st` is only used for the cached milkyway index of the dependency
+    check. Raises TrackError, fetch.FetchError or debinfo.DebError when the tracking file does not work."""
+    vendor = target.vendor
+    _check_manual(vendor)
+    fetcher = fetch.Fetcher(cfg, vendor["allowed_hosts"])
+    found = DISCOVER[vendor["track"]["type"]](cfg, fetcher, vendor, "", {})
+    dl = _download(cfg, fetcher, found, {}, vendor)
+    fields = debinfo.control_fields(dl.path)
+    verify_fields(vendor, fields, found.version)
+    inspected, _ = checks.inspect_package(dl.path, os.path.join(workdir, "inspect"))
+    return Trial(fields["Version"], found.url, found.origin, dl, inspected, checks.check_deps(cfg, st, fields))
+
+
 # Per vendor / all vendors
 
 def target_for(content, vendor_id):

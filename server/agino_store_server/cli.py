@@ -132,6 +132,13 @@ def _parser():
     p.add_argument("id")
     p.add_argument("--by", required=True, metavar="NAME")
     p.add_argument("--auto-task", action="store_true", help="also build new upstream versions automatically")
+    p.add_argument("--distribution", choices=("store", "vendor"), default=None,
+                   help="how the application is published: store (the store hosts the deb) or vendor (the user "
+                        "downloads it from the vendor); required for proprietary software")
+    p.add_argument("--download-page", default=None, metavar="URL",
+                   help="with --distribution vendor: the vendor's download page, or the link with --direct (https)")
+    p.add_argument("--direct", action="store_true",
+                   help="with --distribution vendor: --download-page is a direct download link")
     sub.add_parser("intake-step", help="advance the intake tasks (timer, every minute)")
     sub.add_parser("build", help="build and publish the catalog").add_argument("--if-changed", action="store_true")
     sub.add_parser("metrics", help="write the Prometheus text file")
@@ -292,16 +299,16 @@ def cmd_pending(cfg, st, args):
 
 # approve and reject
 
-def _blockers(record, no_sandbox):
+def _blockers(record, no_sandbox, mode=approve_rules.STORE):
     checks = record.get("checks") or {}
-    built = approve_rules.is_built(record)
+    strict = approve_rules.sandbox_required(record, mode)
     out = []
     if record.get("status") != "pending":
         out.append("status is %s" % record.get("status"))
     if (checks.get("deps") or {}).get("ok") is not True:
         out.append("dependency check has not passed")
-    if not (no_sandbox and not built) and (checks.get("sandbox") or {}).get("status") != "pass":
-        hint = "" if built else " (use --no-sandbox to override)"
+    if not (no_sandbox and not strict) and (checks.get("sandbox") or {}).get("status") != "pass":
+        hint = "" if strict else " (use --no-sandbox to override)"
         out.append("sandbox is %s%s" % ((checks.get("sandbox") or {}).get("status", "missing"), hint))
     return out
 
@@ -365,7 +372,7 @@ def approve_record(st, record, no_sandbox, note, description_reviewed=False):
     log = {"at": when, "action": "approve", "app": record["app"], "version": record["version"],
            "sha256": record["sha256"], "by": who, "note": note, "sandbox": sandbox, "no_sandbox": no_sandbox,
            "description_reviewed": description_reviewed}
-    if approve_rules.is_built(record):
+    if approve_rules.is_strict(record):
         log.update(approve_rules.audit_fields(record))
     st.set_approved(record["app"], entry, log)
     st.update_candidate(record, {"status": "approved", "decided": {"action": "approve", "at": when, "by": who,
@@ -376,8 +383,15 @@ def approve_record(st, record, no_sandbox, note, description_reviewed=False):
                 "action": "superseded", "at": when, "by": who, "note": "superseded by %s" % record["version"]}})
 
 
-def _built_blockers(record, args):
-    return approve_rules.built_blockers(record, args.no_sandbox, args.note, args.include_flagged, _flagged(record))
+def _mode_of(loaded, app):
+    entry = loaded.app(app)
+    return approve_rules.distribution_mode(entry) if entry is not None else approve_rules.STORE
+
+
+def _all_blockers(record, args, mode):
+    """Every reason `approve` refuses a candidate on the strict paths (built, AI-imported, vendor-hosted)."""
+    return _blockers(record, args.no_sandbox, mode) + approve_rules.built_blockers(
+        record, args.no_sandbox, args.note, args.include_flagged, _flagged(record), mode)
 
 
 def _approve_all(cfg, st, args):
@@ -388,7 +402,7 @@ def _approve_all(cfg, st, args):
     skipped = 0
     for app in apps:
         record = _select(st, app, None)
-        blockers = _blockers(record, args.no_sandbox) + _built_blockers(record, args)
+        blockers = _all_blockers(record, args, _mode_of(loaded, app))
         if blockers:
             print("skipped %s %s: %s" % (app, record["version"], "; ".join(blockers)))
             skipped += 1
@@ -419,8 +433,9 @@ def cmd_approve(cfg, st, args):
             return _approve_all(cfg, st, args)
         app, version = _split_target(args.target)
         record = _select(st, app, version)
-        blockers = _blockers(record, args.no_sandbox) + _built_blockers(record, args)
-        if not args.description_reviewed and _ai_description(_load_content(cfg), app):
+        loaded = _load_content(cfg)
+        blockers = _all_blockers(record, args, _mode_of(loaded, app))
+        if not args.description_reviewed and _ai_description(loaded, app):
             blockers.append(AI_DESCRIPTION_BLOCKER)
         if blockers:
             print("cannot approve %s %s: %s" % (app, record["version"], "; ".join(blockers)), file=sys.stderr)

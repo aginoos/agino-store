@@ -22,10 +22,10 @@ server/agino_store_server/
   content_edit.py / content_patch.py / content_git.py / content_repair.py   content-edit、content-confirm：补丁校验、写回 app.yaml、提交和推送（第 13 节）
   buildcfg.py / content_builds.py   [upstream]/[builds] 设置；upstreams/<id>.yaml 和 apps/<id>/build.yaml 的校验（第 14 节）
   upstream_fetch.py / upstream_tags.py / upstreams.py   受控抓取、标签到版本、upstream-check（第 14 节）
-  builds.py / build_step.py / build_collect.py / approve_rules.py   编译任务：request/cancel、build-step、产物取回、built 候选的放行规则（第 14 节）
+  builds.py / build_step.py / build_collect.py / approve_rules.py   编译任务：request/cancel、build-step、产物取回、built 候选和 AI 导入的厂商候选的放行规则（第 14.6、15.8 节）
   status_builds.py   status 的 upstreams / builds / builder 段
   recipe_v2.py / source_assembly.py   配方 v2（sources、files、test、evidence）的校验和占位符代入；v2 的 source.tar 拼装（第 14.7 节）
-  intake.py / intake_cmds.py / intake_step.py / intake_materials.py / intake_workspace.py / intake_delivery.py / intake_adopt.py / intake_auto.py / intake_proxy.py / content_files.py / status_intake.py
+  intake.py / intake_cmds.py / intake_step.py / intake_materials.py / intake_workspace.py / intake_delivery.py / intake_vendor.py / intake_adopt.py / intake_auto.py / intake_proxy.py / content_files.py / status_intake.py
                      AI 来源接入（第 15 节）；提示词模板在 intake_prompts/
 tests/server/    unittest；fixture 在测试里现场生成（gpg 临时密钥、dpkg-deb 打的小包、本地 http 服务）
 ```
@@ -338,7 +338,7 @@ class State:
 | `check [--app ID]` | 拉 milkyway Packages，更新 `milkyway.json`，重查 pending 和已放行候选的依赖，A 类包不存在的报出来 | `checks.run_check(cfg, st, content, app=None) -> list[dict]`（返回问题列表） |
 | `intake VENDOR FILE [--url 来源页]` | 人工下载的 deb 入库：包名、架构必须对，版本必须等于 awaiting-upload 的版本（没有就必须高于已放行的） | `trackers.intake(cfg, st, content, vendor, path, url) -> dict` |
 | `pending [--json]` | 列出 pending / awaiting-upload：版本、大小、各项检查、diff 摘要 | cli |
-| `approve APP[@VERSION] \| all [--no-sandbox] [--include-flagged] [--description-reviewed] [--note 文字]` | 放行。介绍来源（`description_source`）是 `ai` 时拒绝（退出码 1，"the description is AI-generated and not confirmed; confirm it or pass --description-reviewed"），给 `--description-reviewed` 才放行，`approvals.log` 的该行记 `"description_reviewed": true`（没给则为 false）；`all` 一律跳过并列出这类应用，`all` 不接受 `--description-reviewed`（退出码 2，要按名字放行）；其他来源不受影响。依赖失败的不能放行；沙箱不是 pass 的要 `--no-sandbox`（记入 log）。`origin.type` 为 `built` 的候选更严（第 14 节）：沙箱必须 pass 且不接受 `--no-sandbox`，必须带非空 `--note`，有 inspect flags、新增 flags 或脚本改动时必须 `--include-flagged`（单个应用也一样，`all` 也一样），log 多记 `origin`、`source_commit`、`build_job`。`all` 跳过不满足条件的并列出，也跳过有 inspect flags、`diff.scripts_changed` 或 `diff.flags_added` 的候选，除非给 `--include-flagged`；单个应用照常放行，但会先打印它放行的 flags 和改动的脚本 | cli |
+| `approve APP[@VERSION] \| all [--no-sandbox] [--include-flagged] [--description-reviewed] [--note 文字]` | 放行。介绍来源（`description_source`）是 `ai` 时拒绝（退出码 1，"the description is AI-generated and not confirmed; confirm it or pass --description-reviewed"），给 `--description-reviewed` 才放行，`approvals.log` 的该行记 `"description_reviewed": true`（没给则为 false）；`all` 一律跳过并列出这类应用，`all` 不接受 `--description-reviewed`（退出码 2，要按名字放行）；其他来源不受影响。依赖失败的不能放行；沙箱不是 pass 的要 `--no-sandbox`（记入 log）。`origin.type` 为 `built` 的候选，以及 AI 导入的厂商应用的首个候选（`origin.via` 为 `intake`，第 15.8 节）更严（第 14.6 节）：沙箱必须 pass 且不接受 `--no-sandbox`，必须带非空 `--note`，有 inspect flags、新增 flags 或脚本改动时必须 `--include-flagged`（单个应用也一样，`all` 也一样），log 多记 `origin`、`source_commit`、`build_job`（`built`）或 `via`、`intake`（AI 导入）。应用的 `distribution.mode` 为 `vendor` 时（商店不托管 deb），无论候选来源，沙箱必须 pass 且不接受 `--no-sandbox`（别的规则不变）。`all` 跳过不满足条件的并列出，也跳过有 inspect flags、`diff.scripts_changed` 或 `diff.flags_added` 的候选，除非给 `--include-flagged`；单个应用照常放行，但会先打印它放行的 flags 和改动的脚本 | cli |
 | `revoke APP[@VERSION] [--note]` | 撤销放行：从 `approved.json` 删除该应用，对应候选记为 `revoked`，写入 `approvals.log`；下一次 `build` 不再包含它 | cli |
 | `reject APP@VERSION [--note]` | 拒绝 | cli |
 | `reports-ingest` | 导入 `paths.reports` 下的新报告 | `reports.ingest(cfg, st) -> list[dict]` |
@@ -358,7 +358,7 @@ class State:
 | `intake-submit ADDRESS [--hint T] [--agent claude\|codex] [--allow-host H]… --by NAME` | 请 AI 打包 ADDRESS 处的软件，打印任务 id。第 15 节 | `intake.submit` |
 | `intake-cancel ID --by NAME [--reject]` | 结束未完成的 intake 任务（连同它的编译任务）；`--reject` 标为 `rejected`。第 15 节 | `intake.cancel` |
 | `intake-repair APP --version V --by NAME` | 管理员请 AI 调整 APP 的配方，打印任务 id。第 15 节 | `intake.create_repair` |
-| `intake-adopt ID --by NAME [--auto-task]` | 采纳 `review` 状态的配方：提交内容仓库，首个候选或重新编译。第 15 节 | `intake_adopt.adopt` |
+| `intake-adopt ID --by NAME [--auto-task] [--distribution store\|vendor] [--download-page URL] [--direct]` | 采纳 `review` 状态的配方或厂商应用：提交内容仓库，首个候选或重新编译。`app.yaml` 里 `proprietary: true` 的应用必须显式给 `--distribution`；`vendor` 需要 `--download-page`（https）。第 15.5、15.8 节 | `intake_adopt.adopt` |
 | `intake-step` | 定时器每分钟：推进 intake 任务、写转发代理的额外白名单、清理。第 15 节 | `intake_step.step` |
 | `build [--if-changed]` | 生成并签名目录；`--if-changed`：输入没变且距上次不到 `renew_after_hours` 就什么都不做（输入没变但该续期了就只换 serial 和有效期） | `catalog.build(cfg, st, content, if_changed=False) -> dict` |
 | `metrics` | 写 `agino_store_server.prom`；有上游或编译任务时多出 `agino_store_upstream_last_ok_timestamp_seconds{app}`、`agino_store_upstream_last_error{app}`、`agino_store_upstream_tag_moved{app}`（条数）和 `agino_store_builds{status}`（各状态的任务数）；有 intake 任务时多 `agino_store_intake_tasks{status}`（各状态的任务数） | cli、`metrics_builds.lines` |
@@ -366,7 +366,7 @@ class State:
 
 `allow_insecure = true` 时命令行直接退出（码 2），除非环境变量 `AGINO_STORE_SERVER_TESTS=1`（测试设置它）。`pending` 和各命令输出里，厂商或候选提供的字符串会去掉控制字符（制表符、换行除外）。
 
-退出码：0 成功；1 有问题需要人看（检查失败、跟踪出错、补丁或内容无效、推送失败、上游标签被移动、`build-request` 被拒、`build-step` 有任务失败）；2 用法或配置错误（含 `build-request` 的参数、`upstream-check --app` 没有上游、`build-cancel` 的 id 不存在）；3 锁被占用（`shots-*` 命令是某个应用的截图锁被占用；`content-*` 用全局锁；`build-step` 和 `intake-step` 等不到全局锁超过 60 秒；另一个 `build-step`（`intake-step`）在跑时它自己静默退出码 0）。`intake-*` 命令：参数错误（地址、`--hint`、`--allow-host`、`--agent`、`--by`、任务 id）为 2；被拒绝（同一地址已有未完成任务、任务已结束、不是 `review` 状态就采纳、采纳时内容无效或推送失败）为 1；`intake-adopt` 配方已采纳但首个候选没能创建时也是 1（再运行一次 `intake-adopt` 补做）。
+退出码：0 成功；1 有问题需要人看（检查失败、跟踪出错、补丁或内容无效、推送失败、上游标签被移动、`build-request` 被拒、`build-step` 有任务失败）；2 用法或配置错误（含 `build-request` 的参数、`upstream-check --app` 没有上游、`build-cancel` 的 id 不存在）；3 锁被占用（`shots-*` 命令是某个应用的截图锁被占用；`content-*` 用全局锁；`build-step` 和 `intake-step` 等不到全局锁超过 60 秒；另一个 `build-step`（`intake-step`）在跑时它自己静默退出码 0）。`intake-*` 命令：参数错误（地址、`--hint`、`--allow-host`、`--agent`、`--by`、任务 id）为 2；被拒绝（同一地址已有未完成任务、任务已结束、不是 `review` 状态就采纳、采纳时内容无效或推送失败）为 1；`intake-adopt` 配方已采纳但首个候选没能创建时也是 1（再运行一次 `intake-adopt` 补做）；`intake-adopt` 的发布方式参数互相矛盾或格式不对（`--download-page` 没配 `--distribution vendor`、`store` 带了页面或 `--direct`、页面不是 https 等）为 2，闭源应用没给 `--distribution` 为 1。
 
 ## 6. 跟踪和下载
 
@@ -494,7 +494,7 @@ milkyway 里的应用不进沙箱队列，已通过沙箱的候选也不会再�
 | `categories` | `categories.yaml` 的列表：`[{id, name: {zh_CN, en_US}}]`，顺序同文件；内容仓库校验失败时为空列表（问题记入 `errors`，段名 `apps`） |
 | `upstreams` | 每个上游一项（`upstreams/<id>.yaml` 和 `state/upstreams/` 取并集）：`app`、`repo`（不在内容仓库里为 null）、`in_content`、`auto_task`、`latest_version`、`last_check`、`last_ok`、`last_error`、`tag_moved`（条数）、`seen_count`、`versions`（已见版本，从新到旧，最多 30 个，供“新建编译任务”选版本）、`tag_moves`（最近 10 条 `{version, tag, old_commit, new_commit, at}`） |
 | `builds` | 最近 50 个任务（`created` 从新到旧）：`id`、`app`、`version`、`upstream_version`、`tag`、`commit`、`attempt`、`status`、`by`、`created`、`started`、`finished`、`error`、`artifact`（`{file, sha256, size}` 或 null）、`candidate`（`<版本>_<sha12>` 或 null）。不含配方和日志 |
-| `intake` | 最近 50 个 intake 任务（`created` 从新到旧）：`id`、`kind`（`import`\|`repair`）、`app`（采纳前 import 为 null，校验通过后取自交付的 `app.yaml`）、`address`、`hint`、`agent`、`allow_hosts`、`status`、`by`、`created`、`started`、`finished`、`error`、`ai_task`、`verify_task`、`repair_of`（`{app, version, failed_task}` 或 null）、`attempt`、`rounds`、`retries`、`next_retry`、`version`、`candidate`。不含日志和交付的文件内容 |
+| `intake` | 最近 50 个 intake 任务（`created` 从新到旧）：`id`、`kind`（`import`\|`repair`）、`app`（采纳前 import 为 null，校验通过后取自交付的 `app.yaml`）、`address`、`hint`、`agent`、`allow_hosts`、`status`、`by`、`created`、`started`、`finished`、`error`、`ai_task`、`verify_task`、`repair_of`（`{app, version, failed_task}` 或 null）、`attempt`、`rounds`、`retries`、`next_retry`、`version`、`candidate`，厂商路径的任务多一个 `vendor_check`（第 15.8 节：`{version, sha256, size, url, filename, flags: {count, categories}, deps_ok, matches_ai_deb, hosts: [{host, approved}]}`，服务端按已知键、类型和数量上限重新整形；没有时整个键不出现，schema 仍是 3）。不含日志和交付的文件内容 |
 | `builder` | `{running: <building 状态的任务 id>|null, queued: <queued、fetching、ready 的任务数>}` |
 | `timers` | `agino-store-{track,check,build,sandbox,reports,upstream-check,build-step,intake-step}.{service,timer}` 十六个单元的 `systemctl show`（固定参数，不经 shell，每个 5 秒超时）：`unit`、`LoadState`、`ActiveState`、`SubState`、`Result`、`LastTriggerUSec`、`NextElapseUSecRealtime`、`ExecMainStatus`。没有 systemctl 时为空列表并记入 `errors` |
 
@@ -624,6 +624,8 @@ limits: {cpu_minutes: 90, disk_gib: 20, memory_gib: 8}   # 可选；每项 1..�
 
 `origin.type == built` 的候选：沙箱必须 `pass`；不接受 `--no-sandbox`；`--note` 必须非空（理由，写进 `approved.json` 和 `approvals.log`）；`checks.inspect.flags`、`checks.diff.flags_added` 或 `checks.diff.scripts_changed` 非空时必须 `--include-flagged`（没有放行过的版本，所有脚本和标记都算新增）。单个应用和 `all` 都一样；`all` 跳过不满足的并列出原因。规则在 `approve_rules.py`，由 `cli.py` 的两条放行路径调用。
 
+同样的严格规则（措辞改为 “imported by the AI”）也适用于 `origin.via == intake` 的候选，即 AI 导入的厂商应用的首个候选（`origin.type` 仍是 `https`，第 15.8 节）。之后 `track` 自动发现的新版本不带 `via`，走原有的厂商规则。另外，应用的 `distribution.mode == vendor`（商店不托管、不下发 deb，用户去官网下载）时，无论候选来源，沙箱必须 `pass` 且不接受 `--no-sandbox`；沙箱测的是商店私有下载目录里的那份 deb，所以仍然有意义。`approvals.log` 对严格候选多记 `origin`、`via`、`intake`（AI 导入）或 `origin`、`source_commit`、`build_job`（`built`）。内容里读不到发布方式时按 `store`。
+
 ### 14.7 配方 v2
 
 `apps/<id>/build.yaml` 在 v1 上新增（全部可选；v1 文件照旧有效；契约见 agino-store-admin 的 `docs/ai-intake.md` 10.1）：
@@ -651,11 +653,11 @@ evidence: [{claim: "license is GPL-3.0", url: "https://…"}]        # 0..20 项
 
 ## 15. AI 来源接入
 
-设计和契约见 agino-store-admin 仓库 `docs/ai-intake.md`（第 10 节是唯一契约）。流程：管理员提交一个地址 → 宿主机受控抓取材料 → 构建虚拟机的 AI 模式里 Claude Code 或 Codex 打包、测试并交付配方 → 宿主机在干净虚拟机里**重放**配方（常规构建任务，含 `test`）→ 人工审核 → `intake-adopt` 提交内容仓库并建首个候选 → 沙箱 → 人工放行（和任何 `built` 候选一样，第 14.6 节）。配方因新版本失败时自动请 AI 调整（repair）。宿主机永不执行 AI 或上游给的任何东西；抓取的页面、AI 交付的文件、构建日志一律当不可信数据。
+设计和契约见 agino-store-admin 仓库 `docs/ai-intake.md`（第 10 节是唯一契约）。流程：管理员提交一个地址 → 宿主机受控抓取材料 → 构建虚拟机的 AI 模式里 Claude Code 或 Codex 打包、测试并交付配方 → 宿主机在干净虚拟机里**重放**配方（常规构建任务，含 `test`）→ 人工审核 → `intake-adopt` 提交内容仓库并建首个候选 → 沙箱 → 人工放行（和任何 `built` 候选一样，第 14.6 节）。配方因新版本失败时自动请 AI 调整（repair）。宿主机永不执行 AI 或上游给的任何东西；抓取的页面、AI 交付的文件、构建日志一律当不可信数据。厂商自己发布官方 deb 的软件走另一条路（交付 `vendor.yaml` 而不是配方，不重打包也不起虚拟机重放），见 15.8。
 
 ### 15.1 状态和目录
 
-`state/intake/<id>.json`（`id` 16 位十六进制）：`id`、`kind`（`import`\|`repair`）、`app`（import 校验通过前为 null）、`address`（repair 是上游仓库）、`hint`、`agent`、`allow_hosts`、`status`、`by`（自动创建的为 `auto`）、`created`、`started`、`finished`、`error`、`ai_task`（当前的 AI 构建任务 id）、`verify_task`（验证构建任务 id）、`repair_of`（`{app, version, failed_task}` 或 null）、`attempt`（已创建的 AI 任务数），另有 `rounds`（已用的修正轮数）、`retries`（模型暂停次数）、`next_retry`、`agents_tried`、`version`/`tag`/`commit`（验证构建用的上游版本）、`candidate`（采纳后首个候选的名字）、`adopted_by`。工作文件在 `state/intake/<id>/`：`inputs.tar`（受控抓取的材料，每个 AI 任务的工作区都由它生成）、`delivery/`（AI 交付的文本文件的副本，审核和采纳都用它，不再读 `builds.out`）、`feedback/` 和 `previous/`（下一轮修正要交给 AI 的错误说明和上一次的交付）；终态任务的工作文件在 `[intake] keep_days` 天后删除。
+`state/intake/<id>.json`（`id` 16 位十六进制）：`id`、`kind`（`import`\|`repair`）、`app`（import 校验通过前为 null）、`address`（repair 是上游仓库）、`hint`、`agent`、`allow_hosts`、`status`、`by`（自动创建的为 `auto`）、`created`、`started`、`finished`、`error`、`ai_task`（当前的 AI 构建任务 id）、`verify_task`（验证构建任务 id）、`repair_of`（`{app, version, failed_task}` 或 null）、`attempt`（已创建的 AI 任务数），另有 `rounds`（已用的修正轮数）、`retries`（模型暂停次数）、`next_retry`、`agents_tried`、`version`/`tag`/`commit`（验证构建用的上游版本）、`candidate`（采纳后首个候选的名字）、`adopted_by`，厂商路径另有 `vendor_check`（15.8）。工作文件在 `state/intake/<id>/`：`inputs.tar`（受控抓取的材料，每个 AI 任务的工作区都由它生成）、`delivery/`（AI 交付的文本文件的副本，审核和采纳都用它，不再读 `builds.out`）、`feedback/` 和 `previous/`（下一轮修正要交给 AI 的错误说明和上一次的交付）；终态任务的工作文件在 `[intake] keep_days` 天后删除。
 
 状态：`submitted → fetching → ready → running → verifying → review → adopted`；另有 `rejected`、`failed`、`cancelled`、`paused`。终态：`adopted`、`rejected`、`failed`、`cancelled`。AI 任务（`mode: ai` 的构建任务，记录里另有 `kind`、`agent`、`minutes`、`intake`；`app` 对 import 是 `intake-<任务 id 前 8 位>`，`version` 是 `0`）出现在 `state/builds/` 里，由 `build-step` 照常跟踪（状态、超时＝`ai.minutes` 加 35 分钟、清理）；它的结果不生成候选，只记下白名单里存在的交付文件名（`ai_files`）。
 
@@ -664,14 +666,14 @@ evidence: [{claim: "license is GPL-3.0", url: "https://…"}]        # 0..20 项
 - `intake-submit ADDRESS [--hint T] [--agent claude|codex] [--allow-host H]… --by NAME`：ADDRESS https、无凭据和片段、公网主机、端口缺省、≤ 500 字符、无空白和控制字符；`hint` ≤ 1000 字符；`--allow-host` 至多 5 个公网主机名（小写化、去重）；提交地址的主机若不在 `[upstream] allowed_hosts` 里，自动并入任务的 `allow_hosts`（AI 要能访问它被指向的页面）。同一地址（主机＋路径去掉末尾 `/`＋查询）已有未完成任务退出码 1；未完成任务总数达到 `max_unfinished` 退出码 1。打印任务 id。
 - `intake-cancel ID --by NAME [--reject]`：未完成任务标 `cancelled`（`--reject`：`rejected`），它的未完成构建任务（AI、验证）一并取消。
 - `intake-repair APP --version V --by NAME`：APP 必须有上游跟踪和配方，V 必须在 `seen` 里，同一（APP, V）不能已有未完成的 repair。记下该版本最近一次失败的编译任务。管理员手动创建的不受次数限制。
-- `intake-adopt ID --by NAME [--auto-task]`：见 15.5。
+- `intake-adopt ID --by NAME [--auto-task] [--distribution store|vendor] [--download-page URL] [--direct]`：见 15.5。
 - `intake-step`：定时器每分钟，见 15.3；另一个 `intake-step` 在跑时静默退出码 0（`state/.intake-step.lock`）。取材料时不持全局锁，改状态才短暂拿锁（等不到 60 秒退出码 3）。
 
 ### 15.3 `intake-step` 状态机
 
 1. `submitted`：受控抓取材料（`intake_materials`）：地址主机、`[upstream] allowed_hosts` 和任务的 `allow_hosts` 之外的主机一律不通；页面（≤ `max_page_kib`）用标准库 HTML 解析器转成 `inputs/page.txt`（去掉 script、style、noscript、template、svg、iframe；控制字符清理）和 `inputs/links.txt`（`url<TAB>文字`，绝对 http/https 链接，去重，最多 400 个）；git 仓库地址（路径以 `.git` 结尾，或常见代码托管站的 `/owner/name`）浅克隆到 `inputs/repo/`（不含符号链接，走第 14.4 节的 tar 加固）；`inputs/categories.txt`（可用的分类）；`inputs/MATERIALS.txt`（抓了什么、没抓什么）；总量 ≤ `max_inputs_mib`。repair 另有 `inputs/previous-recipe.yaml`、`inputs/current-app.yaml`（现有的 `app.yaml`，AI 原样拷回交付：运行器要求交付里有 `app.yaml`，服务端对 repair 忽略它）、`inputs/failure.log`（失败任务日志的最后 64 KiB，清理后）、`inputs/upstream-diff.txt`（上一个成功构建的标签到失败标签的 `git diff --stat`）和失败版本的 `inputs/repo/`。页面取不到、仓库地址读不了任务就 `failed`。然后生成 `workspace.tar`（`TASK.md`、`CLAUDE.md`、`AGENTS.md` 来自 `intake_prompts/`，`inputs/`，空的 `out/`；只有普通文件和目录），写 `builds.queue/<AI 任务 id>/{task.json, workspace.tar}`（先在 `.fetch-*` 里备好再 rename），AI 构建任务 `ready`，任务 `ready`。`task.json`：`mode: "ai"`、`ai: {agent, kind, minutes}`、`id`、`app`、`version`、`upstream_version`、`attempt`、`by`、`created`（没有 `recipe`、`source`、`limits`）。
 2. `ready`/`running`：AI 任务 `building` 时任务 `running`。AI 任务失败：`class` 为 `model` 时，`switch_agent` 开着且还有没试过的已配置代理就换它重新创建 AI 任务（`retries` 不动），否则 `paused`（`model_retry_minutes` 分钟后同一个代理重试，最多 `model_max_retries` 次，之后 `failed`）；别的原因任务 `failed`。AI 任务被取消：任务 `cancelled`。
-3. AI 任务 `done`：读交付（`intake_delivery.read_delivery`：只读 `builds.out/<id>/ai/` 里白名单文件，不跟随链接，每个 ≤ 256 KiB，副本存 `delivery/`），校验（`intake_delivery.validate`）：YAML 用 `safe_load` 且拒绝锚点和别名；服务端拥有的字段被覆盖（`app.yaml` 的 `icon`、`maintainer`、`description_source: ai`、去掉 `screenshots` 和 `description_confirmed`；`upstream.yaml` 的 `app`、`build`、`auto_task: false`；配方的 `recipe_version`/`derived_from`：import 是 1，repair 是当前配方的版本加 1 并 `derived_from` 指向它）；店内 id 取 `upstream.yaml` 的 `app`，没有就取 `package.name`，必须符合 id 规则且没被占用；配方必须是 v2（`sources`）、`test` 至少一条、步骤里不得设 setuid/setgid；然后把 `categories.yaml`、交付的文件和占位图标放进临时目录，用 `content.load` 试跑（策略里加任务级额外主机；repair 则复制应用的现有目录和 `upstreams/<app>.yaml`，换上新配方）。版本：repair 用 `repair_of.version` 和 `seen` 里的标签和提交；import 有 `upstream.yaml` 就列标签取最新的（`track.match`、`min_version`），否则用 AI 自己的 deb 的 Version（去掉 `+aginoN`）。不合格：错误清单写成 `inputs/validation-error.txt`、上一次的交付放 `inputs/previous/`，创建新的 AI 任务（同一代理，`rounds` 加一），**最多 `max_rounds`（3）轮**，超了任务 `failed`。合格：创建验证构建任务（普通构建任务，配方内联、占位符按上面的版本代入、`verify: true`、`intake: <id>`、`allow_hosts`），任务 `verifying`。
+3. AI 任务 `done`：（交付里有 `vendor.yaml` 的走 15.8 的厂商路径，下面描述配方路径。）读交付（`intake_delivery.read_delivery`：只读 `builds.out/<id>/ai/` 里白名单文件，不跟随链接，每个 ≤ 256 KiB，副本存 `delivery/`），校验（`intake_delivery.validate`）：YAML 用 `safe_load` 且拒绝锚点和别名；服务端拥有的字段被覆盖（`app.yaml` 的 `icon`、`maintainer`、`description_source: ai`、去掉 `screenshots` 和 `description_confirmed`；`upstream.yaml` 的 `app`、`build`、`auto_task: false`；配方的 `recipe_version`/`derived_from`：import 是 1，repair 是当前配方的版本加 1 并 `derived_from` 指向它）；店内 id 取 `upstream.yaml` 的 `app`，没有就取 `package.name`，必须符合 id 规则且没被占用；配方必须是 v2（`sources`）、`test` 至少一条、步骤里不得设 setuid/setgid；然后把 `categories.yaml`、交付的文件和占位图标放进临时目录，用 `content.load` 试跑（策略里加任务级额外主机；repair 则复制应用的现有目录和 `upstreams/<app>.yaml`，换上新配方）。版本：repair 用 `repair_of.version` 和 `seen` 里的标签和提交；import 有 `upstream.yaml` 就列标签取最新的（`track.match`、`min_version`），否则用 AI 自己的 deb 的 Version（去掉 `+aginoN`）。不合格：错误清单写成 `inputs/validation-error.txt`、上一次的交付放 `inputs/previous/`，创建新的 AI 任务（同一代理，`rounds` 加一），**最多 `max_rounds`（3）轮**，超了任务 `failed`。合格：创建验证构建任务（普通构建任务，配方内联、占位符按上面的版本代入、`verify: true`、`intake: <id>`、`allow_hosts`），任务 `verifying`。
 4. `verifying`：验证构建 `done`（`build-step` 取回 deb 存进 `paths.downloads`，核对包名、架构、版本，**不生成候选**）→ `review`；`failed` 且 `class` 为 `recipe`（步骤或 `test` 失败、deb 被拒、源码或校验和对不上）→ 日志尾部写成 `inputs/replay-failure.log` 交回 AI（计入同样的轮数）；别的原因 `failed`；被取消 → `cancelled`。
 5. 每次运行末尾：把 `ready`/`running`/`verifying` 任务的 `allow_hosts` 去重合并，原子写到 `[intake] proxy_allow_file`（一行一个小写域名，不合格的丢弃并在输出里提一句，没有任务时写空文件，内容没变就不重写；写不进去按失败计，退出码 1）。AI 任务结束后下一次运行就把它的主机去掉。
 6. 清理：终态任务的工作文件超过 `keep_days` 天删除。
@@ -684,7 +686,9 @@ evidence: [{claim: "license is GPL-3.0", url: "https://…"}]        # 0..20 项
 
 ### 15.5 `intake-adopt`
 
-只在人工命令下发生，全局锁。只允许 `review` 状态（例外：`adopted` 但 import 的首个候选没建成，再运行一次补做）。步骤：用严格的主机策略（`[upstream] allowed_hosts`，**不含**任务级额外主机）加载内容仓库；对 `delivery/` 里保存的文件重新校验（版本、标签、提交用任务里记下的）；import 先确认验证构建的 deb 还在 `paths.downloads`；提交（`content_files.commit_files`，做法同 content-edit：先修复检出、写文件、整个仓库校验、提交、可选推送，任何失败都撤销）：import 是 `apps/<id>/app.yaml`、`icon.png`（占位图）、`build.yaml`（写 `recipe_version`）、`upstreams/<id>.yaml`（有的话；`--auto-task` 时 `auto_task: true`），提交信息 `intake(<id>): add <id> by <NAME>`；repair 是 `apps/<id>/build.yaml`（`--auto-task` 时再加 `upstreams/<id>.yaml`），提交信息 `intake(<id>): recipe <N> of <id> by <NAME>`。交付里的 `vendor.yaml` 不提交（见下）。任务标 `adopted`（`adopted_by`）。然后 import：用保存的验证产物走 `trackers.ingest`（和所有候选相同的 inspect、diff、依赖检查）创建首个候选，`origin = {type: built, source_url, source_ref, source_commit, build_job: <验证任务>}`，状态 `pending`，任务的 `candidate` 和验证任务的 `candidate` 记下它；失败则任务保持 `adopted`、`error` 写原因、退出码 1，再运行一次补做。repair：对该版本 `build-request`（`by` 为 `auto`），被拒（例如已有未完成任务）只打印原因。回退＝回退那次内容提交。AI 写的介绍永远是 `description_source: ai`：放行要先人工确认介绍或给 `--description-reviewed`，`built` 候选的严格规则（沙箱 pass、`--note`、flags）同样适用。
+只在人工命令下发生，全局锁。只允许 `review` 状态（例外：`adopted` 但 import 的首个候选没建成，再运行一次补做）。步骤：用严格的主机策略（`[upstream] allowed_hosts`，**不含**任务级额外主机）加载内容仓库；对 `delivery/` 里保存的文件重新校验（版本、标签、提交用任务里记下的）；import 先确认验证构建的 deb 还在 `paths.downloads`；提交（`content_files.commit_files`，做法同 content-edit：先修复检出、写文件、整个仓库校验、提交、可选推送，任何失败都撤销）：import 是 `apps/<id>/app.yaml`、`icon.png`（占位图）、`build.yaml`（写 `recipe_version`）、`upstreams/<id>.yaml`（有的话；`--auto-task` 时 `auto_task: true`），提交信息 `intake(<id>): add <id> by <NAME>`；repair 是 `apps/<id>/build.yaml`（`--auto-task` 时再加 `upstreams/<id>.yaml`），提交信息 `intake(<id>): recipe <N> of <id> by <NAME>`。交付里有 `vendor.yaml` 的是厂商路径，提交的东西不同（见 15.8）。任务标 `adopted`（`adopted_by`）。然后 import：用保存的验证产物走 `trackers.ingest`（和所有候选相同的 inspect、diff、依赖检查）创建首个候选，`origin = {type: built, source_url, source_ref, source_commit, build_job: <验证任务>}`，状态 `pending`，任务的 `candidate` 和验证任务的 `candidate` 记下它；失败则任务保持 `adopted`、`error` 写原因、退出码 1，再运行一次补做。repair：对该版本 `build-request`（`by` 为 `auto`），被拒（例如已有未完成任务）只打印原因。回退＝回退那次内容提交。AI 写的介绍永远是 `description_source: ai`：放行要先人工确认介绍或给 `--description-reviewed`，`built` 候选的严格规则（沙箱 pass、`--note`、flags）同样适用。
+
+发布方式（`--distribution store|vendor`、`--download-page URL`、`--direct`；配方路径和厂商路径一样）：不给这三个参数就不写 `distribution` 键（商店托管，`store`）；`app.yaml` 里 `proprietary: true` 的应用必须显式给 `--distribution`（退出码 1，说明原因），免得无意中分发闭源软件。`--distribution store` 写 `distribution: {mode: store}`；`--distribution vendor` 必须有 `--download-page`（https、无用户名密码、≤ 2048 字符、无空白和控制字符），写 `distribution: {mode: vendor, page, direct}`，页面主机不在提交地址、任务额外主机或厂商追踪文件的 `allowed_hosts` 里时输出一行 `note:` 提醒（页面是管理员自己输入的，不拦）。`--download-page`、`--direct` 不能单独用，`--direct` 只和 `vendor` 一起，`store` 不接受它们（退出码 2，什么都不提交）；repair 不接受 `--distribution`。AI 在 `app.yaml` 里写的 `distribution` 一律被删（两条路径都是），只有这里的参数能设。
 
 ### 15.6 提示词
 
@@ -692,6 +696,26 @@ evidence: [{claim: "license is GPL-3.0", url: "https://…"}]        # 0..20 项
 
 ### 15.7 已知取舍
 
-- `vendor.yaml`：交付白名单里有它（契约如此），但带配方的应用不能有 `package.vendor`（第 14.1 节），孤立的 `vendors/<id>.yaml` 又会让 `track` 报错，所以 `intake-adopt` 不提交它；闭源软件靠 `sources` 里的 `file`/`tarball` 固定一个版本，新版本走 repair。
+- `vendor.yaml`：现在有了专门的厂商路径（15.8），会提交 `vendors/<id>.yaml`；带配方的交付里出现 `vendor.yaml` 仍然被拒（“二选一”）。
 - 任务级额外主机只管 AI 的转发代理、受控抓取和试跑；提交内容仓库时用严格策略，配方里用了不在 `allowed_hosts` 的主机，采纳会被拒（"allowed_hosts"），管理员把主机加进 `[upstream] allowed_hosts` 后再采纳。GitHub 发布资源会重定向到 CDN 主机（例如 `objects.githubusercontent.com`），同样要在 `allowed_hosts` 里。
 - 采纳不改写 AI 的 `evidence`、`test` 等内容；人工审核是唯一的把关（平台的风险高亮不在服务端）。
+
+### 15.8 厂商路径（交付 `vendor.yaml`，不交配方）
+
+适用于厂商自己发布官方 deb 的软件（闭源的、或官方 deb 带 `postinst` 而配方规则禁止维护者脚本的）。不改厂商的包，不重打包；新版本以后由现有的 `track` 定时任务发现，不再需要 AI。
+
+**交付形态**（`intake_delivery.validate`）：有 `vendor.yaml`、没有 `recipe.yaml` ＝ 厂商路径；两个都有、两个都没有退回 AI（“二选一”）。厂商路径的交付：`vendor.yaml`、`app.yaml`、`NOTES.md`，可选 `shots.yaml`/`demo.tar`，以及 AI 自己下载并测过的、原样不改的一个 `*.deb`（可以没有，没有时不做对账）。repair 不能交 `vendor.yaml`。`delivery/` 里除文本文件外多存 `ai-deb.json`（AI 的 deb 的名字和 sha256，服务端自己算）。
+
+**校验**（`validate_vendor`，之后同样试跑 `content.load`，临时树里同时放 `apps/<id>/app.yaml` 和 `vendors/<id>.yaml`）：
+
+- 店内 id ＝ `vendor.yaml` 的 `package`（deb 包名，符合 id 规则、≤ 64 字符）；`apps/<id>`、`vendors/<id>.yaml` 都不能存在，别的应用或厂商也不能已经用同一个 deb 包名。AI 不能另起 id。
+- `app.yaml`：服务端强制 `package: {kind: deb, name: <包名>, vendor: <id>}`；`source` 只许 `official`/`personal`；沿用服务端接管的字段（`icon`、`maintainer`、`description_source: ai`，去掉 `screenshots`、`description_confirmed`），并**删除 `distribution`**（只有管理员能设，两条路径都一样）；`install_profile` 允许。
+- `vendor.yaml`：`track.type` 只许 `json`、`page`、`redirect`、`head`（`apt` 拒绝：需要厂商公钥和指纹，AI 不能自己带钥匙；`track.keys`、`vendors/keys` 一律拒绝）；`fetch` 强制为 `auto`；`allowed_hosts` 每一项必须落在 [upstream] `allowed_hosts` ∪ 任务的 `allow_hosts` ∪ 提交地址的主机里，`track.url` 的主机必须在 `allowed_hosts` 里（content.load 检查）。也就是说服务端去哪些主机下载仍由管理员在提交时决定，AI 读到的页面内容决定不了。其余（正则长度和嵌套量词、只许 443、公网域名）走 `content.load`。
+
+**验证**（`intake_vendor.run`，在 `intake-step` 里做，不起虚拟机）：校验通过后，服务端用交付的追踪文件按 `track` 的方式试跑一次（`trackers.trial_run`）：发现版本和下载（`fetch.Fetcher` 的全部保护），`verify_fields`（Package、Architecture、Version），`checks.inspect_package`，`checks.check_deps`。不写候选、不写厂商备忘，inspect 文件在临时目录；下载的 deb 放进真实的 `paths.downloads/<sha256>/`（内容寻址，之后 `track` 复用）。结果写进任务的 `vendor_check`：`{version, sha256, size, url, filename, flags: {count, categories}, deps_ok, matches_ai_deb, hosts: [{host, approved}]}`；`matches_ai_deb` 是服务端取得的 deb 的 sha256 是否等于 AI 交的那个（没交为 null，不一致只警告，不阻止：厂商随时可能发新包，由人决定）。`flags.categories` 是 inspect 标记去掉文件名后的种类。取不到版本、下载失败、Package/Architecture/Version 不符：错误清单作为 `validation-error.txt` 交回 AI，计入同样的修正轮（最多 `max_rounds`），文字是 “The server tried your vendor.yaml and could not get the vendor's deb with it: …”；依赖检查没通过只记 `deps_ok: false`（不是 AI 能修的）。成功：任务直接进 `review`（`app`、`version` 记在任务上，没有 `verify_task`）。
+
+**采纳**（`intake-adopt`）：提交 `apps/<id>/app.yaml`、`icon.png`（占位）、可选 `shots.yaml` 和 `demo/<树>/…`、`vendors/<id>.yaml`（不提交 `build.yaml`、`upstreams/`；`--auto-task` 被忽略并提示）。先确认试跑的 deb 还在下载目录里，没有则一个文件都不提交。提交后首个候选用试跑取得的 deb（不是 AI 的那个）调 `trackers.ingest`（和所有候选相同的 inspect、diff、依赖检查），`origin = {type: https, url, via: intake, intake: <任务号>}`，状态 `pending`；任务的 `candidate` 记下它。失败同配方路径：任务保持 `adopted`、`error` 写原因、退出码 1，再运行一次 `intake-adopt` 补候选；若在这期间 `track` 已为同一个文件建了候选（没有 `via`），补做时给它加上 `via`/`intake`，保证首个候选按严格规则放行。回退＝回退那次内容提交。
+
+**放行**：见 14.6。首个候选（`via: intake`）要沙箱 pass、`--note`、有 inspect 标记或脚本时 `--include-flagged`；厂商 deb 的 `postinst` 基本都会触发，所以每次都要显式确认。介绍是 AI 写的，照旧要 `--description-reviewed`。
+
+**风险和对策**：页面内容诱使 AI 写出指向攻击者主机的追踪文件 → 主机必须落在管理员批准的集合内，服务端抓取只在这些主机上进行，每一跳重定向都检查；AI 的 deb 和服务端托管的不一致 → 服务端自己取 deb，对账结果记入 `vendor_check`；厂商 deb 带可疑脚本 → 不改包，inspect 标记 ＋ 沙箱 ＋ 放行时 `--include-flagged` 和备注；AI 自带公钥冒充厂商 apt 源 → `apt` 类型和 `vendors/keys` 一律拒绝。试跑下载的 deb 留在下载目录里，任务被取消也不删（内容寻址、体积受 `max_deb_bytes` 限制）。
