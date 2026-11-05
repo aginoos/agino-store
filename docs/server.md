@@ -184,6 +184,10 @@ package:
   name: gimp
   # kind: deb 时：
   # vendor: chrome                    # vendors/chrome.yaml
+distribution:                         # 可选；缺省 = {mode: store}
+  mode: vendor                        # store | vendor
+  page: https://obsidian.md/download  # mode: vendor 时必填；官网下载页或直链（https）
+  direct: false                       # 可选，缺省 false；page 是不是直接下载链接
 install_profile:                      # 可选，格式同 design.md 4 节
   debconf: ["code code/add-microsoft-repo boolean false"]
   default_files: [{path: /etc/default/google-chrome, content: "repo_add_once=\"false\"\n"}]
@@ -196,7 +200,8 @@ release_notes:                        # 可选，按版本号
 - 所有展示给用户的文字（`name`、`summary`、`description` 各段、`developer`、`maintainer.name/contact`、`release_notes`、`categories.yaml` 的名称、`featured.yaml` 的标题和副标题）在 `content.load` 里统一按纯文本校验：不得含像标记的内容（`<` 后接字母、`/`、`!`、`?`，或 `&名字;`、`&#…;` 形式的实体；`1 < 2`、`Audio & Video` 没问题），也不得含 Unicode 双向控制符和零宽字符（U+061C、U+200B/200C/200E/200F、U+202A–202E、U+2066–2069、U+FEFF；U+200D 表情连接符允许）。错误信息只给文件和键，不回显违规字符。
 - `kind: milkyway` 的 `source` 只能是 `system`；`kind: deb` 只能是 `official` 或 `personal`。
 - 截图的宽高由 build 从 PNG 头读出；PoC 不生成缩略图（`thumb` 与 `image` 相同）。`screenshots:` 仍然接受（向后兼容），但某个应用在截图目录里有 approved 的图时，以目录为准（D-203，见第 12 节）。
-- 未知字段报错（防止拼错的字段被静默忽略）。`description_source` 和 `description_confirmed` 是仅有的两个新增可选字段（D-203）。`description_source: ai` 的应用不能直接放行（第 5 节 `approve`）。
+- `distribution`（发布方式）：缺省等价 `{mode: store}`，商店照常托管并下发 deb。`mode: vendor` 表示商店**不分发**这个 deb（授权禁止分发），用户由客户端引导到官网自己下载。校验（`content.load`）：键只有 `mode`、`page`、`direct`，未知键拒绝；`mode` 只能是 `store`/`vendor`，必填；`mode: vendor` 时 `page` 必填，是 https URL、长度 <= 2048、无用户名密码、不含控制字符和空白；`direct` 缺省 false，必须是布尔；`mode: store` 时不得带 `page`、`direct`。只有 `package.kind: deb` 的应用能用 `vendor`；有 `build.yaml` 的应用（从源码编译）必须是 `store`。加载后每个应用都有 `distribution` 字典（始终有 `mode`；vendor 时补全 `direct`）。`page` 只校验格式，不要求主机在某个集合里：`distribution` 只有管理员能设置（经 `content-edit`，第 13 节），AI 交付里的 `distribution` 在采纳前就被丢弃。`direct: true` 时客户端优先用该版本候选的 `vendor_url`，`page` 是取不到时的回退。
+- 未知字段报错（防止拼错的字段被静默忽略）。`description_source`、`description_confirmed`（D-203）和 `distribution` 是后加的可选字段。`description_source: ai` 的应用不能直接放行（第 5 节 `approve`）。
 
 `apps/<id>/shots.yaml`（可选；没有这个文件就不为该应用自动截图。完整约定见 research/app-store-13/shots-contract.md）：
 
@@ -387,6 +392,8 @@ class State:
 - 截图（D-203）：每个应用取 `paths.screenshots/<应用>/meta.json` 里状态为 `approved` 的图，按（语言, 文件名）排序，复制到 `assets/<sha256>.png`（与图标同一套按哈希命名的机制，进清单和签名），`width`/`height` 读自 PNG 头；两种语言的键都输出（没有图的为空列表）。应用有 approved 的图时目录优先于 `app.yaml` 的 `screenshots:`；都没有时字段为空，同以前。磁盘上缺失或与记录的 sha256 不符的图被略过，原因进 `build` 摘要的 `warnings`（命令行打印 `warning: …`），不会让应用掉出目录；`meta.json` 损坏同样只是警告。
 - `kind: deb` 的应用没有放行版本时不进目录；`kind: milkyway` 的包在 `milkyway.json` 里没有时不进目录（`check` 会报出来）。
 - `package.deb`：`version`、`url`（`deb_base_url + <sha256>/<文件名>`）、`vendor_url`、`sha256`、`size`、`installed_size`（字节）。deb 文件硬链接到 `preview/debs/<sha256>/<文件名>`。
+- `distribution: {mode: vendor}` 的应用（第 3 节）：`package.deb` 里**没有 `url`**（其余的 `version`、`vendor_url`、`sha256`、`size`、`installed_size` 照旧，`sha256` 是我们测过的那个文件），`package` 多 `"distribution": "vendor"` 和 `"download": {"page": …, "direct": bool}`；deb **不硬链接**进 `preview/debs/`，所以不出现在公开存储和 R2 上。放行校验不变：候选仍须 `approved`、依赖检查 ok，build 仍重算下载目录里 deb 的 sha256 与放行记录比对。`mode: store` 的应用目录输出不变（没有 `distribution` 键）。`distribution` 在 `app.yaml` 里，随内容仓库整体进 `inputs_sha256`，所以切换发布方式会生成新目录。
+- 下架：应用从 `store` 切到 `vendor` 后，下一次 `build` 在换上新目录之后立即删除该应用在 `preview/debs/` 下的 deb（不等 `valid_days + 7`）：只按该应用候选记录里的 `<sha256>/<文件名>` 这些确切路径删文件并 `rmdir` 空目录，不用通配符，也不动别的应用正在发布的同一哈希。持旧目录（`valid_days` 内）的客户端再下载会得到 `download-failed`。`build` 摘要有 `withdrawn`（应用 id 列表），命令行打印 `withdrawn: <id> (…)`。已经没有公开副本时每次 build 都是空操作。
 - `updated`：deb 类用放行日期，milkyway 类用 `first_seen`。`releases`：当前版本 + `release_notes` 里有的旧版本，按版本降序，最多 5 条。
 - `serial`：UTC 日期 `YYYYMMDD` × 100 + 当天序号（01–99），必须大于 `catalog.json` 里的上一个；`revision`：`r<serial>-<inputs_sha256 前 12 位>`。
 - 写到 `preview/catalog-<serial>/`，校验通过后原子替换 `preview/current` 符号链接；只保留最近 `keep_catalogs` 份（按明确的目录名删除）。生成失败不动 `current`。如果换了 `current` 之后、保存状态之前崩溃，留下的 `catalog-<serial>` 不会卡住下一次构建：serial 已存在就顺延到下一个。`preview/debs/<sha>/` 中不被任何保留的目录引用、且超过 `valid_days + 7` 天的会按确切路径删除。签名要求私钥是当前用户拥有的普通文件，且 `mode & 0o077 == 0`；openssl 失败只报 "signing failed"，不带私钥路径。目录里单个图片资源不得超过 10 MiB。
@@ -473,11 +480,11 @@ milkyway 里的应用不进沙箱队列，已通过沙箱的候选也不会再�
 
 `agino-store-server status --json [--section NAME ...]` 是管理后台（agino-store-admin）读状态的唯一接口，后台不解析内部文件格式。严格只读：不拿 `state/.lock`（所以和任何写命令并行都行），不写文件，不调用 sudo，不联网。状态 JSON 是原子替换的，每个文件只打开读一次（`O_NOFOLLOW`，必须是普通文件，最大 8 MiB）；文件缺失、读到一半或 JSON 无效时，记入 `errors` 后继续。退出码 0（有 `errors` 也是 0）；`--json` 缺失或段名未知退出码 2。
 
-输出一个 JSON 对象（ensure_ascii，示例见 `docs/status-schema.md`）：`{"schema": 3, "generated": "<UTC>", "sections": {…}, "errors": [{"section", "detail"}]}`。`--section` 可重复，默认全部。已实现：`apps`、`candidates`、`approved`、`vendors`、`catalog`、`sandbox`、`timers`、`shots`、`categories`、`upstreams`、`builds`、`builder`、`intake`；`submissions`、`sessions` 是预留名，现在接受但输出里没有这一段。schema 版本 3（相对 2 新增了 `intake` 段，`builds` 每项多 `mode`、`class`、`intake` 三个键，`timers` 多 `intake-step` 两个单元；相对 1 新增了 `upstreams`、`builds`、`builder` 三段，候选的 `origin` 对 `built` 多几个键，`timers` 多四个单元）。
+输出一个 JSON 对象（ensure_ascii，示例见 `docs/status-schema.md`）：`{"schema": 3, "generated": "<UTC>", "sections": {…}, "errors": [{"section", "detail"}]}`。`--section` 可重复，默认全部。已实现：`apps`、`candidates`、`approved`、`vendors`、`catalog`、`sandbox`、`timers`、`shots`、`categories`、`upstreams`、`builds`、`builder`、`intake`；`submissions`、`sessions` 是预留名，现在接受但输出里没有这一段。schema 版本 3（`apps` 每项多 `distribution` 键，只增键、版本号不变；相对 2 新增了 `intake` 段，`builds` 每项多 `mode`、`class`、`intake` 三个键，`timers` 多 `intake-step` 两个单元；相对 1 新增了 `upstreams`、`builds`、`builder` 三段，候选的 `origin` 对 `built` 多几个键，`timers` 多四个单元）。
 
 | 段 | 内容 |
 |---|---|
-| `apps` | 列表，每项：`id`、`name`、`summary`（`{zh_CN, en_US}`）、`description`（`{zh_CN: [段落…], en_US: […]}`，全文）、`license`、`categories`、`source`、`kind`、`package`、`vendor`、`proprietary`、`developer`（`{zh_CN, en_US}`）、`homepage`、`maintainer`、`launchable`、`has_icon`、`description_source`（缺省 `submitter`）、`description_confirmed`（`{by, at}` 或 null）、`l10n`（布尔）、`shots`（`{state: none\|draft\|approved, scenes, langs, counts: {draft, approved, rejected}}`，来自 `paths.screenshots/<应用>/meta.json`；至少一张 approved 的图就是 approved，否则有 draft 为 draft，否则 none；`scenes`、`langs` 只数没被 rejected 的图）、`approved`（`{version, approved_at, by}` 或 null）、`current_candidate_status`（版本最高的候选的状态）。内容仓库校验失败时这一段为空，每条问题记入 `errors` |
+| `apps` | 列表，每项：`id`、`name`、`summary`（`{zh_CN, en_US}`）、`description`（`{zh_CN: [段落…], en_US: […]}`，全文）、`license`、`categories`、`source`、`kind`、`package`、`vendor`、`proprietary`、`developer`（`{zh_CN, en_US}`）、`homepage`、`maintainer`、`launchable`、`has_icon`、`description_source`（缺省 `submitter`）、`description_confirmed`（`{by, at}` 或 null）、`l10n`（布尔）、`distribution`（`{mode: store\|vendor, page, direct}`，`mode` 缺省 `store`，`page` 缺省空串，`direct` 缺省 false）、`shots`（`{state: none\|draft\|approved, scenes, langs, counts: {draft, approved, rejected}}`，来自 `paths.screenshots/<应用>/meta.json`；至少一张 approved 的图就是 approved，否则有 draft 为 draft，否则 none；`scenes`、`langs` 只数没被 rejected 的图）、`approved`（`{version, approved_at, by}` 或 null）、`current_candidate_status`（版本最高的候选的状态）。内容仓库校验失败时这一段为空，每条问题记入 `errors` |
 | `candidates` | 全部候选，按 `found` 从新到旧：`id`（`<应用>/<文件名去 .json>`）、`app`、`vendor`、`package`、`version`、`size`、`installed_size`、`found`、`status`、`origin`（`type`，apt 带 `signed_by`，built 带 `source_url`、`source_ref`、`source_commit`、`build_job`）、`source_class`（`official`＝apt/https，`personal`＝manual/built，否则 `unknown`）、`checks`（`deps{ok,detail}`、`inspect{flags}`、`diff{against,scripts_changed,flags_added,summary}`、`sandbox{status,summary,report}`）、`decided`。不含脚本原文和文件清单 |
 | `approved` | `{apps: approved.json 原样, log: approvals.log 最后 50 行解析后的对象（坏行跳过）}` |
 | `vendors` | 每个厂商：`id`、`name`（厂商包名）、`in_content`、`last_check`、`last_ok`、`last_error`、`seen_version`；内容仓库里的和 `state/vendors/` 里有记录的取并集 |
@@ -535,8 +542,9 @@ milkyway 里的应用不进沙箱队列，已通过沙箱的候选也不会再�
 **`content-edit APP --patch NAME.json --editor NAME`**
 - 参数全部严格校验，错误退出码 2：`APP` 同 `shots-*`（内容仓库里有 `apps/<id>/app.yaml`）；`NAME` 为 `^[A-Za-z0-9_-]{8,64}\.json$`；`--editor` 为 `^[A-Za-z0-9._-]{1,32}$`。
 - 补丁文件在 `paths.shots_staging`（和截图上传同一个暂存目录），以 `O_NOFOLLOW` 打开，必须是普通文件，<= 64 KiB，UTF-8 JSON 对象，不许重复键和 `NaN`。成功后删除，失败（包括补丁无效）时留着。
-- 允许的键，其他一律拒绝（退出码 1，补丁不能带 `description_source`）：`name`、`summary`、`developer`（`{zh_CN, en_US}`，上限 100/300/100 字符，单行）、`description`（`{zh_CN: [段落], en_US: [段落]}`，每种语言 1..50 段，每段 <= 4000 字符）、`categories`（1..2 个，必须在 `categories.yaml` 里，不重复）、`license`（`content.py` 的许可证格式）、`proprietary`（布尔）、`homepage`（https URL，无用户名密码）。本地化键必须同时给出 `zh_CN` 和 `en_US`，且只能有这两个；一个键出现就替换它的值（本地化键里补丁没提到的其他语言保留）。所有文字不得含控制字符（含换行、制表符），也不得含像标记或不可见方向/零宽的字符（规则同上，由 `content.py` 统一校验；`1 < 2` 没问题）。
+- 允许的键，其他一律拒绝（退出码 1，补丁不能带 `description_source`）：`name`、`summary`、`developer`（`{zh_CN, en_US}`，上限 100/300/100 字符，单行）、`description`（`{zh_CN: [段落], en_US: [段落]}`，每种语言 1..50 段，每段 <= 4000 字符）、`categories`（1..2 个，必须在 `categories.yaml` 里，不重复）、`license`（`content.py` 的许可证格式）、`proprietary`（布尔）、`homepage`（https URL，无用户名密码）、`distribution`（发布方式，格式见第 3 节，值是 `{mode: store}` 或 `{mode: vendor, page, direct}`）。本地化键必须同时给出 `zh_CN` 和 `en_US`，且只能有这两个；一个键出现就替换它的值（本地化键里补丁没提到的其他语言保留）。所有文字不得含控制字符（含换行、制表符），也不得含像标记或不可见方向/零宽的字符（规则同上，由 `content.py` 统一校验；`1 < 2` 没问题）。
 - 语义：先校验当前内容仓库（本来就无效则退出码 1，不动文件），再应用补丁。补丁没改变任何值则输出 `no changes for APP`、退出码 0、只删补丁文件。只有 `description` 的值改变了、且原来的 `description_source` 是 `ai`（或已是 `confirmed`，此时换成当前审核人）才设为 `confirmed`、`description_confirmed` 设为 `{by: EDITOR, at: 现在(UTC)}`（人改过正文才算审阅过），两个键紧跟在 `description` 后面；`official` 和 `submitter`（含缺省）来源保持原值；只改 `summary` 或其他键则介绍来源不变（`ai` 仍是 `ai`，`approve` 照旧拦截）。
+- `distribution`：补丁写 `{mode: store}` 时写回去掉整个 `distribution` 键（保持文件整洁；本来就没有该键则算没有改动）；写 `vendor` 时整个值替换，`direct` 省略等价 false（和已有值等价则算没有改动）。它不改变 `description_source` 的语义。vendor 只能用于 `package.kind: deb` 且无 `build.yaml` 的应用：补丁本身只校验格式，不满足时整个内容仓库校验失败，按下面的流程恢复原文件。提交信息里的键名列表照常包含 `distribution`（`info(<APP>): distribution by <EDITOR>`）。改动在下一次 `build` 生效，切到 `vendor` 时同时下架公开存储里的 deb（第 8 节）。
 - 写回用 `yaml.safe_dump(sort_keys=False, allow_unicode=True, default_flow_style=False, width=1000000)`（宽度取很大，长段落不会被折行）。现有 store-content 的 `app.yaml` 里只有一处与它不同：`l10n` 的行内列表 `[a]` 会被展开成块列表，含义相同；测试用样例文件验证其余文件逐字节一致。
 - 然后用 `content.load` 校验整个内容仓库；失败则恢复原文件，退出码 1，输出错误。
 - git（`content_git.py`，在 `paths.content` 里）：开始前要求它是 git 检出且 `apps/<id>/app.yaml` 没有未提交的改动；`git add apps/<id>/app.yaml`，`git -c user.name=agino-store -c user.email=agino-store@localhost commit -m "info(<APP>): <改动的键> by <EDITOR>" -- apps/<id>/app.yaml`（只提交这个文件；关闭钩子和签名）。`[content] push = yes` 时 `git push origin HEAD:main`；被拒绝则做**一次** `git pull --rebase --autostash origin main` 再推；还是失败就撤销这次提交（`git reset --keep`，回到我们提交之前，已拉下来的别人的提交保留），不改别的，退出码 1，补丁留着。`push = no`（默认）只在本地提交，并输出 `warning: not pushed (content.push is off)`。
@@ -578,7 +586,7 @@ package: {name: gimp-agino, section: graphics, depends: [libgtk-3-0], maintainer
 limits: {cpu_minutes: 90, disk_gib: 20, memory_gib: 8}   # 可选；每项 1..全局上限
 ```
 
-未知键一律拒绝；整个内容仓库校验失败就是失败（和其他文件一样）。有 `build.yaml` 的应用，`app.yaml` 必须 `source: personal`、`package.kind: deb`、**不写** `package.vendor`、`package.name` 等于配方的 `package.name`，`maintainer` 必填。`build.yaml` 不进 `content_digest`（改配方不重新生成目录）。
+未知键一律拒绝；整个内容仓库校验失败就是失败（和其他文件一样）。有 `build.yaml` 的应用，`app.yaml` 必须 `source: personal`、`package.kind: deb`、**不写** `package.vendor`、`package.name` 等于配方的 `package.name`，`maintainer` 必填。这样的应用的 `distribution` 只能是 `store`（源码编译出来的东西没有“禁止分发”的问题）。`build.yaml` 不进 `content_digest`（改配方不重新生成目录）。
 
 ### 14.2 状态
 
