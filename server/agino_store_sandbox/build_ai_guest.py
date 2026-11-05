@@ -26,7 +26,7 @@ CODEX_CONFIG = "/home/builder/.codex/config.toml"
 SUDOERS_AI = "/etc/sudoers.d/agino-ai"
 SUDOERS_AI_TEXT = "builder ALL=(root) NOPASSWD: ALL\n"
 
-TEXT_FILES = ("recipe.yaml", "app.yaml", "upstream.yaml", "vendor.yaml", "NOTES.md")
+TEXT_FILES = ("recipe.yaml", "app.yaml", "upstream.yaml", "vendor.yaml", "shots.yaml", "NOTES.md")
 DEB_NAME_RE = re.compile(r"\A[a-z0-9][a-z0-9+.~_-]{0,150}\.deb\Z")
 MAX_TEXT_BYTES = 256 * 1024
 MAX_LISTED = 500

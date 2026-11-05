@@ -10,7 +10,7 @@ from agino_store_server import content, intake, intake_delivery as D
 
 from . import helpers as H
 from .build_case import DPKG
-from .intake_case import APP, RECIPE, TAGS, UPSTREAM, IntakeCase, delivery, dump, tags_patch
+from .intake_case import APP, RECIPE, SHOTS, TAGS, UPSTREAM, IntakeCase, delivery, dump, tags_patch
 
 PINNED = {"version": "1.0.0", "tag": "v1.0.0", "commit": "a" * 40}
 
@@ -105,6 +105,44 @@ class TestAcceptedImport(DeliveryCase):
             with self.assertRaises(D.DeliveryError) as ctx:
                 D.validate(self.cfg, self.st, self.loaded, self.record(), delivery())
         self.assertIn("no tag of the repository matches", ctx.exception.messages[0])
+
+
+class TestShotsOfAnImport(DeliveryCase):
+    def test_no_shots_file_is_fine(self):
+        self.assertIsNone(self.check().shots_data)
+
+    def test_good_scenes_are_kept(self):
+        checked = self.check(delivery(shots=SHOTS))
+        self.assertEqual([s["id"] for s in checked.shots_data["scenes"]], ["main", "prefs"])
+
+    def test_demo_trees_and_promo_images_are_not_for_the_agent(self):
+        scene = dict(SHOTS["scenes"][0], demo=["sample"])
+        self.assertError(delivery(shots=dict(SHOTS, scenes=[scene])), "scenes[0].demo is not allowed")
+        promo = dict(SHOTS, promo=[{"image": "promo/zh_CN/1.png", "lang": "zh_CN", "source": "x", "license": "y"}])
+        self.assertError(delivery(shots=promo), "`promo` is not allowed")
+        scene = dict(SHOTS["scenes"][0], args=["~/Demo/x"])
+        self.assertError(delivery(shots=dict(SHOTS, scenes=[scene])), "must not point into ~/Demo")
+
+    def test_a_scene_the_schema_refuses_goes_back_to_the_agent(self):
+        bad = dict(SHOTS, scenes=[dict(SHOTS["scenes"][0], id="Not Valid")])
+        self.assertError(delivery(shots=bad), "shots.yaml")
+        unknown = dict(SHOTS, scenes=[dict(SHOTS["scenes"][0], run="rm -rf /")])
+        self.assertError(delivery(shots=unknown), "shots.yaml")
+        steps = dict(SHOTS, scenes=[dict(SHOTS["scenes"][0], steps=[{"shell": "id"}])])
+        self.assertError(delivery(shots=steps), "shots.yaml")
+
+    def test_a_shots_file_that_is_not_yaml_mapping(self):
+        files = dict(delivery(), **{"shots.yaml": b"- just\n- a list\n"})
+        self.assertError(files, "shots.yaml: must be a mapping")
+
+    def test_a_repair_ignores_shots(self):
+        path = os.path.join(self.cfg.content, "apps", "tool", "build.yaml")
+        self.assertTrue(os.path.exists(path))
+        files = {"recipe.yaml": dump(dict(RECIPE, package=dict(RECIPE["package"], name="tool-agino"))), "NOTES.md": b"x\n",
+                 "shots.yaml": dump(dict(SHOTS, promo=[{"x": 1}]))}
+        self.seed_seen()
+        checked = D.validate(self.cfg, self.st, self.loaded, self.record("repair"), files)
+        self.assertIsNone(checked.shots_data)
 
 
 class TestRefusedImport(DeliveryCase):

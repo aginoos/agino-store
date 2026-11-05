@@ -27,7 +27,7 @@ ACTIVE = ("ready", "building", "collecting")
 
 RESULT_CLASSES = ("ok", "recipe", "infra", "timeout", "model")
 AI_DIR = "ai"
-AI_TEXT_FILES = ("recipe.yaml", "app.yaml", "upstream.yaml", "vendor.yaml", "NOTES.md")
+AI_TEXT_FILES = ("recipe.yaml", "app.yaml", "upstream.yaml", "vendor.yaml", "shots.yaml", "NOTES.md")
 AI_MAX_TEXT_BYTES = 256 << 10
 
 

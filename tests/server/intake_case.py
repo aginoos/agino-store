@@ -48,13 +48,21 @@ def dump(data):
     return yaml.safe_dump(data, allow_unicode=True).encode("utf-8")
 
 
-def delivery(recipe=None, app=None, upstream=UPSTREAM, notes=b"notes\n"):
+SHOTS = {"schema": 1, "scenes": [
+    {"id": "main", "caption": {"zh_CN": "主窗口", "en_US": "Main window"}, "steps": [{"wait": 3}]},
+    {"id": "prefs", "caption": {"zh_CN": "首选项", "en_US": "Preferences"},
+     "steps": [{"key": "ctrl+comma"}, {"wait_window": {"zh_CN": "首选项", "en_US": "Preferences"}}]}]}
+
+
+def delivery(recipe=None, app=None, upstream=UPSTREAM, notes=b"notes\n", shots=None):
     """The files an agent delivers for an import ({name: bytes})."""
     files = {"recipe.yaml": dump(RECIPE if recipe is None else recipe), "NOTES.md": notes}
     if app is not False:
         files["app.yaml"] = dump(APP if app is None else app)
     if upstream:
         files["upstream.yaml"] = dump(upstream)
+    if shots:
+        files["shots.yaml"] = dump(shots)
     return files
 
 

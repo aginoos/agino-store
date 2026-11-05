@@ -23,7 +23,7 @@ from . import buildcfg, build_collect, builds, content, content_builds, debinfo,
 from .intake_materials import clean_block
 
 DELIVERY_DIR = "delivery"
-TEXT_FILES = ("recipe.yaml", "app.yaml", "upstream.yaml", "NOTES.md")
+TEXT_FILES = ("recipe.yaml", "app.yaml", "upstream.yaml", "shots.yaml", "NOTES.md")
 MAX_TEXT = build_collect.AI_MAX_TEXT_BYTES
 MAX_YAML_EVENTS = 50_000
 MAINTAINER = {"name": "agino app store", "contact": "store@aginoos.com"}
@@ -52,6 +52,7 @@ class Checked:
     tag: str | None
     commit: str | None
     repo: str | None
+    shots_data: dict | None = None   # an import's shots.yaml (scenes without demo trees or promo images)
 
 
 # Reading
@@ -188,7 +189,7 @@ def _write_yaml(path, data):
         yaml.safe_dump(data, f, sort_keys=False, allow_unicode=True, default_flow_style=False, width=1_000_000)
 
 
-def _build_trial(root, loaded, kind, app_id, recipe, app, upstream):
+def _build_trial(root, loaded, kind, app_id, recipe, app, upstream, shots=None):
     shutil.copyfile(os.path.join(loaded.root, "categories.yaml"), os.path.join(root, "categories.yaml"))
     with open(os.path.join(root, "featured.yaml"), "w", encoding="utf-8") as f:
         f.write("[]\n")
@@ -206,6 +207,8 @@ def _build_trial(root, loaded, kind, app_id, recipe, app, upstream):
             f.write(placeholder_icon())
         if upstream is not None:
             _write_yaml(os.path.join(root, "upstreams", app_id + ".yaml"), upstream)
+        if shots is not None:
+            _write_yaml(os.path.join(app_dir, "shots.yaml"), shots)
     _write_yaml(os.path.join(app_dir, "build.yaml"), recipe)
 
 
@@ -223,10 +226,27 @@ def _hard_rules(recipe):
     return errors
 
 
-def _trial_load(cfg, record, loaded, kind, app_id, recipe, app, upstream):
+def _shots_rules(shots):
+    """Rules beyond the schema for the scenes an agent delivers: it has no demo trees and no promo images to offer."""
+    errors = []
+    if shots.get("promo"):
+        errors.append("shots.yaml: `promo` is not allowed (the store has no vendor images for a new application)")
+    scenes = shots.get("scenes")
+    for i, scene in enumerate(scenes if isinstance(scenes, list) else []):
+        if not isinstance(scene, dict):
+            continue
+        if scene.get("demo"):
+            errors.append("shots.yaml: scenes[%d].demo is not allowed (there are no demo trees for a new application)" % i)
+        args = scene.get("args")
+        if isinstance(args, list) and any(isinstance(a, str) and "Demo" in a for a in args):
+            errors.append("shots.yaml: scenes[%d].args must not point into ~/Demo" % i)
+    return errors
+
+
+def _trial_load(cfg, record, loaded, kind, app_id, recipe, app, upstream, shots=None):
     with tempfile.TemporaryDirectory(prefix="agino-intake-") as root:
         try:
-            _build_trial(root, loaded, kind, app_id, recipe, app, upstream)
+            _build_trial(root, loaded, kind, app_id, recipe, app, upstream, shots)
             return content.load(root, allow_insecure=cfg.allow_insecure, policy=_policy(cfg, record))
         except content.ContentError as e:
             raise DeliveryError(list(e.errors)[:30]) from e
@@ -288,9 +308,13 @@ def validate(cfg, st, loaded, record, files, ai_record=None, pinned=None):
         if loaded.app(app_id) is not None or os.path.lexists(os.path.join(loaded.root, "apps", app_id)):
             raise DeliveryError("the store id %r is already used by another application; choose another" % app_id)
         previous, app, upstream = None, normalise_app(app_in), (normalise_upstream(up_in, app_id) if up_in else None)
+    shots = None
+    if kind == "import" and "shots.yaml" in files:
+        shots = safe_yaml("shots.yaml", files["shots.yaml"])
+        errors = errors + _shots_rules(shots)
     recipe = normalise_recipe(recipe_in, previous, record)
     try:
-        trial = _trial_load(cfg, record, loaded, kind, app_id, recipe, app, upstream)
+        trial = _trial_load(cfg, record, loaded, kind, app_id, recipe, app, upstream, shots)
     except DeliveryError as e:
         raise DeliveryError(errors + e.messages) from e
     if errors:
@@ -300,7 +324,7 @@ def validate(cfg, st, loaded, record, files, ai_record=None, pinned=None):
         raise DeliveryError("recipe.yaml was not accepted")
     version, tag, commit, repo = _version(cfg, st, record, trial, app_id, ai_record, files, pinned)
     return Checked(app_id, recipe, app, upstream, clean_block(files.get("NOTES.md", b"").decode("utf-8", "replace")),
-                   parsed, version, tag, commit, repo)
+                   parsed, version, tag, commit, repo, shots)
 
 
 def _version(cfg, st, record, trial, app_id, ai_record, files, pinned):

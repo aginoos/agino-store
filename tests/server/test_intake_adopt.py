@@ -11,7 +11,7 @@ from agino_store_server import build_collect, content, trackers
 
 from . import helpers as H
 from .build_case import DPKG, GIT
-from .intake_case import RECIPE, delivery, dump, git
+from .intake_case import RECIPE, SHOTS, delivery, dump, git
 from .test_intake_flow import FlowCase
 
 EXTRA_HOST = "downloads.vendor.example"
@@ -92,6 +92,20 @@ class TestAdoptImport(AdoptCase):
         self.assertEqual(self.st.build(rec["verify_task"])["candidate"], rec["candidate"])
         self.assertIn("adopted %s" % intake_id, out)
         self.assertIn("candidate %s" % rec["candidate"], out)
+
+    def test_the_scenes_of_the_agent_are_committed_with_the_app(self):
+        intake_id = self.in_review(files=delivery(shots=SHOTS))
+        self.assertEqual(self.adopt(intake_id)[0], 0)
+        changed = git(self.cfg.content, "show", "--name-only", "--format=", "HEAD").split("\n")
+        self.assertIn("apps/newtool/shots.yaml", changed)
+        loaded = content.load(self.cfg.content, allow_insecure=True, policy=self.cfg.build_policy())
+        scenes = loaded.app("newtool").shots["scenes"]
+        self.assertEqual([s["id"] for s in scenes], ["main", "prefs"])
+
+    def test_without_scenes_nothing_is_committed_for_screenshots(self):
+        intake_id = self.in_review()
+        self.assertEqual(self.adopt(intake_id)[0], 0)
+        self.assertFalse(os.path.exists(self.path("apps", "newtool", "shots.yaml")))
 
     def test_auto_task_is_off_unless_asked_for(self):
         intake_id = self.in_review()

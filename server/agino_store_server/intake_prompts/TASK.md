@@ -30,7 +30,8 @@ Do, in this order:
 3. Write the recipe (`recipe.yaml`, recipe v2) that reproduces exactly what you did, and replay it from an
    empty directory until it passes (see "Replay" in CLAUDE.md).
 4. Write `app.yaml`, `upstream.yaml` (when the software has tagged releases in a git repository on an allowed
-   host) and `NOTES.md`, and copy everything to `/work/out/`.
+   host), `shots.yaml` (when it has a window; see "Screenshot scenes" in CLAUDE.md) and `NOTES.md`, and copy
+   everything to `/work/out/`.
 
 <!-- endif:import -->
 <!-- if:repair -->

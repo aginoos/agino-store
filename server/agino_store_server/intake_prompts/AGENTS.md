@@ -35,6 +35,7 @@ Put these files, and only these, in `/work/out/` (anything else is dropped):
 | `recipe.yaml` | the recipe (section 3). Always. |
 | `app.yaml` | the store entry (section 4). For an import. For a repair: a plain copy of `/work/inputs/current-app.yaml` (the runner requires the file, the server ignores it). |
 | `upstream.yaml` | how new versions are found (section 5). For an import with tagged git releases. |
+| `shots.yaml` | the store picture scenes (section 6a). For an import of a program with a window. Not for a repair. |
 | `vendor.yaml` | reserved; do not write it. |
 | `NOTES.md` | your evidence and the risks (section 7). Always. |
 | `<package>_<version>_amd64.deb` | the package you built and tested. One file. |
@@ -152,6 +153,38 @@ write `upstream.yaml`; the store id then comes from `package.name`.
 
 Also check by hand, before you deliver, that `apt-get remove --purge` leaves nothing behind in `/usr`, `/etc`
 and `/opt` that belongs to the package. A recipe whose `test` list is empty needs a good reason in `NOTES.md`.
+
+## 6a. Screenshot scenes (`shots.yaml`)
+
+For a program with a window, deliver `shots.yaml`: the store takes its store pictures from it later, in another VM
+(you deliver no pictures). It lists up to 6 scenes; each scene starts the application fresh (no profile, no files,
+no network) and may press a few keys or click before the picture of the application window is taken, once with a
+Chinese and once with an English interface.
+
+```yaml
+schema: 1
+window: {width: 1400, height: 900}        # optional; width 800..1900, height 600..1050
+scenes:                                   # 1..6, ids unique: ^[a-z0-9][a-z0-9-]{0,30}$
+  - id: main
+    caption: {zh_CN: 主窗口, en_US: Main window}      # both languages, one line, at most 80 characters
+  - id: preferences
+    caption: {zh_CN: 首选项, en_US: Preferences}
+    steps:                                # optional, at most 30; each step has exactly one of these keys
+      - wait: 2                           # seconds, 0 < x <= 20
+      - key: "ctrl+comma"                 # xdotool key names, ^[A-Za-z0-9_+]{1,40}$
+      - click: [200, 150]                 # pixels inside the window; optional third item left|right|middle
+      - type: "hello"                     # printable, one line; or {zh_CN: ..., en_US: ...}
+      - wait_window: {zh_CN: 首选项, en_US: Preferences}  # wait until a window with this title is there
+    capture: window
+```
+
+Rules: do not write `demo` or `promo` (the store has no demo files for a new application) and do not use paths
+under `~/Demo`. The first scene is the main window straight after the start, with no steps but a `wait`. Add
+further scenes only for screens you have really reached in this VM with the very steps you wrote: run the program
+under `xvfb-run`, send the same keys and clicks with `xdotool`, and check that the window is still there and no
+error dialog replaced it. A scene you could not verify must be left out; one good scene is better than six
+guesses. Captions are plain and factual (no marketing words), in both languages. A program without a window of
+its own (command line tool, background service) gets no `shots.yaml`; say so in `NOTES.md`.
 
 ## 7. Replay before you deliver (mandatory)
 

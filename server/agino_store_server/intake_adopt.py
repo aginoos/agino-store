@@ -55,6 +55,8 @@ def files_to_commit(cfg, rec, checked, auto_task):
     if rec["kind"] == "import":
         files["apps/%s/app.yaml" % app] = _dump(checked.app_data)
         files["apps/%s/icon.png" % app] = intake_delivery.placeholder_icon()
+        if checked.shots_data is not None:
+            files["apps/%s/shots.yaml" % app] = _dump(checked.shots_data)
         if checked.upstream_data is not None:
             files["upstreams/%s.yaml" % app] = _dump(dict(checked.upstream_data, auto_task=bool(auto_task)))
         elif auto_task:
