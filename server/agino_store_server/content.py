@@ -11,7 +11,7 @@ import ipaddress
 import os
 import re
 import stat
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
 import yaml
@@ -39,6 +39,9 @@ ICON_EXTS = (".svg", ".png", ".jpg", ".jpeg", ".webp")
 SCREENSHOT_EXTS = (".png", ".jpg", ".jpeg", ".webp")   # no SVG: build reads the pixel size
 SOURCES = ("system", "official", "personal")
 KINDS = ("milkyway", "deb")
+DISTRIBUTION_MODES = ("store", "vendor")
+MAX_PAGE_LEN = 2048
+PAGE_BAD_CHARS_RE = re.compile("[\\x00-\\x20\\x7f-\\x9f]")   # control characters and whitespace
 DEBCONF_TYPES = ("boolean", "string", "select")
 MAX_YAML_BYTES = 1 << 20
 MAX_ASSET_BYTES = 10 << 20
@@ -126,6 +129,7 @@ class App:
     promo: tuple = ()           # vendor promo images from shots.yaml (reviewed by hand, not built)
     description_source: str = DEFAULT_DESCRIPTION_SOURCE   # ai | confirmed | submitter | official
     description_confirmed: dict | None = None   # {by, at}; only with description_source confirmed
+    distribution: dict = field(default_factory=lambda: {"mode": "store"})   # {mode} or {mode, page, direct}
 
 
 @dataclass(frozen=True)
@@ -563,6 +567,65 @@ def _app_fields(chk, where, data, app_dir):
     }
 
 
+def check_distribution(chk, path, value):
+    """The normalized distribution mapping, or None after recording the problems (docs/server.md section 3).
+
+    store: {"mode": "store"}; vendor: {"mode": "vendor", "page": <https URL>, "direct": bool}. Only the
+    format is checked here; which apps may use vendor is decided by _distribution below."""
+    if not chk.mapping(path, value, ("mode",), ("page", "direct")):
+        return None
+    mode = value["mode"]
+    if mode not in DISTRIBUTION_MODES:
+        chk.fail(path + ".mode", "must be one of %s" % ", ".join(DISTRIBUTION_MODES))
+        return None
+    if mode == "store":
+        extra = [k for k in ("page", "direct") if k in value]
+        for key in extra:
+            chk.fail(path + "." + key, "not allowed with mode store")
+        return None if extra else {"mode": "store"}
+    page = _download_page(chk, path + ".page", value["page"]) if "page" in value else None
+    if "page" not in value:
+        chk.fail(path, "missing key 'page' (required with mode vendor)")
+    direct = chk.boolean(path + ".direct", value["direct"]) if "direct" in value else False
+    return {"mode": "vendor", "page": page, "direct": direct} if page is not None and direct is not None else None
+
+
+def _download_page(chk, path, value):
+    """An https URL of at most 2048 characters without credentials, whitespace or control characters."""
+    text = chk.string(path, value, max_len=MAX_PAGE_LEN)
+    if text is None:
+        return None
+    if PAGE_BAD_CHARS_RE.search(text):
+        chk.fail(path, "must not contain whitespace or control characters")
+        return None
+    try:
+        parts = urlsplit(text)
+        host, _port = parts.hostname, parts.port
+    except ValueError:
+        chk.fail(path, "must be an https URL without credentials")
+        return None
+    if parts.scheme != "https" or not host or parts.username is not None or parts.password is not None:
+        chk.fail(path, "must be an https URL without credentials")
+        return None
+    return text
+
+
+def _distribution(chk, where, data, package, recipe):
+    """distribution of app.yaml, completed (mode store without the key); vendor needs a vendor deb."""
+    if "distribution" not in data:
+        return {"mode": "store"}
+    path = where + ".distribution"
+    dist = check_distribution(chk, path, data["distribution"])
+    if dist is None:
+        return {"mode": "store"}
+    if dist["mode"] == "vendor":
+        if recipe is not None:
+            chk.fail(path + ".mode", "an app built from source must use mode store")
+        elif package is not None and package[0] != "deb":
+            chk.fail(path + ".mode", "mode vendor needs package kind deb")
+    return dist
+
+
 def _app_package(chk, where, data, vendors, recipe=None):
     pkg = data["package"]
     if not chk.mapping(where + ".package", pkg, ("kind", "name"), ("vendor",)):
@@ -642,7 +705,8 @@ def _app(chk, root, app_id, vendors, category_ids, demo_names=frozenset(), recip
     required = ("name", "summary", "description", "categories", "source", "license",
                 "developer", "icon", "package")
     optional = ("proprietary", "homepage", "maintainer", "launchable", "screenshots",
-                "install_profile", "release_notes", "l10n", "description_source", "description_confirmed")
+                "install_profile", "release_notes", "l10n", "description_source", "description_confirmed",
+                "distribution")
     before = len(chk.errors)
     # Unknown keys are reported but do not stop the remaining checks; missing ones do.
     if data is None or (not chk.mapping(rel, data, required, optional)
@@ -655,12 +719,13 @@ def _app(chk, root, app_id, vendors, category_ids, demo_names=frozenset(), recip
             chk.fail("%s.categories[%d]" % (rel, i), "unknown category %r" % cat)
     if data["source"] == "personal" and not fields["maintainer"]:
         chk.fail(rel + ".maintainer", "required for source personal")
+    distribution = _distribution(chk, rel, data, package, recipe)
     l10n = _l10n(chk, rel + ".l10n", data.get("l10n"), package[0] if package else None)
     app_shots, promo = _shots(chk, root, app_id, app_dir, demo_names)
     if len(chk.errors) != before or package is None:
         return None
     return App(id=app_id, dir=app_dir, source=data["source"], kind=package[0],
-               package=package[1], vendor=package[2], l10n=l10n, shots=app_shots, promo=promo, **fields)
+               package=package[1], vendor=package[2], distribution=distribution, l10n=l10n, shots=app_shots, promo=promo, **fields)
 
 
 # vendors/<id>.yaml
