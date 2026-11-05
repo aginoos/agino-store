@@ -24,7 +24,8 @@ DEFAULT_CLAUDE_ENV = (
     "ANTHROPIC_DEFAULT_OPUS_MODEL=%(m)s DISABLE_AUTOUPDATER=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 "
     "DISABLE_TELEMETRY=1") % {"b": BRIDGE, "k": PLACEHOLDER_KEY, "m": PLACEHOLDER_MODEL}
 
-# Codex CLI. UNVERIFIED: CODEX_HOME, OPENAI_API_KEY and the config.toml keys below.
+# Codex CLI. Verified 2026-11-05 with codex-cli 0.166.0 (a full import of Ristretto): CODEX_HOME, OPENAI_API_KEY and
+# the config.toml keys below work.
 CODEX_HOME = "/home/builder/.codex"
 DEFAULT_CODEX_ENV = "CODEX_HOME=%s OPENAI_API_KEY=%s" % (CODEX_HOME, PLACEHOLDER_KEY)
 DEFAULT_CODEX_TOML = """model = "%(m)s"

@@ -255,9 +255,9 @@ agino-store-sandbox [--config …] build-run [--once]
 |---|---|---|
 | Claude 环境变量 | `ANTHROPIC_BASE_URL=http://10.231.0.1:8490/anthropic`、`ANTHROPIC_API_KEY=agino-placeholder`、`ANTHROPIC_MODEL`/`ANTHROPIC_SMALL_FAST_MODEL`/`ANTHROPIC_DEFAULT_{HAIKU,SONNET,OPUS}_MODEL=agino`、`DISABLE_AUTOUPDATER=1`、`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`、`DISABLE_TELEMETRY=1` | 待实机核对（哪些小模型变量在 2.1.318 里有效） |
 | Claude 命令行 | `claude --bare -p "$(cat /work/TASK.md)" --output-format stream-json --verbose --permission-mode bypassPermissions` | 待实机核对（`--bare`、权限开关、`api_retry` 事件的字段名 `error_status`） |
-| Codex 环境变量 | `CODEX_HOME=/home/builder/.codex`、`OPENAI_API_KEY=agino-placeholder` | 待实机核对 |
-| Codex `config.toml` | `model = "agino"`、`model_provider = "agino"`、`[model_providers.agino]`：`base_url = "http://10.231.0.1:8490/openai/v1"`、`wire_api = "responses"`、`env_key = "OPENAI_API_KEY"` | 待实机核对 |
-| Codex 命令行 | `codex exec --json --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check "$(cat /work/TASK.md)"` | 待实机核对；Codex 的模型错误事件格式没有解析，只靠 `proxy_paused` 标记识别 `model` |
+| Codex 环境变量 | `CODEX_HOME=/home/builder/.codex`、`OPENAI_API_KEY=agino-placeholder` | 已核对（2026-11-05，codex-cli 0.166.0，Ristretto 实跑）：经桥地址的模型代理能正常调用 |
+| Codex `config.toml` | `model = "agino"`、`model_provider = "agino"`、`[model_providers.agino]`：`base_url = "http://10.231.0.1:8490/openai/v1"`、`wire_api = "responses"`、`env_key = "OPENAI_API_KEY"` | 已核对（同上）。启动时会打一条无害警告 "Model metadata for `agino` not found"（模型名是占位名，代理改写成真实名） |
+| Codex 命令行 | `codex exec --json --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check "$(cat /work/TASK.md)"` | 已核对：`--json`、`--skip-git-repo-check` 可用，事件流（`item.started/completed`、`reasoning`、`command_execution`、`web_search`）能被日志摘要。Codex 的模型错误事件格式没有解析，只靠 `proxy_paused` 标记识别 `model` |
 | 代理变量 | `HTTPS_PROXY`/`HTTP_PROXY`（及小写）`=http://10.231.0.1:3128`，`NO_PROXY`/`no_proxy=10.231.0.1,localhost,127.0.0.1` | 待实机核对：`apt` 会读 `http_proxy`，要确认它仍走镜像里配好的 apt 代理（3142），否则在 `99agino-build` 里加 `Acquire::http::Proxy "DIRECT";` 之类 |
 
 **配置覆盖**：`ai_env`/`ai_claude_env`/`ai_codex_env` 是空格分隔的 `NAME=value`（值里不许有空白、引号、`$`、反引号、反斜杠）；`ai_claude_cmd`/`ai_codex_cmd` 是一行（≤ 1000 字符）shell 片段；`ai_codex_toml` 是多行文本（≤ 4096 字符，配置文件里续行缩进）。
