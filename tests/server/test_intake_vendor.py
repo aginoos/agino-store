@@ -413,13 +413,19 @@ class TestRecipePathAndDistribution(AdoptCase):
         self.assertEqual(self.adopt(intake_id)[0], 0)
         self.assertNotIn("distribution", slurp(self.path("apps", "newtool", "app.yaml")).decode("utf-8"))
 
-    @unittest.skipUnless(DISTRIBUTION, "content.load does not know `distribution` yet")
-    def test_the_administrators_choice_is_written(self):
+    def test_a_recipe_app_cannot_be_sent_to_the_vendors_page(self):
+        # The store builds the deb of a recipe itself; the vendor's page has another file. Refused before any commit.
         intake_id = self.in_review(files=delivery(app=dict(APP, proprietary=True, license="LicenseRef-proprietary")))
+        before = self.head()
         code, _, err = self.adopt(intake_id, "--distribution", "vendor", "--download-page", "https://vendor.example.com/dl")
+        self.assertEqual((code, self.head(), self.istatus(intake_id)), (1, before, "review"))
+        self.assertIn("built from a recipe", err)
+
+    def test_a_proprietary_recipe_app_is_adopted_with_an_explicit_store_choice(self):
+        intake_id = self.in_review(files=delivery(app=dict(APP, proprietary=True, license="LicenseRef-proprietary")))
+        code, _, err = self.adopt(intake_id, "--distribution", "store")
         self.assertEqual(code, 0, err)
-        self.assertEqual(self.yaml("apps", "newtool", "app.yaml")["distribution"],
-                         {"mode": "vendor", "page": "https://vendor.example.com/dl", "direct": False})
+        self.assertEqual(self.yaml("apps", "newtool", "app.yaml")["distribution"], {"mode": "store"})   # the choice is on record
 
 
 if __name__ == "__main__":

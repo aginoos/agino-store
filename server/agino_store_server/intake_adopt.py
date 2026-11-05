@@ -89,10 +89,19 @@ def distribution_value(mode, page, direct):
 
 def _require_distribution(checked, rec, dist):
     """A proprietary application is never published by accident: the administrator has to choose."""
+    if not checked.is_vendor and dist is not None and dist["mode"] == "vendor":
+        # The store builds this deb itself from the recipe: what the vendor's page offers is another file than the one
+        # that was tested, so sending the user there makes no sense. (content.load refuses it too, after the commit.)
+        raise IntakeError("%s is built from a recipe by the store: --distribution vendor does not apply (the user would "
+                          "download a different file from the vendor). Use --distribution store, or import the "
+                          "vendor's own deb through the vendor path (vendor.yaml)" % checked.app_id)
     if (checked.app_data or {}).get("proprietary") is True and dist is None:
-        raise IntakeError("%s is proprietary software: say how it is published with --distribution store (the store "
-                          "hosts the deb) or --distribution vendor --download-page URL [--direct] (the user "
-                          "downloads it from the vendor)" % checked.app_id)
+        if checked.is_vendor:
+            raise IntakeError("%s is proprietary software: say how it is published with --distribution store (the "
+                              "store hosts the deb) or --distribution vendor --download-page URL [--direct] (the user "
+                              "downloads it from the vendor)" % checked.app_id)
+        raise IntakeError("%s is proprietary software built from a recipe: confirm with --distribution store that the "
+                          "store may host the deb it builds" % checked.app_id)
 
 
 def _page_note(cfg, checked, rec, dist):

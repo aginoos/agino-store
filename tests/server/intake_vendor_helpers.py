@@ -16,7 +16,7 @@ PACKAGE = "demo-app"
 
 def app_yaml(**changes):
     """The app.yaml an agent delivers for the vendor's deb (the server sets package, icon, maintainer)."""
-    return dict(copy.deepcopy(APP), package={"kind": "deb", "name": PACKAGE}, **changes)
+    return dict(copy.deepcopy(APP), **dict({"package": {"kind": "deb", "name": PACKAGE}}, **changes))
 
 
 def vendor_yaml(base, **changes):
