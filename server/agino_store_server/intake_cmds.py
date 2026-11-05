@@ -44,7 +44,9 @@ def cmd_repair(cfg, st, args):
 
 def cmd_adopt(cfg, st, args):
     with st.lock():
-        lines, ok = intake_adopt.adopt(cfg, st, args.id, args.by, auto_task=args.auto_task)
+        lines, ok = intake_adopt.adopt(cfg, st, args.id, args.by, auto_task=args.auto_task,
+                                       distribution=args.distribution, download_page=args.download_page,
+                                       direct=args.direct)
     kick.kick(cfg, "build")   # a repair requests a build
     kick.kick(cfg, "queue")   # an import makes a candidate that wants its sandbox check
     for line in lines:
