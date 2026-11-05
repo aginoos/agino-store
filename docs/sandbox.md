@@ -241,12 +241,12 @@ agino-store-sandbox [--config …] build-run [--once]
 
 **启动**：`runuser -u builder -- env -i <最小环境> <代理变量> <所选代理变量> /opt/agino-build/ai-run.sh <日志> <秒数> <命令片段>`；`ai-run.sh` 在 `/work` 里 `exec timeout -k 10 <秒数> /bin/sh -c <命令片段>`（`timeout` 给整个进程组发 TERM，10 秒后 KILL）。命令片段来自 `[builder]` 的 `ai_claude_cmd` / `ai_codex_cmd`，作为**单个 argv 元素**传，宿主机不拼 shell。输出写客户机的 `/home/builder/logs/agent.log`，宿主机每 2 秒按偏移读新内容，按行解析：每个 JSON 事件只往 `build.log` 写一行摘要（事件类型 + ≤ 300 字符的文本；`tool_use` 只写工具名和 `command/file_path/path/url/pattern` 的前 120 字符；`thinking` 只写类型；请求体、其余字段一律不写），不是 JSON 的行写成 `text: …`；去控制字符；超长行（> 1 MiB）丢弃。`build.log` 达到 `max_log_mib` 后摘要停止，但流继续读（失败分类要用）。
 
-**结束与分类**：CLI 退出后先 `kill -KILL -1`（以 `builder` 身份，两次，各隔 1 秒），再列 `/work/out`（`find -maxdepth 1 -type f -printf '%s\t%f\0'`，符号链接和目录不会出现）。宿主机只认白名单名字：`recipe.yaml app.yaml upstream.yaml vendor.yaml NOTES.md`（各 ≤ 256 KiB，非空，不含 NUL）和**一个** `^[a-z0-9][a-z0-9+.~_-]{0,150}\.deb$`（≤ `max_artifact_mib`，首块必须是 `!<arch>\n`；多于一个时按名字排序取第一个，其余记日志），其余名字、重复记录、坏记录一律丢弃；大小先看列表再读，读时只读列表里的字节数；每个文件写 `out/<id>/ai/<名字>`（0640，目录 0750，超限/坏文件跳过并记日志，其余照取，`out/<id>/` 的 7 天清理会连 `ai/` 一起删）。判定顺序：
+**结束与分类**：CLI 退出后先 `kill -KILL -1`（以 `builder` 身份，两次，各隔 1 秒），再列 `/work/out`（`find -maxdepth 1 -type f -printf '%s\t%f\0'`，符号链接和目录不会出现）。宿主机只认白名单名字：`recipe.yaml app.yaml upstream.yaml vendor.yaml shots.yaml NOTES.md`（`vendor.yaml` 是厂商路径的追踪文件，各 ≤ 256 KiB，非空，不含 NUL）和**一个** `^[a-z0-9][a-z0-9+.~_-]{0,150}\.deb$`（≤ `max_artifact_mib`，首块必须是 `!<arch>\n`；多于一个时按名字排序取第一个，其余记日志），其余名字、重复记录、坏记录一律丢弃；大小先看列表再读，读时只读列表里的字节数；每个文件写 `out/<id>/ai/<名字>`（0640，目录 0750，超限/坏文件跳过并记日志，其余照取，`out/<id>/` 的 7 天清理会连 `ai/` 一起删）。判定顺序：
 
 1. 超时（退出码 124，或 137 且已跑满 `ai.minutes`，或宿主机兜底到期）→ `class=timeout`，`state=failed`；
 2. 退出码非 0 且流里最后看到的模型信号仍是错误 → `class=model`。信号 = `system/api_retry` 事件的 `error_status` 为 401、402、429 或 5xx，或任意输出行含 `proxy_paused`；之后出现 `assistant` 事件就清掉信号（模型又答了）；
-3. 交付了 `recipe.yaml` **和** `app.yaml` → `ok`（与退出码无关），`state=done`；
-4. 否则 `class=recipe`（`<agent> exited with code N and left no …`）。
+3. 交付了（`recipe.yaml` **或** `vendor.yaml` 其一）**和** `app.yaml` → `ok`（与退出码无关），`state=done`。配方路径交 `recipe.yaml`（重打包），厂商路径交 `vendor.yaml` 加厂商原样的 deb（不重打包、没有重放）；两个都交时运行器不判错，由服务端的交付校验退回 AI。收取端（`build_collect._ai_outcome`）同样只要求其一，否则报 `the agent delivered no recipe.yaml and no vendor.yaml`；
+4. 否则 `class=recipe`（`<agent> exited with code N and left no …`，缺什么列什么：两个都没有时是 `left no recipe.yaml and no vendor.yaml`，缺 `app.yaml` 时再加 `and no app.yaml`）。deb 白名单（至多一个 `*.deb`）不变。
 取消、运行器停止、虚拟机/qga/磁盘问题 → `class=infra`。`result.json` 的 `files` 是已取回的文件名（失败时也尽量取回，供管理员查看），`artifacts` 为空，`steps` 有一项 `{n:1, cmd:<agent>, exit, seconds}`。
 
 **核对结果（待实机核对，主 agent 填写）**——下面的名字全部来自契约，运行器代码没有任何一个是核对过的；它们都放在 `config.py` 可覆盖的默认值（`build_ai_conf.py`）里，核对后只需要改配置或默认值：
