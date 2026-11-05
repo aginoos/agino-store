@@ -108,12 +108,21 @@ class BuildDaemon:
         directory = self.bcfg.kick
         if not directory or not os.path.isdir(directory):
             return
+        path = os.path.join(directory, "build")
         try:
-            fd = os.open(os.path.join(directory, "build"), os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o660)
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o660)
             try:
+                try:
+                    os.fchmod(fd, 0o660)    # the umask may have taken the group's write bit
+                except OSError:
+                    pass
                 os.write(fd, b"1")
             finally:
                 os.close(fd)
+        except PermissionError:
+            if os.path.isfile(path) and not os.path.islink(path):
+                return                      # a kick of the server is still pending: nothing to add
+            log("cannot kick the server: permission denied (its timer will collect the result)")
         except OSError as e:
             log("cannot kick the server: %s (its timer will collect the result)" % e.strerror)
 

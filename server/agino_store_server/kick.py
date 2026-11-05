@@ -3,8 +3,8 @@
 
 The AI intake and the build tasks pass through several stages (intake-step, build-step, the VM runner), each one
 started by its own once-a-minute timer, so every hand-over used to cost up to a minute. A stage that has done
-something writes a byte into a file of the kick directory; a systemd path unit watches that file and starts the
-next stage at once. The timers stay as the fallback: a kick that is lost (the next stage was busy, the directory
+something creates a file in the kick directory; a systemd path unit (PathExists, level-triggered: a kick that
+arrives while the next stage is running is not lost) starts the next stage, which removes the file when it starts. The timers stay as the fallback: a kick that is lost (the next stage was busy, the directory
 is missing) only makes the hand-over as slow as it was before.
 
 Names: "build" (build-step: fetch sources, collect results), "intake" (intake-step), "queue" (reports-ingest and
@@ -12,6 +12,7 @@ sandbox-queue: a candidate wants its sandbox check, or a report is waiting) and 
 queue has a new job).
 """
 
+import contextlib
 import os
 import sys
 
@@ -23,11 +24,18 @@ def kick(cfg, name):
     directory = getattr(cfg, "kick_dir", None)
     if not directory or name not in NAMES or not os.path.isdir(directory):
         return
+    path = os.path.join(directory, name)
     try:
-        fd = os.open(os.path.join(directory, name), os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o660)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o660)
         try:
+            with contextlib.suppress(OSError):
+                os.fchmod(fd, 0o660)    # the umask may have taken the group's write bit: the other user must reuse it
             os.write(fd, b"1")
         finally:
             os.close(fd)
+    except PermissionError:
+        if os.path.isfile(path) and not os.path.islink(path):
+            return                      # a kick of the other user is still pending: nothing to add
+        print("warning: cannot kick %s: permission denied (the timer will do it)" % name, file=sys.stderr)
     except OSError as e:
         print("warning: cannot kick %s: %s (the timer will do it)" % (name, e.strerror), file=sys.stderr)

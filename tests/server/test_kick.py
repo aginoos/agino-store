@@ -39,6 +39,25 @@ class TestKickFile(unittest.TestCase):
         kick.kick(self.cfg(self.tmp.name), "other")
         self.assertEqual(os.listdir(self.tmp.name), [])
 
+    def test_a_file_the_other_user_made_and_we_cannot_write_counts_as_pending(self):
+        path = os.path.join(self.tmp.name, "build")
+        with open(path, "w") as f:
+            f.write("1")
+        os.chmod(path, 0o444)
+        if os.geteuid() == 0:
+            self.skipTest("root ignores the file mode")
+        kick.kick(self.cfg(self.tmp.name), "build")        # no warning, no exception, file untouched
+        with open(path) as f:
+            self.assertEqual(f.read(), "1")
+
+    def test_the_file_is_group_writable_whatever_the_umask(self):
+        old = os.umask(0o077)
+        try:
+            kick.kick(self.cfg(self.tmp.name), "build")
+        finally:
+            os.umask(old)
+        self.assertEqual(os.stat(os.path.join(self.tmp.name, "build")).st_mode & 0o777, 0o660)
+
     def test_a_symlink_in_place_of_the_file_is_not_followed(self):
         target = os.path.join(self.tmp.name, "target")
         os.symlink(target, os.path.join(self.tmp.name, "build"))
