@@ -36,6 +36,7 @@ Put these files, and only these, in `/work/out/` (anything else is dropped):
 | `app.yaml` | the store entry (section 4). For an import. For a repair: a plain copy of `/work/inputs/current-app.yaml` (the runner requires the file, the server ignores it). |
 | `upstream.yaml` | how new versions are found (section 5). For an import with tagged git releases. |
 | `shots.yaml` | the store picture scenes (section 6a). For an import of a program with a window. Not for a repair. |
+| `demo.tar` | the demo data of those scenes (section 6a), only when the program needs a file to show something. At most 4 MiB. |
 | `vendor.yaml` | reserved; do not write it. |
 | `NOTES.md` | your evidence and the risks (section 7). Always. |
 | `<package>_<version>_amd64.deb` | the package you built and tested. One file. |
@@ -178,13 +179,34 @@ scenes:                                   # 1..6, ids unique: ^[a-z0-9][a-z0-9-]
     capture: window
 ```
 
-Rules: do not write `demo` or `promo` (the store has no demo files for a new application) and do not use paths
-under `~/Demo`. The first scene is the main window straight after the start, with no steps but a `wait`. Add
-further scenes only for screens you have really reached in this VM with the very steps you wrote: run the program
-under `xvfb-run`, send the same keys and clicks with `xdotool`, and check that the window is still there and no
-error dialog replaced it. A scene you could not verify must be left out; one good scene is better than six
-guesses. Captions are plain and factual (no marketing words), in both languages. A program without a window of
-its own (command line tool, background service) gets no `shots.yaml`; say so in `NOTES.md`.
+A window with nothing open in it is a bad store picture. If the program shows its content only after a file is
+opened (an image viewer, an editor, a player, a document or archive tool), give it something to show:
+
+1. Make a small demo tree of your own, a few KiB: a generated picture, a short text, a tiny sample document, never
+   anything copied from elsewhere that you may not redistribute. Put it in a directory named after the store id
+   (`<store id>` or `<store id>-<name>`, lower case, digits and dashes), for example `/work/demo/gpicview/`.
+2. Pack it as `/work/out/demo.tar` (`tar -cf /work/out/demo.tar -C /work/demo gpicview`). Only directories and
+   regular files, no links; at most 4 MiB in all and 5 MiB per file.
+3. In the scene, list the tree in `demo: [gpicview]` and open the file with `args: ["~/Demo/gpicview/photo.png"]`
+   (the sandbox copies the tree to `~/Demo/<tree>/` before the scene; `{lang}` in an argument becomes the language).
+
+Test it the way the sandbox will: copy the tree to `~/Demo/<tree>/`, start the program with those args under
+`xvfb-run` and take a picture of the screen (`xwd` and ImageMagick are installed):
+
+    xvfb-run -a -s "-screen 0 1400x900x24" sh -c 'app ~/Demo/tree/file & sleep 5; xwd -root -silent | convert xwd:- /tmp/shot.png'
+    convert /tmp/shot.png -format %c histogram:info:- | sort -rn | head -3     # pixel count of the most common colours
+
+If you can read images, look at `/tmp/shot.png`. Either way, the most common colour must be well below 95% of all
+pixels (1400x900 = 1,260,000), or the window is practically empty and the sandbox will flag the picture. A program
+that needs no file does not need `demo.tar`.
+
+Rules: do not write `promo`. Do not use `~/Demo` paths outside the trees of your `demo.tar`. The first scene is
+the main window straight after the start (with the demo file open when the program needs one), with no steps but a
+`wait`. Add further scenes only for screens you have really reached in this VM with the very steps you wrote: run
+the program under `xvfb-run`, send the same keys and clicks with `xdotool`, and check that the window is still
+there and no error dialog replaced it. A scene you could not verify must be left out; one good scene is better
+than six guesses. Captions are plain and factual (no marketing words), in both languages. A program without a
+window of its own (command line tool, background service) gets no `shots.yaml`; say so in `NOTES.md`.
 
 ## 7. Replay before you deliver (mandatory)
 

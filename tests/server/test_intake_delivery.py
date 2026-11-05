@@ -2,7 +2,9 @@
 """Validation of what an AI task delivered (intake_delivery)."""
 
 import copy
+import io
 import os
+import tarfile
 import unittest
 
 import yaml
@@ -115,13 +117,15 @@ class TestShotsOfAnImport(DeliveryCase):
         checked = self.check(delivery(shots=SHOTS))
         self.assertEqual([s["id"] for s in checked.shots_data["scenes"]], ["main", "prefs"])
 
-    def test_demo_trees_and_promo_images_are_not_for_the_agent(self):
-        scene = dict(SHOTS["scenes"][0], demo=["sample"])
-        self.assertError(delivery(shots=dict(SHOTS, scenes=[scene])), "scenes[0].demo is not allowed")
+    def test_promo_images_are_not_for_the_agent(self):
         promo = dict(SHOTS, promo=[{"image": "promo/zh_CN/1.png", "lang": "zh_CN", "source": "x", "license": "y"}])
         self.assertError(delivery(shots=promo), "`promo` is not allowed")
+
+    def test_demo_trees_and_args_need_the_agents_own_demo_tar(self):
+        scene = dict(SHOTS["scenes"][0], demo=["sample"])
+        self.assertError(delivery(shots=dict(SHOTS, scenes=[scene])), "is not in your demo.tar")
         scene = dict(SHOTS["scenes"][0], args=["~/Demo/x"])
-        self.assertError(delivery(shots=dict(SHOTS, scenes=[scene])), "must not point into ~/Demo")
+        self.assertError(delivery(shots=dict(SHOTS, scenes=[scene])), "outside your demo trees")
 
     def test_a_scene_the_schema_refuses_goes_back_to_the_agent(self):
         bad = dict(SHOTS, scenes=[dict(SHOTS["scenes"][0], id="Not Valid")])
@@ -143,6 +147,94 @@ class TestShotsOfAnImport(DeliveryCase):
         self.seed_seen()
         checked = D.validate(self.cfg, self.st, self.loaded, self.record("repair"), files)
         self.assertIsNone(checked.shots_data)
+
+
+def demo_tar(members):
+    """A tar from [(name, bytes | None for a directory | ("link", target) | ("fifo",))]."""
+    out = io.BytesIO()
+    with tarfile.open(fileobj=out, mode="w") as tar:
+        for name, body in members:
+            info = tarfile.TarInfo(name)
+            if body is None:
+                info.type = tarfile.DIRTYPE
+                tar.addfile(info)
+            elif isinstance(body, tuple) and body[0] == "link":
+                info.type, info.linkname = tarfile.SYMTYPE, body[1]
+                tar.addfile(info)
+            elif isinstance(body, tuple):
+                info.type = tarfile.FIFOTYPE
+                tar.addfile(info)
+            else:
+                info.size = len(body)
+                tar.addfile(info, io.BytesIO(body))
+    return out.getvalue()
+
+
+DEMO_SCENE = {"id": "main", "caption": {"zh_CN": "主窗口", "en_US": "Main window"}, "demo": ["newtool"],
+              "args": ["~/Demo/newtool/photo.png"], "steps": [{"wait": 3}]}
+DEMO_SHOTS = {"schema": 1, "scenes": [DEMO_SCENE]}
+GOOD_TAR = demo_tar([("newtool", None), ("newtool/photo.png", b"\x89PNG-fake"), ("newtool/sub", None),
+                     ("newtool/sub/note.txt", b"hello\n")])
+
+
+class TestDemoTarOfAnImport(DeliveryCase):
+    def files(self, tar=GOOD_TAR, shots=DEMO_SHOTS):
+        return dict(delivery(shots=shots), **{"demo.tar": tar})
+
+    def test_a_good_demo_tree_is_checked_and_kept(self):
+        checked = self.check(self.files())
+        self.assertEqual(sorted(checked.demo_files), ["demo/newtool/photo.png", "demo/newtool/sub/note.txt"])
+        self.assertEqual(checked.demo_files["demo/newtool/sub/note.txt"], b"hello\n")
+        self.assertEqual(checked.shots_data["scenes"][0]["demo"], ["newtool"])
+
+    def test_the_tree_may_carry_a_suffix(self):
+        tar = demo_tar([("newtool-images", None), ("newtool-images/a.png", b"x")])
+        scene = dict(DEMO_SCENE, demo=["newtool-images"], args=["~/Demo/newtool-images/a.png"])
+        checked = self.check(self.files(tar, dict(DEMO_SHOTS, scenes=[scene])))
+        self.assertEqual(list(checked.demo_files), ["demo/newtool-images/a.png"])
+
+    def test_without_demo_tar_nothing_changes(self):
+        self.assertIsNone(self.check(delivery(shots=SHOTS)).demo_files)
+
+    def test_demo_tar_without_shots_yaml_is_refused(self):
+        self.assertError(dict(delivery(), **{"demo.tar": GOOD_TAR}), "only used by the scenes of shots.yaml")
+
+    def test_a_tree_named_after_something_else_is_refused(self):
+        tar = demo_tar([("other", None), ("other/a.png", b"x")])
+        self.assertError(self.files(tar), "must be named like newtool")
+
+    def test_a_tree_that_already_exists_in_the_store_is_refused(self):
+        os.makedirs(os.path.join(self.cfg.content, "demo", "newtool"))
+        H.write(os.path.join(self.cfg.content, "demo", "newtool", "x"), b"x")
+        self.loaded = content.load(self.cfg.content, allow_insecure=True, policy=self.cfg.build_policy())
+        self.assertError(self.files(), "already exists in store-content")
+
+    def test_links_devices_and_escaping_names_are_refused(self):
+        for body, needle in ((("link", "/etc/passwd"), "not a regular file"), (("fifo",), "not a regular file")):
+            tar = demo_tar([("newtool", None), ("newtool/x", body)])
+            self.assertError(self.files(tar), needle)
+        for name in ("newtool/../../etc/x", "/etc/x", "newtool//x", "newtool/./../x"):
+            tar = demo_tar([("newtool", None), (name, b"x")])
+            self.assertError(self.files(tar), "demo.tar")
+
+    def test_a_file_directly_at_the_top_is_refused(self):
+        self.assertError(self.files(demo_tar([("newtool", b"x")])), "must be a directory")
+
+    def test_size_and_shape_limits(self):
+        big = demo_tar([("newtool", None), ("newtool/big", b"x" * ((5 << 20) + 1))])
+        self.assertError(self.files(big), "larger than 5 MiB")
+        many = demo_tar([("newtool", None)] + [("newtool/f%d" % i, b"x") for i in range(5001)])
+        self.assertError(self.files(many), "more than 5000 entries")
+        deep = demo_tar([("newtool", None), ("newtool/" + "/".join("d" * 1 for _ in range(20)) + "/f", b"x")])
+        self.assertError(self.files(deep), "unusable member name")
+
+    def test_not_a_tar_and_an_empty_tar(self):
+        self.assertError(self.files(b"this is not a tar archive" * 50), "demo.tar")
+        self.assertError(self.files(demo_tar([("newtool", None)])), "contains no files")
+
+    def test_a_demo_name_that_is_not_in_the_tar_is_refused(self):
+        scene = dict(DEMO_SCENE, demo=["newtool", "ghost"])
+        self.assertError(self.files(shots=dict(DEMO_SHOTS, scenes=[scene])), "'ghost' is not in your demo.tar")
 
 
 class TestRefusedImport(DeliveryCase):

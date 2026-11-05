@@ -102,6 +102,31 @@ class TestAdoptImport(AdoptCase):
         scenes = loaded.app("newtool").shots["scenes"]
         self.assertEqual([s["id"] for s in scenes], ["main", "prefs"])
 
+    def test_the_demo_tree_is_committed_and_the_content_stays_valid(self):
+        import io
+        import tarfile
+        out = io.BytesIO()
+        with tarfile.open(fileobj=out, mode="w") as tar:
+            for name, body in (("newtool", None), ("newtool/photo.png", b"\x89PNG-fake")):
+                info = tarfile.TarInfo(name)
+                if body is None:
+                    info.type = tarfile.DIRTYPE
+                    tar.addfile(info)
+                else:
+                    info.size = len(body)
+                    tar.addfile(info, io.BytesIO(body))
+        scene = {"id": "main", "caption": {"zh_CN": "主窗口", "en_US": "Main window"}, "demo": ["newtool"],
+                 "args": ["~/Demo/newtool/photo.png"], "steps": [{"wait": 3}]}
+        files = dict(delivery(shots={"schema": 1, "scenes": [scene]}), **{"demo.tar": out.getvalue()})
+        intake_id = self.in_review(files=files)
+        self.assertEqual(self.adopt(intake_id)[0], 0)
+        changed = git(self.cfg.content, "show", "--name-only", "--format=", "HEAD").split("\n")
+        self.assertIn("demo/newtool/photo.png", changed)
+        self.assertEqual(slurp(self.path("demo", "newtool", "photo.png")), b"\x89PNG-fake")
+        loaded = content.load(self.cfg.content, allow_insecure=True, policy=self.cfg.build_policy())
+        self.assertEqual(loaded.app("newtool").shots["scenes"][0]["demo"], ["newtool"])
+        self.assertEqual(self.clean(), "")
+
     def test_without_scenes_nothing_is_committed_for_screenshots(self):
         intake_id = self.in_review()
         self.assertEqual(self.adopt(intake_id)[0], 0)

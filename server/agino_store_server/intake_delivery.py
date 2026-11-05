@@ -10,21 +10,25 @@ keys): whatever the agent wrote there is replaced.
 """
 
 import dataclasses
+import io
 import os
 import re
 import shutil
 import struct
+import tarfile
 import tempfile
 import zlib
 
 import yaml
 
-from . import buildcfg, build_collect, builds, content, content_builds, debinfo, upstream_fetch, upstream_tags, upstreams
+from . import buildcfg, build_collect, builds, content, content_builds, debinfo, demo, upstream_fetch, upstream_tags, upstreams
 from .intake_materials import clean_block
 
 DELIVERY_DIR = "delivery"
 TEXT_FILES = ("recipe.yaml", "app.yaml", "upstream.yaml", "shots.yaml", "NOTES.md")
 MAX_TEXT = build_collect.AI_MAX_TEXT_BYTES
+DEMO_TAR = build_collect.AI_DEMO_TAR
+MAX_DEMO_TAR = build_collect.AI_MAX_DEMO_BYTES
 MAX_YAML_EVENTS = 50_000
 MAINTAINER = {"name": "agino app store", "contact": "store@aginoos.com"}
 APP_DROP = ("icon", "screenshots", "maintainer", "description_source", "description_confirmed")
@@ -52,7 +56,8 @@ class Checked:
     tag: str | None
     commit: str | None
     repo: str | None
-    shots_data: dict | None = None   # an import's shots.yaml (scenes without demo trees or promo images)
+    shots_data: dict | None = None   # an import's shots.yaml (scenes; no promo images)
+    demo_files: dict | None = None   # {"demo/<tree>/<path>": bytes} from the agent's demo.tar, checked member by member
 
 
 # Reading
@@ -80,6 +85,10 @@ def read_delivery(cfg, st, intake_id, ai_record):
             data = _read(os.path.join(directory, name), MAX_TEXT)
             if data is not None:
                 files[name] = data
+        elif name == DEMO_TAR:
+            data = _read(os.path.join(directory, name), MAX_DEMO_TAR)
+            if data is not None:
+                files[name] = data
         elif name.endswith(".deb"):
             files["deb"] = name
     target = os.path.join(st.intake_dir(intake_id, create=True), DELIVERY_DIR)
@@ -100,6 +109,9 @@ def load_snapshot(st, intake_id):
         data = _read(os.path.join(directory, name), MAX_TEXT)
         if data is not None:
             out[name] = data
+    data = _read(os.path.join(directory, DEMO_TAR), MAX_DEMO_TAR)
+    if data is not None:
+        out[DEMO_TAR] = data
     return out
 
 
@@ -189,7 +201,73 @@ def _write_yaml(path, data):
         yaml.safe_dump(data, f, sort_keys=False, allow_unicode=True, default_flow_style=False, width=1_000_000)
 
 
-def _build_trial(root, loaded, kind, app_id, recipe, app, upstream, shots=None):
+def extract_demo(data, app_id, loaded_root):
+    """{"demo/<tree>/<path>": bytes} of the regular files in the agent's demo.tar. Every member is checked before
+    anything is read: only directories and regular files, names as in store-content `demo/` (the same limits as
+    demo.py), a tree name that starts with the store id and is not taken yet. DeliveryError otherwise."""
+    problems, files, entries, total = [], {}, 0, 0
+    try:
+        tar = tarfile.open(fileobj=io.BytesIO(data), mode="r:")
+    except (tarfile.TarError, OSError, EOFError) as e:
+        raise DeliveryError("demo.tar: not a readable tar archive (%s)" % type(e).__name__) from e
+    with tar:
+        try:
+            members = tar.getmembers()
+        except (tarfile.TarError, OSError, EOFError) as e:
+            raise DeliveryError("demo.tar: damaged archive (%s)" % type(e).__name__) from e
+        if len(members) > demo.MAX_ENTRIES:
+            raise DeliveryError("demo.tar: more than %d entries" % demo.MAX_ENTRIES)
+        for member in members:
+            name = member.name.rstrip("/")
+            parts = name.split("/")
+            if parts and parts[0] == ".":
+                parts = parts[1:]
+            if not parts or any(p in ("", ".", "..") for p in parts) or len(parts) > demo.MAX_DEPTH:
+                problems.append("demo.tar: unusable member name %r" % debinfo.clean_text(name)[:80])
+                continue
+            if any(len(p.encode("utf-8", "replace")) > demo.MAX_NAME_BYTES or not p.isprintable() or "\\" in p
+                   for p in parts):
+                problems.append("demo.tar: unusable member name %r" % debinfo.clean_text(name)[:80])
+                continue
+            tree = parts[0]
+            if not demo.NAME_RE.match(tree) or not (tree == app_id or tree.startswith(app_id + "-")):
+                problems.append("demo.tar: the tree %r must be named like %s or %s-<name> (lower case, digits, dashes)"
+                                % (debinfo.clean_text(tree)[:40], app_id, app_id))
+                continue
+            if os.path.lexists(os.path.join(loaded_root, demo.DEMO_DIR, tree)):
+                problems.append("demo.tar: the tree %r already exists in store-content" % tree)
+                continue
+            if member.isdir():
+                continue
+            if not member.isreg():
+                problems.append("demo.tar: %r is not a regular file or directory (no links or devices)"
+                                % debinfo.clean_text(name)[:80])
+                continue
+            if len(parts) < 2:
+                problems.append("demo.tar: %r must be a directory" % tree)
+                continue
+            entries += 1
+            if member.size > demo.MAX_FILE_BYTES:
+                problems.append("demo.tar: %r is larger than 5 MiB" % debinfo.clean_text(name)[:80])
+                continue
+            total += member.size
+            if total > MAX_DEMO_TAR:
+                problems.append("demo.tar: more than %d MiB of data" % (MAX_DEMO_TAR >> 20))
+                break
+            handle = tar.extractfile(member)
+            body = handle.read(member.size + 1) if handle else b""
+            if len(body) != member.size:
+                problems.append("demo.tar: %r is damaged" % debinfo.clean_text(name)[:80])
+                continue
+            files["%s/%s" % (demo.DEMO_DIR, "/".join(parts))] = body
+    if problems:
+        raise DeliveryError(problems[:10])
+    if not files:
+        raise DeliveryError("demo.tar: contains no files")
+    return files
+
+
+def _build_trial(root, loaded, kind, app_id, recipe, app, upstream, shots=None, demo_files=None):
     shutil.copyfile(os.path.join(loaded.root, "categories.yaml"), os.path.join(root, "categories.yaml"))
     with open(os.path.join(root, "featured.yaml"), "w", encoding="utf-8") as f:
         f.write("[]\n")
@@ -209,6 +287,11 @@ def _build_trial(root, loaded, kind, app_id, recipe, app, upstream, shots=None):
             _write_yaml(os.path.join(root, "upstreams", app_id + ".yaml"), upstream)
         if shots is not None:
             _write_yaml(os.path.join(app_dir, "shots.yaml"), shots)
+        for rel, body in (demo_files or {}).items():
+            path = os.path.join(root, *rel.split("/"))
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "wb") as f:
+                f.write(body)
     _write_yaml(os.path.join(app_dir, "build.yaml"), recipe)
 
 
@@ -226,8 +309,9 @@ def _hard_rules(recipe):
     return errors
 
 
-def _shots_rules(shots):
-    """Rules beyond the schema for the scenes an agent delivers: it has no demo trees and no promo images to offer."""
+def _shots_rules(shots, trees=()):
+    """Rules beyond the schema for the scenes an agent delivers. It has no promo images to offer; demo data only
+    from its own demo.tar (`trees` are the tree names in it)."""
     errors = []
     if shots.get("promo"):
         errors.append("shots.yaml: `promo` is not allowed (the store has no vendor images for a new application)")
@@ -235,18 +319,21 @@ def _shots_rules(shots):
     for i, scene in enumerate(scenes if isinstance(scenes, list) else []):
         if not isinstance(scene, dict):
             continue
-        if scene.get("demo"):
-            errors.append("shots.yaml: scenes[%d].demo is not allowed (there are no demo trees for a new application)" % i)
+        for name in scene.get("demo") if isinstance(scene.get("demo"), list) else []:
+            if name not in trees:
+                errors.append("shots.yaml: scenes[%d].demo %r is not in your demo.tar (deliver the tree there)" % (i, name))
         args = scene.get("args")
-        if isinstance(args, list) and any(isinstance(a, str) and "Demo" in a for a in args):
-            errors.append("shots.yaml: scenes[%d].args must not point into ~/Demo" % i)
+        for arg in args if isinstance(args, list) else []:
+            if isinstance(arg, str) and "Demo" in arg and not any(
+                    arg == "~/Demo/%s" % t or arg.startswith("~/Demo/%s/" % t) for t in trees):
+                errors.append("shots.yaml: scenes[%d].args %r points into ~/Demo outside your demo trees" % (i, arg[:80]))
     return errors
 
 
-def _trial_load(cfg, record, loaded, kind, app_id, recipe, app, upstream, shots=None):
+def _trial_load(cfg, record, loaded, kind, app_id, recipe, app, upstream, shots=None, demo_files=None):
     with tempfile.TemporaryDirectory(prefix="agino-intake-") as root:
         try:
-            _build_trial(root, loaded, kind, app_id, recipe, app, upstream, shots)
+            _build_trial(root, loaded, kind, app_id, recipe, app, upstream, shots, demo_files)
             return content.load(root, allow_insecure=cfg.allow_insecure, policy=_policy(cfg, record))
         except content.ContentError as e:
             raise DeliveryError(list(e.errors)[:30]) from e
@@ -308,13 +395,23 @@ def validate(cfg, st, loaded, record, files, ai_record=None, pinned=None):
         if loaded.app(app_id) is not None or os.path.lexists(os.path.join(loaded.root, "apps", app_id)):
             raise DeliveryError("the store id %r is already used by another application; choose another" % app_id)
         previous, app, upstream = None, normalise_app(app_in), (normalise_upstream(up_in, app_id) if up_in else None)
-    shots = None
+    shots, demo_files = None, None
+    if kind == "import" and DEMO_TAR in files and "shots.yaml" not in files:
+        errors = errors + ["demo.tar: it is only used by the scenes of shots.yaml; deliver shots.yaml or leave demo.tar out"]
     if kind == "import" and "shots.yaml" in files:
         shots = safe_yaml("shots.yaml", files["shots.yaml"])
-        errors = errors + _shots_rules(shots)
+        trees = set()
+        if DEMO_TAR in files:
+            try:
+                demo_files = extract_demo(files[DEMO_TAR], app_id, loaded.root)
+            except DeliveryError as e:
+                errors = errors + e.messages
+            else:
+                trees = {rel.split("/")[1] for rel in demo_files}
+        errors = errors + _shots_rules(shots, trees)
     recipe = normalise_recipe(recipe_in, previous, record)
     try:
-        trial = _trial_load(cfg, record, loaded, kind, app_id, recipe, app, upstream, shots)
+        trial = _trial_load(cfg, record, loaded, kind, app_id, recipe, app, upstream, shots, demo_files)
     except DeliveryError as e:
         raise DeliveryError(errors + e.messages) from e
     if errors:
@@ -324,7 +421,7 @@ def validate(cfg, st, loaded, record, files, ai_record=None, pinned=None):
         raise DeliveryError("recipe.yaml was not accepted")
     version, tag, commit, repo = _version(cfg, st, record, trial, app_id, ai_record, files, pinned)
     return Checked(app_id, recipe, app, upstream, clean_block(files.get("NOTES.md", b"").decode("utf-8", "replace")),
-                   parsed, version, tag, commit, repo, shots)
+                   parsed, version, tag, commit, repo, shots, demo_files)
 
 
 def _version(cfg, st, record, trial, app_id, ai_record, files, pinned):

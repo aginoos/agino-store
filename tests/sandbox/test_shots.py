@@ -64,6 +64,16 @@ class ImageTests(unittest.TestCase):
         rows = shots_img.crop_rgba(w, rgb, (0, 0, 10, 10), 64)
         self.assertEqual(rows[0][3], 0)
 
+    def test_dominant_fraction_tells_an_empty_window_from_a_busy_one(self):
+        # white page with a small toolbar: an empty viewer; a checkerboard: a busy window
+        w, h, empty = shots_img.parse_ppm(ppm(200, 200, lambda x, y: (40, 40, 200) if y > 190 and x < 60 else (255, 255, 255)))
+        self.assertGreater(shots_img.dominant_fraction(w, empty, (0, 0, 200, 200)), 0.95)
+        w, h, busy = shots_img.parse_ppm(ppm(200, 200, lambda x, y: (255, 255, 255) if (x // 20 + y // 20) % 2 else (10, 90, 160)))
+        self.assertLess(shots_img.dominant_fraction(w, busy, (0, 0, 200, 200)), 0.6)
+        # the smooth gradient of a theme counts as one colour per 8-level step, not as noise
+        w, h, soft = shots_img.parse_ppm(ppm(200, 200, lambda x, y: (250 + (x % 2), 250, 250)))
+        self.assertGreater(shots_img.dominant_fraction(w, soft, (0, 0, 200, 200)), 0.99)
+
     def test_stddev(self):
         w, h, flat = shots_img.parse_ppm(ppm(80, 80, lambda x, y: (9, 9, 9)))
         self.assertLess(shots_img.luminance_stddev(w, flat, (0, 0, 80, 80)), 1)
@@ -200,6 +210,13 @@ class JsonTests(unittest.TestCase):
         got = shots_scene.image_problems(300, 200, 1.0, ["Save?"])
         self.assertEqual(len(got), 3)
         self.assertIn("extra dialog window: Save?", got)
+
+    def test_a_mostly_empty_window_is_reported_but_a_normal_one_is_not(self):
+        self.assertEqual(shots_scene.image_problems(800, 600, 30.0, [], 0.5), [])
+        self.assertEqual(shots_scene.image_problems(800, 600, 30.0, [], 0.95), [])      # the limit itself is fine
+        got = shots_scene.image_problems(800, 600, 30.0, [], 0.97)
+        self.assertEqual(len(got), 1)
+        self.assertIn("mostly empty (97% one colour)", got[0])
 
     def test_build(self):
         job = jobs.Job("a_0123456789ab", "a", "1.0", "f" * 64, 1, "a", None, [], [], "/q/a.deb")

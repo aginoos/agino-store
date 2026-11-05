@@ -80,6 +80,22 @@ def crop_rgba(width, rgb, rect, radius):
     return [bytes(r) for r in rows]
 
 
+def dominant_fraction(width, rgb, rect):
+    """Share (0..1) of the subsampled pixels of the rect that have the most common colour (5 bits per channel,
+    so smooth gradients and compression noise still count as one colour): an empty window is mostly one colour."""
+    x, y, w, h = rect
+    seen = {}
+    count = 0
+    for j in range(y, y + h, 4):
+        base = (j * width + x) * 3
+        row = rgb[base:base + w * 3]
+        for i in range(0, w * 3 - 2, 12):
+            key = (row[i] >> 3, row[i + 1] >> 3, row[i + 2] >> 3)
+            seen[key] = seen.get(key, 0) + 1
+            count += 1
+    return max(seen.values()) / count if count else 0.0
+
+
 def luminance_stddev(width, rgb, rect):
     """Standard deviation of luminance over a subsample of the rect (cheap uniformity test)."""
     x, y, w, h = rect

@@ -15,7 +15,7 @@ import hashlib
 import os
 import stat
 
-from .build_ai_guest import MAX_TEXT_BYTES, AiGuest, BadDeliverable, deliverable_kind
+from .build_ai_guest import DEMO_TAR_MAX, MAX_TEXT_BYTES, AiGuest, BadDeliverable, deliverable_kind
 from .build_ai_stream import AiStream
 from .build_guest import BuildStepError
 from .build_job import BOOT_TIMEOUT, COLLECT_TIMEOUT, BuildJob
@@ -133,7 +133,9 @@ class AiJob(BuildJob):
                 deb_seen = True
             chosen.append((name, size))
         for name, size in chosen:
-            limit = MAX_TEXT_BYTES if deliverable_kind(name) == "text" else self.bcfg.max_artifact_mib << 20
+            kind = deliverable_kind(name)
+            limit = (MAX_TEXT_BYTES if kind == "text" else DEMO_TAR_MAX if kind == "demo"
+                     else self.bcfg.max_artifact_mib << 20)
             if size == 0 or size > limit:
                 self.out.sink.note("skipped %s: %d bytes (the limit is %d)" % (clean(name, 100), size, limit))
                 continue

@@ -217,6 +217,7 @@ class Phase:
                 return
             rows = shots_img.crop_rgba(width, rgb, rect, self.cfg.corner_radius)
             stddev = shots_img.luminance_stddev(width, rgb, rect)
+            dominant = shots_img.dominant_fraction(width, rgb, rect)
         except (shots_img.ImageError, OSError) as e:
             problem("screendump unusable: %s" % clean(str(e), 80))
             return
@@ -225,7 +226,7 @@ class Phase:
                 os.unlink(ppm)
             except OSError:
                 pass
-        for text in shots_scene.image_problems(rect[2], rect[3], stddev, dialogs):
+        for text in shots_scene.image_problems(rect[2], rect[3], stddev, dialogs, dominant):
             problem(text)
         png = shots_img.encode_png(rect[2], rect[3], rows)
         name = "%d-%s.png" % (result["n"], result["scene"]["id"])

@@ -162,6 +162,12 @@ class GuestPreparationTests(AiCase):
         self.assertEqual(qga.files[AG.SUDOERS_AI], b"builder ALL=(root) NOPASSWD: ALL\n")
         self.assertEqual(qga.modes[AG.SUDOERS_AI], "440")
 
+    def test_demo_tar_is_a_deliverable_with_its_own_limit(self):
+        self.assertEqual(AG.deliverable_kind("demo.tar"), "demo")
+        self.assertIsNone(AG.deliverable_kind("demo.tgz"))
+        self.assertIsNone(AG.deliverable_kind("../demo.tar"))
+        self.assertEqual(AG.parse_listing(b"1234\tdemo.tar\0" + b"9\tevil.tar\0"), [("demo.tar", 1234)])
+
     def test_environment_for_claude(self):
         qga = self.prepared()
         lines = qga.files[AG.ENVIRONMENT_FILE].decode().splitlines()

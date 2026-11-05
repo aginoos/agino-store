@@ -27,6 +27,8 @@ SUDOERS_AI = "/etc/sudoers.d/agino-ai"
 SUDOERS_AI_TEXT = "builder ALL=(root) NOPASSWD: ALL\n"
 
 TEXT_FILES = ("recipe.yaml", "app.yaml", "upstream.yaml", "vendor.yaml", "shots.yaml", "NOTES.md")
+DEMO_TAR = "demo.tar"          # the small demo data of the screenshot scenes; the server checks every member
+DEMO_TAR_MAX = 4 << 20
 DEB_NAME_RE = re.compile(r"\A[a-z0-9][a-z0-9+.~_-]{0,150}\.deb\Z")
 MAX_TEXT_BYTES = 256 * 1024
 MAX_LISTED = 500
@@ -68,9 +70,11 @@ class BadDeliverable(BuildStepError):
 
 
 def deliverable_kind(name):
-    """"text", "deb" or None: whether the guest's file name is one we take."""
+    """"text", "demo", "deb" or None: whether the guest's file name is one we take."""
     if name in TEXT_FILES:
         return "text"
+    if name == DEMO_TAR:
+        return "demo"
     return "deb" if DEB_NAME_RE.match(name) else None
 
 
@@ -156,6 +160,8 @@ class AiGuest(GuestBuild):
                 raise InfraError("%s ended after %d of %d bytes" % (name, offset, size))
             if offset == 0 and kind == "deb" and not data.startswith(DEB_MAGIC):
                 raise BadDeliverable("the delivered deb is not a deb archive", 24)
+            if kind == "demo" and offset == 0 and len(data) >= 262 and data[257:262] != b"ustar":
+                raise BadDeliverable("demo.tar is not a tar archive", 1)
             if kind == "text" and b"\0" in data:
                 raise BadDeliverable("%s is not a text file" % name, 1)
             writer.write(data)

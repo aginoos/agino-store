@@ -20,6 +20,7 @@ WINDOW_LIMITS = ((800, 1900), (600, 1050))
 DEFAULT_WINDOW = (1600, 1000)
 MIN_IMAGE = (400, 300)
 UNIFORM_STDDEV = 4.0
+EMPTY_FRACTION = 0.95   # more of the window than this in one colour: probably nothing is open in it
 HOME = "/home/tester"
 
 
@@ -252,13 +253,15 @@ def frame_rect(geometry, extents, screen):
     return clamp_rect(x - left, y - top, w + left + right, h + top + bottom, screen[0], screen[1])
 
 
-def image_problems(width, height, stddev, dialogs):
-    """Automatic checks for one image (docs/sandbox.md)."""
+def image_problems(width, height, stddev, dialogs, dominant=0.0):
+    """Automatic checks for one image (docs/sandbox.md). `dominant` is dominant_fraction of the window."""
     problems = []
     if width < MIN_IMAGE[0] or height < MIN_IMAGE[1]:
         problems.append("image too small (%dx%d)" % (width, height))
     if stddev < UNIFORM_STDDEV:
         problems.append("image nearly uniform (luminance stddev %.1f)" % stddev)
+    if dominant > EMPTY_FRACTION:
+        problems.append("window mostly empty (%d%% one colour): is anything open in it?" % round(dominant * 100))
     problems += ["extra dialog window: " + clean(t, 80) for t in dialogs[:3]]
     return problems
 

@@ -29,6 +29,8 @@ RESULT_CLASSES = ("ok", "recipe", "infra", "timeout", "model")
 AI_DIR = "ai"
 AI_TEXT_FILES = ("recipe.yaml", "app.yaml", "upstream.yaml", "vendor.yaml", "shots.yaml", "NOTES.md")
 AI_MAX_TEXT_BYTES = 256 << 10
+AI_DEMO_TAR = "demo.tar"
+AI_MAX_DEMO_BYTES = 4 << 20
 
 
 class CollectError(Exception):
@@ -149,14 +151,17 @@ def _ai_file_ok(cfg, rec, name):
         return False
     if not os.path.isfile(path):
         return False
-    limit = AI_MAX_TEXT_BYTES if name in AI_TEXT_FILES else min(cfg.builds_max_artifact_mib << 20, cfg.max_deb_bytes)
+    if name == AI_DEMO_TAR:
+        limit = AI_MAX_DEMO_BYTES
+    else:
+        limit = AI_MAX_TEXT_BYTES if name in AI_TEXT_FILES else min(cfg.builds_max_artifact_mib << 20, cfg.max_deb_bytes)
     return info.st_size <= limit
 
 
 def _ai_outcome(cfg, rec, result):
     """An AI mode task: the delivered files that exist and are on the whitelist; recipe.yaml is required."""
     names = [n for n in result.get("files") or [] if isinstance(n, str)
-             and (n in AI_TEXT_FILES or DEB_NAME_RE.match(n)) and _ai_file_ok(cfg, rec, n)]
+             and (n in AI_TEXT_FILES or n == AI_DEMO_TAR or DEB_NAME_RE.match(n)) and _ai_file_ok(cfg, rec, n)]
     names = list(dict.fromkeys(names))
     if "recipe.yaml" not in names:
         raise CollectError("the agent delivered no recipe.yaml")
