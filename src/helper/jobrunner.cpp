@@ -234,6 +234,10 @@ void JobRunner::installResolved(bool update, const PkResolved &app, const QList<
 
 void JobRunner::runDeb()
 {
+    if (m_ctx.app.package.isVendorDistributed()) {
+        finish(false, QStringLiteral("vendor-download"), QStringLiteral("the app must be downloaded from the vendor"));
+        return;
+    }
     if (!m_ctx.app.package.deb || !isValidPackageName(m_ctx.app.package.name)) {
         finish(false, QStringLiteral("unknown-app"), QStringLiteral("the app has no deb to install"));
         return;

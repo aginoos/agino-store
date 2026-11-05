@@ -144,6 +144,11 @@ void simulateAction(PkClient *pk, const HelperConfig &config, const AppSummary &
         done(false, QStringLiteral("unknown-app"), QStringLiteral("invalid action or package"));
         return;
     }
+    if (!remove && app.package.isVendorDistributed()) {
+        // Never planned, never downloaded: the user gets the file from the vendor.
+        done(false, QStringLiteral("vendor-download"), QStringLiteral("the app must be downloaded from the vendor"));
+        return;
+    }
     if (remove && config.isProtected(name)) {
         done(false, QStringLiteral("protected-package"), QStringLiteral("%1 cannot be removed through the store").arg(name));
         return;

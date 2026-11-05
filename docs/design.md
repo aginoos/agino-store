@@ -125,6 +125,7 @@ assets/<sha256>.<ext> 图标和截图，按内容寻址（截图来自服务端�
 
 - `source`：`system`（系统仓库）、`official`（官方提供）、`personal`（个人维护）。
 - `package.kind`：`milkyway`（只有 `name`，从系统软件源装）或 `deb`（必须有 `deb`）。`personal` 的应用必须有 `maintainer`（在详情里）。
+- `package.distribution`（可选，仅 `deb`）：`"vendor"` 表示授权不允许商店分发，用户要去官网下载。此时 `deb.url` 可以没有（其余字段照旧），`package.download = {"page": "<https 页面>", "direct": <bool>}` 必须有；`direct` 为 true 时跳转到 `deb.vendor_url`（该版本的真实下载地址，缺省时退回 `download.page`），否则跳转到 `download.page`。两个地址都只接受 https，否则整个目录被拒绝。没有 `distribution` 键或值不是 `vendor` 时一切照旧（`deb.url` 必填）。这改了目录格式，旧客户端会拒绝缺 `url` 的目录，按 D-50 不做兼容。
 - `launchable`（可选）：AppStream 的 desktop-id。客户端用它找"打开"和桌面图标要用的 desktop 文件（在 XDG 数据目录的 `applications/` 下找）；没有时退回到 `dpkg -L <package.name>` 里第一个 `/usr/share/applications/*.desktop`。元包（如 trixie 的 `keepassxc` 依赖 `keepassxc-full`）必须填。
 - `featured` 里 `banner: true` 的条目进首页横幅，第一个 `banner: false` 的是"装机必备"。
 
@@ -182,7 +183,7 @@ assets/<sha256>.<ext> 图标和截图，按内容寻址（截图来自服务端�
 | `CatalogChanged` 信号 | `(x serial, s revision)` | | |
 | `StateChanged` 信号 | `()` | | 安装、卸载、更新完成后 |
 
-- 错误码：`not-authorized`、`catalog-unavailable`、`catalog-unverified`、`unknown-app`、`protected-package`、`busy`、`download-failed`、`hash-mismatch`、`install-profile-invalid`、`dependency-unresolvable`、`packagekit-error`、`cancelled`。无需授权的 `Refresh`（最多 32 个等待者）和 `Simulate`（每个调用者同时一个，全局最多 4 个）超限时返回 `busy`（`org.aginoos.Store1.Error.Busy`）。错误文本不含本机文件路径，细节只写日志（PackageKit 的消息除外）。方法调用失败时以 D-Bus 错误 `org.aginoos.Store1.Error.<驼峰码>` 返回；任务失败时由 `JobFinished` 带回错误码。
+- 错误码：`not-authorized`、`catalog-unavailable`、`catalog-unverified`、`unknown-app`、`protected-package`、`busy`、`download-failed`、`hash-mismatch`、`install-profile-invalid`、`dependency-unresolvable`、`packagekit-error`、`cancelled`、`vendor-download`（应用是 `vendor` 发布方式，商店不分发：`Simulate`/`Install`/`Update` 直接返回，绝不下载；客户端不会发这类请求，见 4.4 和 8）。无需授权的 `Refresh`（最多 32 个等待者）和 `Simulate`（每个调用者同时一个，全局最多 4 个）超限时返回 `busy`（`org.aginoos.Store1.Error.Busy`）。错误文本不含本机文件路径，细节只写日志（PackageKit 的消息除外）。方法调用失败时以 D-Bus 错误 `org.aginoos.Store1.Error.<驼峰码>` 返回；任务失败时由 `JobFinished` 带回错误码。
 - 任务串行执行（PackageKit 本身也串行）；同一个应用已有任务时返回 `busy`。
 - helper 没有任务且 5 分钟内没有调用时退出。
 
@@ -197,7 +198,7 @@ assets/<sha256>.<ext> 图标和截图，按内容寻址（截图来自服务端�
 
 1. 在已验证的缓存目录里按 ID 找应用；找不到返回 `unknown-app`。
 2. `milkyway`：PackageKit `Resolve` 包名（过滤 `NotInstalled` 或 `Installed`），`InstallPackages`（`OnlyTrusted`）/`UpdatePackages`。
-3. `deb`：
+3. `deb`（`distribution: "vendor"` 的应用除外：`Simulate`/`Install`/`Update` 一律返回 `vendor-download`，绝不下载、绝不装；卸载照常）：
    1. `deb.url` 只接受 https（`AllowInsecureUrls=true` 时另允许 http、file）；下载到 `/var/cache/agino-store/debs/<sha256>.deb`（先写 `.part`），大小超过 `deb.size` 立即中止；
    2. 校验大小和 sha256，不符返回 `hash-mismatch` 并删除文件；
    3. 校验并执行 `install_profile`：`debconf-set-selections`（stdin 传入）和写 `/etc/default/` 文件（0644）；
@@ -219,6 +220,7 @@ assets/<sha256>.<ext> 图标和截图，按内容寻址（截图来自服务端�
   - `DesktopIcons`：安装成功后把应用的 desktop 文件（按 `launchable` 找，见 4 节）复制到 `xdg-user-dir DESKTOP`（设置开着且是新装时）；卸载时删除商店创建的那个；记录在 `~/.local/share/agino-store/desktop-icons.json`。
 - 页面（与界面稿一致，解释性文字能不放就不放）：首页（横幅、装机必备、全部分类两两并排、每类 5 个、最热/最新切换）、分类、搜索、详情、已安装（可更新/已安装两个标签、全部更新、系统更新按钮）、下载任务、设置。
 - 安装和卸载前先调用 `Simulate`，确认框只列事实：下载大小、安装后占用或释放空间、连带安装或移除的组件、来源。
+- `vendor` 方式的应用：点"安装"或"更新"时不调用 helper（也不 `Simulate`），直接弹窗，只写事实"此软件的授权不允许商店分发，请从官网下载安装。"，按钮"前往官网下载"（`QDesktopServices::openUrl`，地址是目录里的 `downloadUrl`，只接受 https）和"关闭"。详情页的按钮文字不变。已装判断、卸载、可更新判断不变：用户自己装的 deb 是普通已装包，按版本比较显示"可更新"，点更新弹同一个窗。"全部更新"只处理商店能分发的应用，`vendor` 的跳过。
 - "系统更新"按钮打开控制中心的更新页：`dbus-send --session --dest=org.deepin.dde.ControlCenter1 /org/deepin/dde/ControlCenter1 org.deepin.dde.ControlCenter1.ShowPage string:update`（实现时核对接口名）。
 - 第一版启动时调用一次 `Refresh`；每天自动检查放到后续版本（用户级 systemd 定时器，遵守"计量网络不自动下载"）。
 
@@ -237,6 +239,6 @@ DConfig 键（`org.aginoos.store`）：
 
 ## 9. 测试
 
-- 单元测试（QtTest）：目录解析和拒绝非法输入（路径、类型、缺字段）、语言回退、截图语言、Ed25519 验签（好签名、改一字节、错公钥）、清单序号和过期、文件哈希校验、`install_profile` 校验。
+- 单元测试（QtTest）：目录解析和拒绝非法输入（路径、类型、缺字段）、语言回退、截图语言、Ed25519 验签（好签名、改一字节、错公钥）、清单序号和过期、文件哈希校验、`install_profile` 校验、`vendor` 方式的目录解析（缺/有 `url`、非 https、`direct` 选址、旧应用不变）。
 - `tests/data/keys/test-ed25519.{pem,pub}` 只用于测试，不安装，任何包都不信任它。
 - 集成测试在 agino 虚拟机里做（主 agent）：配置 `Url=file:///…/tests/data/catalog/`，并把测试公钥放进 `KeyDirs`，安装、卸载一个 milkyway 包和一个本地 deb。
