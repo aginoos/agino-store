@@ -59,6 +59,7 @@ class Recipe:
     evidence: tuple = ()    # v2: dicts {claim, url}
     recipe_version: int | None = None
     derived_from: int | None = None
+    requirements: str = ""  # the administrator's requirements for this application (free text, not a command)
 
     @property
     def is_v2(self):
@@ -288,7 +289,7 @@ def recipe(chk, rel, data, app_id, policy, allow_insecure):
             "source" in data and source is None):
         return None
     return Recipe(app_id, data["base"], source, depends, steps, package, limits, **{
-        k: (v if k in ("recipe_version", "derived_from") else tuple(v)) for k, v in extras.items()})
+        k: (v if k in ("recipe_version", "derived_from", "requirements") else tuple(v)) for k, v in extras.items()})
 
 
 # Directory scans

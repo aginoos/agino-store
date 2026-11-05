@@ -23,7 +23,8 @@ DUMMY_VALUES = {"VERSION": "0", "TAG": "v0", "COMMIT": "0" * 40}
 FILE_SEGMENT_RE = re.compile(r"\A[A-Za-z0-9_][A-Za-z0-9._+@-]{0,99}\Z")
 DOWNLOAD_SEGMENT_RE = re.compile(r"\A[A-Za-z0-9._~+-]{1,150}\Z")
 MODES = {"0644": "0644", "0755": "0755", 0o644: "0644", 0o755: "0755"}   # unquoted 0755 is an int in YAML
-V2_KEYS = ("recipe_version", "derived_from", "sources", "files", "test", "evidence")
+V2_KEYS = ("recipe_version", "derived_from", "sources", "files", "test", "evidence", "requirements")
+MAX_REQUIREMENTS = 1000
 MAX_SOURCES = 8
 MAX_FILES = 20
 MAX_FILE_BYTES = 64 << 10
@@ -294,6 +295,10 @@ def parse(chk, rel, data, policy, allow_insecure, public_url):
         chk.fail(rel + ".derived_from", "must be lower than recipe_version")
     if derived is not None and "recipe_version" not in data:
         chk.fail(rel + ".derived_from", "needs recipe_version")
+    if "requirements" in data:
+        # The administrator's own words, set by the server from the submit form; carried along so that later
+        # versions and repairs of the recipe keep honouring them.
+        out["requirements"] = chk.string(rel + ".requirements", data["requirements"], max_len=MAX_REQUIREMENTS)
     if "sources" in data:
         out["sources"] = _sources(chk, rel + ".sources", data["sources"], policy, allow_insecure, public_url)
     names = {s["name"] for s in out.get("sources") or ()}

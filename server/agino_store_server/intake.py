@@ -176,7 +176,7 @@ def create_repair(cfg, st, content, app, version, by, now=None, failed_task=None
     _check_capacity(cfg, st)
     failed = failed_task or latest_failed_build(st, app, version)
     repair_of = {"app": app, "version": version, "failed_task": failed["id"] if failed else None}
-    record = new_record(st, "repair", up.repo, "", check_agent(cfg, None), [], by, now or debinfo.utc_now(), repair_of)
+    record = new_record(st, "repair", up.repo, recipe.requirements or "", check_agent(cfg, None), [], by, now or debinfo.utc_now(), repair_of)
     st.save_intake(record)
     return record
 

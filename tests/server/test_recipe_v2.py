@@ -62,6 +62,20 @@ class TestValid(V2Case):
         self.assertEqual(len(recipe.test), 2)
         self.assertEqual(recipe.evidence[0]["claim"], "license is GPL-3.0")
 
+    def test_requirements_are_kept_and_not_part_of_the_task(self):
+        self.set_recipe(requirements="Leave out the Qt5 plugin.\nUse the --disable-docs option.")
+        recipe = self.load_recipe()
+        self.assertEqual(recipe.requirements, "Leave out the Qt5 plugin.\nUse the --disable-docs option.")
+        self.assertNotIn("requirements", recipe.as_task("1.0", "v1.0", "0" * 40))
+        self.edit_recipe(lambda d: {k: v for k, v in d.items() if k != "requirements"})
+        self.assertEqual(self.load_recipe().requirements, "")
+
+    def test_requirements_must_be_short_plain_text(self):
+        self.assertBad("requirements", requirements="x" * 1001)
+        self.assertBad("requirements", requirements="   ")
+        self.assertBad("requirements", requirements="a\x07b")
+        self.assertBad("requirements", requirements=["a list"])
+
     def test_v1_with_the_new_scalar_keys(self):
         self.edit_recipe(lambda d: dict(d, test=["tool --version"], recipe_version=1, evidence=[]))
         recipe = self.load_recipe()

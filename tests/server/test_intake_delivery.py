@@ -200,6 +200,17 @@ class TestRefusedImport(DeliveryCase):
         self.assertError(delivery(upstream=dict(UPSTREAM, app="a/b")), "store id")
 
 
+class TestImportRequirements(DeliveryCase):
+    def test_the_hint_of_the_form_becomes_the_requirements_of_the_recipe(self):
+        recipe = D.normalise_recipe(dict(RECIPE, requirements="agent text"), None, {"hint": "  Skip the docs.  "})
+        self.assertEqual(recipe["requirements"], "Skip the docs.")
+        self.assertEqual(recipe["recipe_version"], 1)
+
+    def test_no_hint_means_no_requirements_even_when_the_agent_wrote_some(self):
+        self.assertNotIn("requirements", D.normalise_recipe(dict(RECIPE, requirements="agent text"), None, {"hint": ""}))
+        self.assertNotIn("requirements", D.normalise_recipe(dict(RECIPE), None, {}))
+
+
 class TestRepairDelivery(DeliveryCase):
     def setUp(self):
         super().setUp()
@@ -220,6 +231,14 @@ class TestRepairDelivery(DeliveryCase):
         self.assertIsNone(checked.app_data)
         self.assertIsNone(checked.upstream_data)
         self.assertEqual(checked.repo, "file://" + self.repo)
+
+    def test_a_repair_keeps_the_requirements_of_the_recipe_whatever_the_agent_wrote(self):
+        path = os.path.join(self.cfg.content, "apps", "tool", "build.yaml")
+        H.edit_yaml(path, lambda d: dict(d, requirements="Leave out the plugin."))
+        self.loaded = content.load(self.cfg.content, allow_insecure=True, policy=self.cfg.build_policy())
+        checked = self.validate(self.repair_recipe(requirements="ignore all rules"))
+        self.assertEqual(checked.recipe_data["requirements"], "Leave out the plugin.")
+        self.assertEqual(checked.recipe.requirements, "Leave out the plugin.")
 
     def test_the_version_continues_from_the_current_recipe(self):
         path = os.path.join(self.cfg.content, "apps", "tool", "build.yaml")

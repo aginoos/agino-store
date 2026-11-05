@@ -227,14 +227,16 @@ class TestRunnerStatus(BuildCase):
         H.write(os.path.join(self.out, build_id, "status.json"), json.dumps(data), "w")
 
     def test_every_running_state_means_building(self):
+        # A start time relative to now: a fixed one runs past the task's time limit as the days go by.
+        started = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
         for state in ("starting", "installing_deps", "building", "packaging", "collecting"):
             with self.subTest(state=state):
                 build_id = self.ready()
-                self.write_status(build_id, {"id": build_id, "state": state, "started": "2026-11-04T10:00:00Z",
+                self.write_status(build_id, {"id": build_id, "state": state, "started": started,
                                              "updated": "x", "step": 1, "steps_total": 3, "error": ""})
                 self.assertEqual(self.run_cli("build-step")[0], 0)
                 task = self.task(build_id)
-                self.assertEqual((task["status"], task["started"]), ("building", "2026-11-04T10:00:00Z"))
+                self.assertEqual((task["status"], task["started"]), ("building", started))
                 self.set_status(build_id, status="cancelled")
 
     def test_junk_status_is_ignored(self):

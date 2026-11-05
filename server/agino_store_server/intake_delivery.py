@@ -136,9 +136,14 @@ def placeholder_icon(size=64):
 
 # Normalising: the fields the server owns
 
-def normalise_recipe(recipe, previous):
-    """The agent's recipe with the version fields set by the server (`previous` is the old Recipe or None)."""
-    out = {k: v for k, v in recipe.items() if k not in ("recipe_version", "derived_from")}
+def normalise_recipe(recipe, previous, record=None):
+    """The agent's recipe with the fields the server owns set (`previous` is the old Recipe or None): the version
+    fields and `requirements`, which are the administrator's words from the submit form (an import) or the ones the
+    recipe already had (a repair), never what the agent wrote."""
+    out = {k: v for k, v in recipe.items() if k not in ("recipe_version", "derived_from", "requirements")}
+    wanted = (previous.requirements if previous is not None else (record or {}).get("hint") or "").strip()
+    if wanted:
+        out["requirements"] = wanted
     if previous is None:
         out["recipe_version"] = 1
     else:
@@ -281,7 +286,7 @@ def validate(cfg, st, loaded, record, files, ai_record=None, pinned=None):
         if loaded.app(app_id) is not None or os.path.lexists(os.path.join(loaded.root, "apps", app_id)):
             raise DeliveryError("the store id %r is already used by another application; choose another" % app_id)
         previous, app, upstream = None, normalise_app(app_in), (normalise_upstream(up_in, app_id) if up_in else None)
-    recipe = normalise_recipe(recipe_in, previous)
+    recipe = normalise_recipe(recipe_in, previous, record)
     try:
         trial = _trial_load(cfg, record, loaded, kind, app_id, recipe, app, upstream)
     except DeliveryError as e:

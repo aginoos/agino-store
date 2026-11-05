@@ -7,6 +7,7 @@ import unittest
 
 from agino_store_server import builds, config, content, intake, intake_proxy
 
+from . import helpers as H
 from .build_case import GIT
 from .intake_case import ADDRESS, IntakeCase
 
@@ -180,6 +181,13 @@ class TestRepairCommand(IntakeCase):
                            "address": "file://" + self.repo, "allow_hosts": [], "agent": "claude"}.items():
             self.assertEqual(rec[key], value, key)
         self.assertEqual(rec["repair_of"], {"app": "tool", "version": "1.0.0", "failed_task": None})
+
+    def test_a_repair_task_carries_the_requirements_of_the_recipe(self):
+        self.seed_seen()
+        path = os.path.join(self.cfg.content, "apps", "tool", "build.yaml")
+        H.edit_yaml(path, lambda d: dict(d, requirements="Leave out the plugin."))
+        rec = self.intake(self.repair("--version", "1.0.0", "--by", "alice")[1].strip())
+        self.assertEqual(rec["hint"], "Leave out the plugin.")
 
     def test_the_failed_build_is_remembered(self):
         self.seed_seen()
