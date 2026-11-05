@@ -292,6 +292,21 @@ class TestWorkspace(IntakeCase):
         with self.assertRaises(ValueError):
             W.read_prompt("../etc/passwd")
 
+    def test_the_vendor_path_is_in_the_prompts(self):
+        rules = W.read_prompt("CLAUDE.md")
+        self.assertNotIn("reserved; do not write it", rules)
+        for needle in ("## 5a. Vendor software (no recipe)", "## Licence conclusion", "LicenseRef-proprietary",
+                       "proprietary: true", "Needs a person to decide whether to include it", "fetch: auto",
+                       "allowed_hosts", "type: redirect", "link_regex", "version_regex", "version_path", "type: head",
+                       "unchanged", "apt-get install ./", "remove --purge", "preinst", "postrm",
+                       "distribution", "Never** deliver `recipe.yaml` together with", "`vendors/keys`"):
+            self.assertIn(needle, rules, needle)
+        task = W.render(W.read_prompt("TASK.md"), {"import"}, W.task_values(
+            self.cfg, {"address": "https://vendor.example.com/newtool", "hint": ""}))
+        for needle in ("vendor path", "vendor.yaml", "Licence conclusion", "No `recipe.yaml`"):
+            self.assertIn(needle, task, needle)
+        self.assertNotIn("@@", task)
+
     def test_links_never_reach_the_workspace(self):
         bad = os.path.join(self._tmp.name, "bad.tar")
         with tarfile.open(bad, "w") as tar:
