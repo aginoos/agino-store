@@ -13,7 +13,9 @@ MAX_CATEGORIES = 2
 CONTROL_RE = re.compile("[\x00-\x1f\x7f-\x9f]")
 SINGLE_LINE = {"name": 100, "summary": 300, "developer": 100}   # localized single-line texts: max length
 LOCALIZED = tuple(SINGLE_LINE) + ("description",)
-PATCH_KEYS = LOCALIZED + ("categories", "license", "proprietary", "homepage")
+PATCH_KEYS = LOCALIZED + ("categories", "license", "proprietary", "homepage", "distribution")
+DISTRIBUTION_KEY = "distribution"
+DEFAULT_DISTRIBUTION = {"mode": "store"}
 REVIEWED_KEY = "description"   # only a changed description counts as reviewed (a summary edit does not)
 RECONFIRMED_SOURCES = ("ai", "confirmed")   # official and submitter descriptions keep their origin mark
 
@@ -101,18 +103,38 @@ def validate(patch, category_ids):
             chk.boolean("patch.proprietary", value)
         elif key == "homepage":
             chk.url("patch.homepage", value, False)
+        elif key == DISTRIBUTION_KEY:
+            C.check_distribution(chk, "patch.distribution", value)
         else:
             chk.fail("patch", "unknown key %r (allowed: %s)" % (key, ", ".join(PATCH_KEYS)))
     if chk.errors:
         raise PatchError("\n".join(chk.errors))
 
 
+def _normalized_distribution(value):
+    """The comparable form of a distribution value: a missing key and {mode: store} are the same, and a
+    vendor mapping without `direct` means direct false."""
+    if not isinstance(value, dict) or value.get("mode", "store") == "store":
+        return DEFAULT_DISTRIBUTION
+    return {"mode": value["mode"], "page": value.get("page"), "direct": value.get("direct", False)}
+
+
 def apply(data, patch):
     """(new app.yaml data, changed key names). Localized keys replace zh_CN and en_US and keep other
-    languages; every other key replaces the whole value. `data` is not modified."""
+    languages; every other key replaces the whole value; distribution mode store removes the key. `data`
+    is not modified."""
     new, changed = dict(data), []
     for key, value in patch.items():
         old = data.get(key)
+        if key == DISTRIBUTION_KEY:
+            if _normalized_distribution(value) == _normalized_distribution(old):
+                continue
+            if _normalized_distribution(value) == DEFAULT_DISTRIBUTION:
+                new.pop(key, None)
+            else:
+                new[key] = value
+            changed.append(key)
+            continue
         merged = {**old, **value} if key in LOCALIZED and isinstance(old, dict) else value
         if merged != old:
             new[key] = merged
