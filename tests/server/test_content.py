@@ -426,10 +426,6 @@ class TestVendor(ContentCase):
 VENDOR_URL = H.VENDOR["track"]["url"]
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestDescriptionReview(ContentCase):
     CONFIRMED = {"by": "alice", "at": "2026-11-03T08:00:00Z"}
 
@@ -486,3 +482,81 @@ class TestDescriptionReview(ContentCase):
     def test_other_unknown_keys_are_still_rejected(self):
         self.edit_app("gimp", lambda d: dict(d, description_origin="ai"))
         self.assertRejected("unknown key 'description_origin'")
+
+
+class TestDistribution(ContentCase):
+    PAGE = "https://example.org/download"
+
+    def vendor_mode(self, **dist):
+        return lambda d: dict(d, distribution=dict({"mode": "vendor", "page": self.PAGE}, **dist))
+
+    def test_default_is_store(self):
+        content = C.load(self.root)
+        self.assertEqual(content.app("chrome").distribution, {"mode": "store"})
+        self.assertEqual(content.app("gimp").distribution, {"mode": "store"})
+
+    def test_explicit_store(self):
+        self.edit_app("chrome", lambda d: dict(d, distribution={"mode": "store"}))
+        self.assertEqual(C.load(self.root).app("chrome").distribution, {"mode": "store"})
+
+    def test_vendor_completes_direct(self):
+        self.edit_app("chrome", self.vendor_mode())
+        self.assertEqual(C.load(self.root).app("chrome").distribution,
+                         {"mode": "vendor", "page": self.PAGE, "direct": False})
+
+    def test_vendor_direct(self):
+        self.edit_app("chrome", self.vendor_mode(direct=True))
+        self.assertTrue(C.load(self.root).app("chrome").distribution["direct"])
+
+    def test_unknown_key_and_mode(self):
+        self.edit_app("chrome", self.vendor_mode(extra=1))
+        self.assertRejected("unknown key 'extra'")
+        self.edit_app("chrome", lambda d: dict(d, distribution={"mode": "mirror"}))
+        self.assertRejected("must be one of store, vendor")
+        self.edit_app("chrome", lambda d: dict(d, distribution={"page": self.PAGE}))
+        self.assertRejected("missing key 'mode'")
+        self.edit_app("chrome", lambda d: dict(d, distribution="vendor"))
+        self.assertRejected("must be a mapping")
+
+    def test_vendor_needs_page(self):
+        self.edit_app("chrome", lambda d: dict(d, distribution={"mode": "vendor"}))
+        self.assertRejected("required with mode vendor")
+
+    def test_store_takes_no_page_or_direct(self):
+        self.edit_app("chrome", lambda d: dict(d, distribution={"mode": "store", "page": self.PAGE}))
+        self.assertRejected("distribution.page: not allowed with mode store")
+        self.edit_app("chrome", lambda d: dict(d, distribution={"mode": "store", "direct": False}))
+        self.assertRejected("distribution.direct: not allowed with mode store")
+
+    def test_bad_pages(self):
+        for page in ("http://example.org/d", "ftp://example.org/d", "https://u:p@example.org/d",
+                     "https://u@example.org/d", "https:///d", "example.org/d", "https://exa mple.org/d",
+                     "https://example.org/d\nx", "https://example.org/d\x7f", "https://example.org/\u0085",
+                     "https://example.org:99999/d", "https://example.org/" + "a" * 2048, "", 3, None):
+            with self.subTest(page=page):
+                self.edit_app("chrome", lambda d: dict(d, distribution={"mode": "vendor", "page": page}))
+                self.assertRejected("distribution.page")
+
+    def test_page_length_limit(self):
+        page = "https://example.org/" + "a" * (2048 - len("https://example.org/"))
+        self.edit_app("chrome", self.vendor_mode(page=page))
+        self.assertEqual(C.load(self.root).app("chrome").distribution["page"], page)
+
+    def test_direct_must_be_boolean(self):
+        for direct in ("yes", 1, None):
+            with self.subTest(direct=direct):
+                self.edit_app("chrome", self.vendor_mode(direct=direct))
+                self.assertRejected("distribution.direct: must be true or false")
+
+    def test_vendor_only_for_deb(self):
+        self.edit_app("gimp", self.vendor_mode())
+        self.assertRejected("mode vendor needs package kind deb")
+
+    def test_distribution_is_part_of_the_digest(self):
+        before = C.content_digest(self.root)
+        self.edit_app("chrome", self.vendor_mode())
+        self.assertNotEqual(before, C.content_digest(self.root))
+
+
+if __name__ == "__main__":
+    unittest.main()

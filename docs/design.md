@@ -125,6 +125,20 @@ assets/<sha256>.<ext> 图标和截图，按内容寻址（截图来自服务端�
 
 - `source`：`system`（系统仓库）、`official`（官方提供）、`personal`（个人维护）。
 - `package.kind`：`milkyway`（只有 `name`，从系统软件源装）或 `deb`（必须有 `deb`）。`personal` 的应用必须有 `maintainer`（在详情里）。
+- `package.distribution`（可选，只在 `deb` 类出现）：缺省表示商店托管并下发 deb（上面的形状）。值为 `"vendor"` 时商店**不分发**这个 deb（授权禁止分发），`package` 的形状是：
+
+  ```json
+  "package": {
+    "kind": "deb",
+    "name": "obsidian",
+    "distribution": "vendor",
+    "download": { "page": "https://obsidian.md/download", "direct": false },
+    "deb": { "version": "1.8.9", "vendor_url": "https://…/obsidian_1.8.9_amd64.deb",
+             "sha256": "…", "size": 120000000, "installed_size": 400000000 }
+  }
+  ```
+
+  `deb` 里**没有 `url`**，deb 也不在商店的公开存储里；`sha256` 是商店测试过的那个文件，用户从官网下载后可以自己对照。`download.page` 是官网下载页或直链（https）；`download.direct` 为 true 时 `page` 是直接下载链接，客户端优先用 `deb.vendor_url`（随版本更新的真实下载地址），取不到时才用 `page`。客户端对这类应用不调用 helper，直接提示用户去官网下载；helper 收到它们的 `Install`/`Update` 一律拒绝（`vendor-download`）。已装判断、卸载和“可更新”（目录版本比已装版本新）与普通 deb 类一致。
 - `launchable`（可选）：AppStream 的 desktop-id。客户端用它找"打开"和桌面图标要用的 desktop 文件（在 XDG 数据目录的 `applications/` 下找）；没有时退回到 `dpkg -L <package.name>` 里第一个 `/usr/share/applications/*.desktop`。元包（如 trixie 的 `keepassxc` 依赖 `keepassxc-full`）必须填。
 - `featured` 里 `banner: true` 的条目进首页横幅，第一个 `banner: false` 的是"装机必备"。
 

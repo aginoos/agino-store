@@ -95,6 +95,19 @@ class TestStatus(StatusCase):
         self.assertEqual((chrome["description_source"], chrome["description_confirmed"]), ("submitter", None))
         self.assertEqual(chrome["license"], "LicenseRef-proprietary")
 
+    def test_apps_carry_the_distribution(self):
+        page = "https://example.org/download"
+        H.edit_yaml(os.path.join(self.cfg.content, "apps", "chrome", "app.yaml"),
+                    lambda d: dict(d, distribution={"mode": "vendor", "page": page}))
+        apps = {a["id"]: a for a in self.doc("apps")["sections"]["apps"]}
+        self.assertEqual(apps["gimp"]["distribution"], {"mode": "store", "page": "", "direct": False})
+        self.assertEqual(apps["chrome"]["distribution"], {"mode": "vendor", "page": page, "direct": False})
+        H.edit_yaml(os.path.join(self.cfg.content, "apps", "chrome", "app.yaml"),
+                    lambda d: dict(d, distribution={"mode": "vendor", "page": page, "direct": True}))
+        apps = {a["id"]: a for a in self.doc("apps")["sections"]["apps"]}
+        self.assertEqual(apps["chrome"]["distribution"], {"mode": "vendor", "page": page, "direct": True})
+        self.assertEqual(self.doc("apps")["schema"], 3)
+
     def test_categories_section(self):
         doc = self.doc("categories")
         self.assertEqual(list(doc["sections"]), ["categories"])

@@ -292,5 +292,16 @@ class TestAppRules(BuiltCase):
         self.assertRejected("unknown vendor None")
 
 
+class TestBuiltDistribution(BuiltCase):
+    def test_built_app_may_say_store(self):
+        H.edit_yaml(self.path("apps", "tool", "app.yaml"), lambda d: dict(d, distribution={"mode": "store"}))
+        self.assertEqual(C.load(self.root).app("tool").distribution, {"mode": "store"})
+
+    def test_built_app_cannot_be_vendor(self):
+        H.edit_yaml(self.path("apps", "tool", "app.yaml"),
+                    lambda d: dict(d, distribution={"mode": "vendor", "page": "https://example.org/d"}))
+        self.assertRejected("an app built from source must use mode store")
+
+
 if __name__ == "__main__":
     unittest.main()

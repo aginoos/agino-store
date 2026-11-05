@@ -1,7 +1,7 @@
 # `agino-store-server status --json` example
 
 Schema version 3; field reference in `docs/server.md` section 11. All strings are sanitised, output is
-ASCII JSON. Sections not requested (or not implemented yet: `submissions`, `sessions`) are absent. Schema 2 added `upstreams`, `builds` and `builder`; schema 3 added `intake` and the `mode`, `class` and `intake` fields of `builds`. This example is abridged
+ASCII JSON. Sections not requested (or not implemented yet: `submissions`, `sessions`) are absent. Schema 2 added `upstreams`, `builds` and `builder`; schema 3 added `intake` and the `mode`, `class` and `intake` fields of `builds`; the `distribution` object of `apps` (a key added to schema 3) is `{mode: store|vendor, page, direct}`, with `page` empty and `direct` false for mode store. This example is abridged
 (lists have one entry) and pretty-printed; the real output is one line.
 
 ```json
@@ -19,6 +19,7 @@ ASCII JSON. Sections not requested (or not implemented yet: `submissions`, `sess
       "maintainer": null, "launchable": "google-chrome.desktop", "has_icon": true,
       "description_source": "confirmed", "description_confirmed": {"by": "alice", "at": "2026-11-03T08:00:00Z"},
       "l10n": false,
+      "distribution": {"mode": "store", "page": "", "direct": false},
       "shots": {"state": "draft", "scenes": 2, "langs": ["zh_CN", "en_US"],
                 "counts": {"draft": 4, "approved": 0, "rejected": 1}},
       "approved": {"version": "156.0-1", "approved_at": "2026-11-01T08:00:00Z", "by": "alice"},

@@ -230,6 +230,11 @@ def _unchanged(cfg, prev, inputs, current_dir, now):
     return age < datetime.timedelta(hours=cfg.renew_after_hours)
 
 
+def is_vendor(app):
+    """True when the store does not distribute the deb of this app (distribution mode vendor)."""
+    return app.distribution.get("mode") == "vendor"
+
+
 # Catalog documents
 
 def _asset_path(store, app, rel):
@@ -242,10 +247,15 @@ def _asset_path(store, app, rel):
 def _package(cfg, app, info):
     if app.kind == "milkyway":
         return {"kind": "milkyway", "name": app.package}
-    deb = {"version": info["version"], "url": cfg.deb_base_url + "%s/%s" % (info["sha256"], quote(info["filename"], safe="+~")),
-           "vendor_url": info["vendor_url"], "sha256": info["sha256"], "size": info["size"],
-           "installed_size": info["installed_size"]}
-    return {"kind": "deb", "name": app.package, "deb": deb}
+    facts = {"vendor_url": info["vendor_url"], "sha256": info["sha256"], "size": info["size"],
+             "installed_size": info["installed_size"]}
+    if is_vendor(app):   # not distributed by the store: no url, the client sends the user to the vendor
+        dist = app.distribution
+        return {"kind": "deb", "name": app.package, "distribution": "vendor",
+                "download": {"page": dist["page"], "direct": dist["direct"]},
+                "deb": {"version": info["version"], **facts}}
+    url = cfg.deb_base_url + "%s/%s" % (info["sha256"], quote(info["filename"], safe="+~"))
+    return {"kind": "deb", "name": app.package, "deb": {"version": info["version"], "url": url, **facts}}
 
 
 def _summary(cfg, app, info, icon):
@@ -395,6 +405,33 @@ def _link_debs(cfg, facts, included):
         _place_deb(info["path"], os.path.join(directory, info["filename"]), info["sha256"])
 
 
+def withdraw_vendor_debs(cfg, st, content, facts):
+    """Delete the public copies of the debs of apps with distribution mode vendor (switching an app from store
+    to vendor takes it down at once, not after valid_days + 7). Only exact paths preview/debs/<sha256>/<file>
+    named by the app's own candidate records are removed, and never a file a store app publishes.
+    Returns the sorted ids of the apps that had a copy."""
+    vendors = [app for app in content.apps if is_vendor(app)]
+    shared = {info.get("sha256") for app_id, info in facts.items()
+              if not is_vendor(content.app(app_id))}
+    withdrawn = set()
+    for app in vendors:
+        for record in st.candidates(app=app.id):
+            sha, name = record.get("sha256"), os.path.basename(str(record.get("filename", "")))
+            if not SHA256_RE.match(str(sha)) or not DEB_FILE_RE.match(name) or sha in shared:
+                continue
+            directory = os.path.join(cfg.preview, "debs", sha)
+            if os.path.islink(directory) or not os.path.isdir(directory):
+                continue
+            if os.path.lexists(os.path.join(directory, name)):
+                os.unlink(os.path.join(directory, name))
+                withdrawn.add(app.id)
+            try:
+                os.rmdir(directory)
+            except OSError:
+                pass   # not empty: something else lives there, leave it for prune_debs or a human
+    return sorted(withdrawn)
+
+
 def verify_tree(path):
     """Check manifest.json against the files on disk and that every app detail exists."""
     with open(os.path.join(path, "manifest.json"), "rb") as f:
@@ -482,13 +519,15 @@ def build(cfg, st, content, if_changed=False):
     revision = "r%d-%s" % (serial, inputs[:12])
     files, included, dropped = build_files(cfg, st, content, facts, shots, warnings)
     name = "catalog-%d" % serial
-    _publish(cfg, files, serial, revision, name, now, facts, included)
+    stored = [i for i in included if not is_vendor(content.app(i))]   # vendor debs never go to public storage
+    _publish(cfg, files, serial, revision, name, now, facts, stored)
+    withdrawn = withdraw_vendor_debs(cfg, st, content, facts)
     st.save_catalog_state({"serial": serial, "inputs_sha256": inputs, "revision": revision, "apps": len(included),
                            "built_at": now.strftime(cw.TIME_FORMAT)})
     prune(cfg.preview, cfg.keep_catalogs)
     prune_debs(cfg.preview, cfg.valid_days, now)
     return {"serial": serial, "revision": revision, "apps": len(included), "skipped": skipped + dropped,
-            "warnings": warnings, "changed": True, "renewed": renewed}
+            "warnings": warnings, "changed": True, "renewed": renewed, "withdrawn": withdrawn}
 
 
 def _publish(cfg, files, serial, revision, name, now, facts, included):
