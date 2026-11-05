@@ -7,6 +7,7 @@
 #include <QJsonValue>
 #include <QRegularExpression>
 #include <QSet>
+#include <QUrl>
 #include <algorithm>
 #include <cmath>
 #include <utility>
@@ -154,12 +155,15 @@ bool parseSource(const QString &s, Source *out)
     return true;
 }
 
-bool parseDeb(const QJsonObject &o, DebInfo *deb, QString *error)
+// The url is optional for vendor distribution (the store never downloads that deb).
+bool parseDeb(const QJsonObject &o, bool urlRequired, DebInfo *deb, QString *error)
 {
-    if (!readString(o, "version", &deb->version) || deb->version.isEmpty()
-        || !readString(o, "url", &deb->url) || deb->url.isEmpty()
+    const bool urlOk = urlRequired ? (readString(o, "url", &deb->url) && !deb->url.isEmpty())
+                                   : (!o.contains(QStringLiteral("url")) || readString(o, "url", &deb->url));
+    if (!readString(o, "version", &deb->version) || deb->version.isEmpty() || !urlOk
         || !readString(o, "sha256", &deb->sha256)) {
-        setError(error, QStringLiteral("deb needs version, url and sha256"));
+        setError(error, urlRequired ? QStringLiteral("deb needs version, url and sha256")
+                                    : QStringLiteral("deb needs version and sha256"));
         return false;
     }
     if (!isHex64(deb->sha256)) {
@@ -206,6 +210,28 @@ bool parseL10n(const QJsonValue &v, QHash<QString, QStringList> *out)
     return true;
 }
 
+bool parseVendorDownload(const QJsonObject &o, const DebInfo &deb, PackageRef *pkg, QString *error)
+{
+    const QJsonValue download = o.value(QStringLiteral("download"));
+    if (!download.isObject()) {
+        setError(error, QStringLiteral("vendor package without download object"));
+        return false;
+    }
+    const QJsonObject d = download.toObject();
+    const QJsonValue direct = d.value(QStringLiteral("direct"));
+    if (!readString(d, "page", &pkg->downloadPage) || !isHttpsUrl(pkg->downloadPage) || !direct.isBool()) {
+        setError(error, QStringLiteral("vendor download needs an https page and a boolean direct"));
+        return false;
+    }
+    pkg->downloadDirect = direct.toBool();
+    if (pkg->downloadDirect && !deb.vendorUrl.isEmpty() && !isHttpsUrl(deb.vendorUrl)) {
+        setError(error, QStringLiteral("deb vendor_url must be an https URL"));
+        return false;
+    }
+    pkg->distribution = Distribution::Vendor;
+    return true;
+}
+
 bool parsePackage(const QJsonValue &v, PackageRef *pkg, QString *error)
 {
     if (!v.isObject()) {
@@ -228,8 +254,12 @@ bool parsePackage(const QJsonValue &v, PackageRef *pkg, QString *error)
             setError(error, QStringLiteral("package kind deb without deb object"));
             return false;
         }
+        // Anything but "vendor" (including no key) keeps the plain behaviour.
+        const bool vendor = o.value(QStringLiteral("distribution")).toString() == QLatin1String("vendor");
         DebInfo deb;
-        if (!parseDeb(o.value(QStringLiteral("deb")).toObject(), &deb, error))
+        if (!parseDeb(o.value(QStringLiteral("deb")).toObject(), !vendor, &deb, error))
+            return false;
+        if (vendor && !parseVendorDownload(o, deb, pkg, error))
             return false;
         pkg->deb = deb;
         return true;
@@ -709,6 +739,26 @@ QStringList allL10nPackages(const QHash<QString, QStringList> &l10n)
     QStringList out(seen.begin(), seen.end());
     std::sort(out.begin(), out.end());
     return out;
+}
+
+QString PackageRef::downloadUrl() const
+{
+    if (distribution != Distribution::Vendor)
+        return QString();
+    if (downloadDirect && deb && !deb->vendorUrl.isEmpty())
+        return deb->vendorUrl;
+    return downloadPage;
+}
+
+QString distributionToString(Distribution distribution)
+{
+    return distribution == Distribution::Vendor ? QStringLiteral("vendor") : QStringLiteral("store");
+}
+
+bool isHttpsUrl(const QString &text)
+{
+    const QUrl url(text, QUrl::StrictMode);
+    return url.isValid() && url.scheme() == QLatin1String("https") && !url.host().isEmpty();
 }
 
 QString sourceToString(Source source)
