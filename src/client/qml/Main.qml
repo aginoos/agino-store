@@ -176,6 +176,10 @@ D.ApplicationWindow {
         id: confirmDialog
     }
 
+    VendorDialog {
+        id: vendorDialog
+    }
+
     Toast {
         id: toast
         anchors.horizontalCenter: parent.horizontalCenter
@@ -186,6 +190,7 @@ D.ApplicationWindow {
     Connections {
         target: Store
         function onConfirmRequested(request) { confirmDialog.show(request) }
+        function onVendorDownloadRequested(request) { vendorDialog.show(request) }
         function onToast(text) { toast.show(text) }
     }
 }

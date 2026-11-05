@@ -47,6 +47,7 @@ set(AGINO_STORE_QML_FILES
     qml/SettingsRow.qml
     qml/SettingsPage.qml
     qml/ConfirmDialog.qml
+    qml/VendorDialog.qml
     qml/Toast.qml
     qml/UnavailablePage.qml
 )

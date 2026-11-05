@@ -5,10 +5,12 @@
 #include "appsettings.h"
 #include "desktopicons.h"
 
+#include <QDesktopServices>
 #include <QJsonArray>
 #include <QLocale>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QUrl>
 
 using namespace AginoStore;
 
@@ -38,6 +40,14 @@ void Store::requestAction(const QString &appId, const QString &action)
         return;
     if (action != QLatin1String("install") && action != QLatin1String("update") && action != QLatin1String("remove"))
         return;
+    const AppSummary *summary = m_loaded.catalog.app(appId);
+    if (action != QLatin1String("remove") && summary->package.isVendorDistributed()) {
+        // The licence does not allow the store to distribute it: no helper call, just the dialog.
+        emit vendorDownloadRequested(QVariantMap{{QStringLiteral("appIds"), QStringList{appId}},
+                                                 {QStringLiteral("action"), action},
+                                                 {QStringLiteral("name"), app(appId).value(QStringLiteral("name"))}});
+        return;
+    }
     const QString key = pendingKey(appId, action);
     if (m_pending.contains(key))
         return;
@@ -51,7 +61,9 @@ void Store::requestUpdateAll()
         return;
     QStringList ids;
     for (auto it = m_updates.constBegin(); it != m_updates.constEnd(); ++it) {
-        if (m_loaded.catalog.app(it.key()) && !m_tasks.isBusy(it.key()))
+        const AppSummary *summary = m_loaded.catalog.app(it.key());
+        // Vendor-distributed apps are updated from the vendor's website, never in a batch.
+        if (summary && !summary->package.isVendorDistributed() && !m_tasks.isBusy(it.key()))
             ids.append(it.key());
     }
     if (ids.isEmpty())
@@ -138,6 +150,15 @@ void Store::confirmAction(const QVariantMap &request)
         if (m_loaded.catalog.app(id))
             m_helper.run(action, id, options);
     }
+}
+
+bool Store::openVendorDownload(const QString &appId)
+{
+    const AppSummary *summary = m_loaded.catalog.app(appId);
+    if (!summary)
+        return false;
+    const QString url = summary->package.downloadUrl();
+    return isHttpsUrl(url) && QDesktopServices::openUrl(QUrl(url));
 }
 
 void Store::cancelTask(uint jobId)
