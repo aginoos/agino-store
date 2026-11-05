@@ -183,6 +183,120 @@ class TestBuild(CatalogCase):
         self.assertEqual(self.st.catalog_state()["serial"], 2026110201)
 
 
+class TestVendorDistribution(CatalogCase):
+    PAGE = "https://example.org/download"
+    NAME = "google-chrome-stable_2.0-1_amd64.deb"
+
+    def set_distribution(self, value):
+        H.edit_yaml(os.path.join(self.cfg.content, "apps", "chrome", "app.yaml"),
+                    lambda d: {**{k: v for k, v in d.items() if k != "distribution"},
+                               **({"distribution": value} if value else {})})
+
+    def vendor(self, direct=False):
+        self.set_distribution({"mode": "vendor", "page": self.PAGE, "direct": direct})
+
+    def debs_dir(self, *parts):
+        return os.path.join(self.cfg.preview, "debs", *parts)
+
+    def test_store_output_has_no_distribution_keys(self):
+        self.publish_all()
+        self.build()
+        package = self.read("catalog.json")["apps"][0]["package"]
+        self.assertEqual(list(package), ["kind", "name", "deb"])
+        self.assertEqual(list(package["deb"]),
+                         ["version", "url", "vendor_url", "sha256", "size", "installed_size"])
+
+    def test_vendor_package_shape(self):
+        self.publish_all()
+        self.vendor(direct=True)
+        summary = self.build()
+        self.assertEqual(summary["apps"], 2)
+        chrome = self.read("catalog.json")["apps"][0]
+        self.assertEqual(chrome["package"], {
+            "kind": "deb", "name": "google-chrome-stable", "distribution": "vendor",
+            "download": {"page": self.PAGE, "direct": True},
+            "deb": {"version": "2.0-1", "vendor_url": "https://dl.google.com/x.deb", "sha256": DEB_SHA,
+                    "size": 11, "installed_size": 4096}})
+        self.assertNotIn("url", chrome["package"]["deb"])
+
+    def test_vendor_deb_is_not_placed_in_public_storage(self):
+        self.publish_all()
+        self.vendor()
+        self.build()
+        self.assertFalse(os.path.exists(self.debs_dir()) and os.listdir(self.debs_dir()))
+        self.assertTrue(os.path.isfile(os.path.join(self.cfg.downloads, DEB_SHA, self.NAME)))   # the private copy stays
+
+    def test_vendor_app_still_needs_an_approved_checked_deb(self):
+        self.publish_all()
+        self.vendor()
+        self.st.update_candidate(self.st.find_candidate("chrome", "2.0-1"), {"status": "revoked"})
+        self.assertIn("not approved", {s["id"]: s["reason"] for s in self.build()["skipped"]}["chrome"])
+
+    def test_vendor_app_still_needs_the_approved_hash(self):
+        self.publish_all()
+        self.vendor()
+        with open(os.path.join(self.cfg.downloads, DEB_SHA, self.NAME), "wb") as f:
+            f.write(b"y" * 11)
+        self.assertIn("approved sha256", {s["id"]: s["reason"] for s in self.build()["skipped"]}["chrome"])
+
+    def test_switch_to_vendor_removes_the_public_deb_at_once(self):
+        self.publish_all()
+        self.build()
+        self.assertTrue(os.path.isfile(self.debs_dir(DEB_SHA, self.NAME)))
+        self.vendor()
+        summary = self.build()
+        self.assertEqual(summary["withdrawn"], ["chrome"])
+        self.assertFalse(os.path.exists(self.debs_dir(DEB_SHA)))
+        self.assertTrue(os.path.isdir(self.debs_dir()))   # only the exact directory is removed
+        self.assertEqual(self.build(if_changed=True)["changed"], False)
+        self.assertEqual(self.build()["withdrawn"], [])   # nothing left to withdraw
+
+    def test_switch_back_to_store_publishes_the_deb_again(self):
+        self.publish_all()
+        self.vendor()
+        self.build()
+        self.set_distribution(None)
+        summary = self.build()
+        self.assertEqual(summary["withdrawn"], [])
+        self.assertTrue(os.path.isfile(self.debs_dir(DEB_SHA, self.NAME)))
+        self.assertIn("url", self.read("catalog.json")["apps"][0]["package"]["deb"])
+
+    def test_old_versions_of_a_vendor_app_are_withdrawn_too(self):
+        self.publish_all()
+        old_sha = "b" * 64
+        old = H.candidate(version="1.0-1", sha=old_sha, status="superseded")
+        self.st.add_candidate(old)
+        os.makedirs(self.debs_dir(old_sha))
+        H.write(self.debs_dir(old_sha, "google-chrome-stable_1.0-1_amd64.deb"), b"old")
+        self.vendor()
+        self.build()
+        self.assertFalse(os.path.exists(self.debs_dir(old_sha)))
+
+    def test_unknown_files_in_the_directory_stay(self):
+        self.publish_all()
+        self.build()
+        H.write(self.debs_dir(DEB_SHA, "notes.txt"), b"keep")
+        self.vendor()
+        self.build()
+        self.assertFalse(os.path.exists(self.debs_dir(DEB_SHA, self.NAME)))
+        self.assertTrue(os.path.isfile(self.debs_dir(DEB_SHA, "notes.txt")))
+
+    def test_distribution_change_makes_a_new_catalog(self):
+        self.publish_all()
+        first = self.build(if_changed=True)
+        self.vendor()
+        again = self.build(if_changed=True)
+        self.assertTrue(again["changed"])
+        self.assertNotEqual(first["revision"], again["revision"])
+
+    def test_page_change_makes_a_new_catalog(self):
+        self.publish_all()
+        self.vendor()
+        self.build()
+        self.set_distribution({"mode": "vendor", "page": "https://example.org/other", "direct": False})
+        self.assertTrue(self.build(if_changed=True)["changed"])
+
+
 class TestDebVerification(CatalogCase):
     def skipped(self):
         return {s["id"]: s["reason"] for s in self.build()["skipped"]}

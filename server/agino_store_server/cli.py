@@ -552,6 +552,8 @@ def cmd_build(cfg, st, args):
     print("built serial %s, revision %s, %d apps" % (summary["serial"], summary["revision"], summary["apps"]))
     for item in summary["skipped"]:
         print("not published: %s (%s)" % (item["id"], item["reason"]))
+    for app_id in summary.get("withdrawn", ()):
+        print("withdrawn: %s (distribution is vendor; its deb was removed from the public storage)" % app_id)
     for line in summary.get("warnings", ()):
         print("warning: %s" % _clean(line))
     return EXIT_OK
