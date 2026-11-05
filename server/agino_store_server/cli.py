@@ -126,6 +126,7 @@ def _parser():
     p = sub.add_parser("intake-repair", help="ask the AI to adjust the recipe of APP for an upstream version")
     p.add_argument("app")
     p.add_argument("--version", required=True, help="upstream version seen by upstream-check")
+    p.add_argument("--hint", default="", help="one more requirement for the application (kept with the recipe)")
     p.add_argument("--by", required=True, metavar="NAME")
     p = sub.add_parser("intake-adopt", help="accept the recipe of an intake task in review")
     p.add_argument("id")

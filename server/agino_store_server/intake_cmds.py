@@ -35,7 +35,7 @@ def cmd_cancel(cfg, st, args):
 def cmd_repair(cfg, st, args):
     with st.lock():
         loaded = content.load(cfg.content, allow_insecure=cfg.allow_insecure, policy=cfg.build_policy())
-        record = intake.create_repair(cfg, st, loaded, args.app, args.version, args.by)
+        record = intake.create_repair(cfg, st, loaded, args.app, args.version, args.by, hint=args.hint)
     print(record["id"])
     return EXIT_OK
 

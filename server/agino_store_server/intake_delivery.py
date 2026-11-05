@@ -141,7 +141,9 @@ def normalise_recipe(recipe, previous, record=None):
     fields and `requirements`, which are the administrator's words from the submit form (an import) or the ones the
     recipe already had (a repair), never what the agent wrote."""
     out = {k: v for k, v in recipe.items() if k not in ("recipe_version", "derived_from", "requirements")}
-    wanted = (previous.requirements if previous is not None else (record or {}).get("hint") or "").strip()
+    # An import: the form's text. A repair: the text of the task (the recipe's requirements plus a new one), which
+    # for an automatic repair is just the recipe's own.
+    wanted = ((record or {}).get("hint") or (previous.requirements if previous is not None else "")).strip()
     if wanted:
         out["requirements"] = wanted
     if previous is None:

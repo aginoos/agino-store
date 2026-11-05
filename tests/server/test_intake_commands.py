@@ -189,6 +189,22 @@ class TestRepairCommand(IntakeCase):
         rec = self.intake(self.repair("--version", "1.0.0", "--by", "alice")[1].strip())
         self.assertEqual(rec["hint"], "Leave out the plugin.")
 
+    def test_a_repair_adds_a_requirement_to_the_ones_of_the_recipe(self):
+        self.seed_seen()
+        path = os.path.join(self.cfg.content, "apps", "tool", "build.yaml")
+        H.edit_yaml(path, lambda d: dict(d, requirements="Leave out the plugin."))
+        code, out, err = self.repair("--version", "1.0.0", "--hint", "Use --disable-docs.", "--by", "alice")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.intake(out.strip())["hint"], "Leave out the plugin.\nUse --disable-docs.")
+
+    def test_a_repair_requirement_that_does_not_fit_is_refused(self):
+        self.seed_seen()
+        path = os.path.join(self.cfg.content, "apps", "tool", "build.yaml")
+        H.edit_yaml(path, lambda d: dict(d, requirements="x" * 900))
+        code, _, err = self.repair("--version", "1.0.0", "--hint", "y" * 200, "--by", "alice")
+        self.assertEqual(code, 1)
+        self.assertIn("longer than", err)
+
     def test_the_failed_build_is_remembered(self):
         self.seed_seen()
         build_id = self.request()

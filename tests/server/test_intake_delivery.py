@@ -240,6 +240,15 @@ class TestRepairDelivery(DeliveryCase):
         self.assertEqual(checked.recipe_data["requirements"], "Leave out the plugin.")
         self.assertEqual(checked.recipe.requirements, "Leave out the plugin.")
 
+    def test_the_requirements_of_the_task_win_over_the_recipe_ones(self):
+        path = os.path.join(self.cfg.content, "apps", "tool", "build.yaml")
+        H.edit_yaml(path, lambda d: dict(d, requirements="Leave out the plugin."))
+        self.loaded = content.load(self.cfg.content, allow_insecure=True, policy=self.cfg.build_policy())
+        record = dict(self.record("repair"), hint="Leave out the plugin.\nUse --disable-docs.")
+        files = {"recipe.yaml": dump(self.repair_recipe()), "NOTES.md": b"fixed\n"}
+        checked = D.validate(self.cfg, self.st, self.loaded, record, files)
+        self.assertEqual(checked.recipe_data["requirements"], "Leave out the plugin.\nUse --disable-docs.")
+
     def test_the_version_continues_from_the_current_recipe(self):
         path = os.path.join(self.cfg.content, "apps", "tool", "build.yaml")
         H.edit_yaml(path, lambda d: dict(d, recipe_version=4))

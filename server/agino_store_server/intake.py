@@ -159,11 +159,14 @@ def latest_failed_build(st, app, version):
     return found[-1] if found else None
 
 
-def create_repair(cfg, st, content, app, version, by, now=None, failed_task=None):
+def create_repair(cfg, st, content, app, version, by, now=None, failed_task=None, hint=""):
     """A repair task for the recipe of `app` at upstream `version` (needs upstreams/<app>.yaml, a recipe and a
-    version seen by upstream-check). Raises IntakeError; callers hold the state lock. Returns the record."""
+    version seen by upstream-check). `hint` is one more requirement of the administrator: it is added to the ones the
+    recipe already has and is kept with the recipe when the repair is adopted. Raises IntakeError; callers hold the
+    state lock. Returns the record."""
     builds.check_by(by)
     builds.check_version(version)
+    extra = check_hint(hint)
     up, recipe = content.upstream(app), content.recipe(app)
     if up is None or recipe is None:
         raise IntakeError("%s has no upstream tracking or no build recipe" % app)
@@ -176,7 +179,12 @@ def create_repair(cfg, st, content, app, version, by, now=None, failed_task=None
     _check_capacity(cfg, st)
     failed = failed_task or latest_failed_build(st, app, version)
     repair_of = {"app": app, "version": version, "failed_task": failed["id"] if failed else None}
-    record = new_record(st, "repair", up.repo, recipe.requirements or "", check_agent(cfg, None), [], by, now or debinfo.utc_now(), repair_of)
+    requirements = recipe.requirements or ""
+    if extra and extra not in requirements:
+        requirements = (requirements + "\n" + extra).strip()
+    if len(requirements) > MAX_HINT:
+        raise IntakeError("the requirements of %s would be longer than %d characters" % (app, MAX_HINT))
+    record = new_record(st, "repair", up.repo, requirements, check_agent(cfg, None), [], by, now or debinfo.utc_now(), repair_of)
     st.save_intake(record)
     return record
 
