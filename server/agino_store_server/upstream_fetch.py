@@ -12,6 +12,7 @@ import dataclasses
 import os
 import re
 import shutil
+import signal
 import tarfile
 import urllib.parse
 
@@ -45,6 +46,10 @@ class UpstreamError(Exception):
     """
 
     klass = "infra"
+
+
+class TooLarge(UpstreamError):
+    """What was asked for is bigger than the size limit of this fetch (not a failure of the network or the host)."""
 
 
 class RecipeSourceError(UpstreamError):
@@ -87,11 +92,33 @@ def _git(cfg, args, cwd, home, timeout, max_stdout=1 << 16, fsize=1 << 20):
                                 cwd=cwd, fsize=fsize)
     except debinfo.DebError as e:
         raise UpstreamError("git %s: %s" % (args[0], _clean(e))) from e
+    if proc.returncode == -signal.SIGXFSZ:    # the file size limit (fsize) stopped git: the output is too big
+        raise TooLarge("git %s: the output is larger than the limit" % args[0])
     if proc.returncode != 0:
         lines = proc.stderr.decode("utf-8", "replace").splitlines()
         detail = _clean(lines[-1]) if lines else ""
+        if _hit_size_limit(cwd, fsize):
+            raise TooLarge("git %s: the repository is larger than the limit" % args[0])
         raise UpstreamError("git %s failed (exit %d)%s" % (args[0], proc.returncode, ": " + detail if detail else ""))
     return proc.stdout.decode("utf-8", "replace")
+
+
+def _hit_size_limit(cwd, fsize):
+    """True when a pack file git left in `cwd` is as big as the file size limit it ran under: git's child process
+    (index-pack) was stopped by SIGXFSZ and git itself only reports "index-pack failed" (exit 128). The size of the
+    leftover file is the evidence; the wording of the message is not used."""
+    pack_dir = os.path.join(cwd, ".git", "objects", "pack")
+    try:
+        names = os.listdir(pack_dir)
+    except OSError:
+        return False
+    for name in names:
+        try:
+            if os.lstat(os.path.join(pack_dir, name)).st_size >= fsize:
+                return True
+        except OSError:
+            continue
+    return False
 
 
 def check_repo(cfg, repo):
@@ -290,7 +317,7 @@ def _scan(tar, max_bytes):
     for m in tar:
         count += 1
         if count > MAX_MEMBERS:
-            raise UpstreamError("the source archive has too many entries")
+            raise TooLarge("the source archive has too many entries")
         name = _member_name(m.name)
         if name is None:
             continue
@@ -309,7 +336,7 @@ def _scan(tar, max_bytes):
         else:
             raise UpstreamError("special file or hard link in the source archive: %s" % _clean(name))
         if total > max_bytes:
-            raise UpstreamError("the source exceeds the size limit")
+            raise TooLarge("the source exceeds the size limit")
     _check_tree(entries)
     return entries
 
@@ -372,7 +399,7 @@ def normalise_tar(src, dst, max_bytes, strip_top=False):
     except (tarfile.TarError, EOFError, OSError, UnicodeError, ValueError) as e:
         raise UpstreamError("the source archive is not usable (%s)" % type(e).__name__) from e
     if os.path.getsize(dst) > max_bytes:
-        raise UpstreamError("the source exceeds the size limit")
+        raise TooLarge("the source exceeds the size limit")
     return written
 
 

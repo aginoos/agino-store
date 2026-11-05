@@ -174,6 +174,30 @@ class TestInputs(IntakeCase):
         self.assertIn("symbolic links are not included", files["inputs/MATERIALS.txt"])
 
     @unittest.skipUnless(GIT, "git not available")
+    def test_a_repository_too_big_for_the_reading_material_is_not_a_reason_to_refuse(self):
+        # Reading material only: the agent can clone it itself through the proxy, so the task goes on without repo/.
+        repo = os.path.join(self._tmp.name, "bigtool-repo")
+        B.make_repo(repo, {"README": b"hello\n", "assets/blob.bin": os.urandom(9 << 20)}, tags=("v1.0.0",))
+        shutil.move(repo, repo + ".git")
+        address = "file://" + repo + ".git"
+        intake_id = self.new_task(address)
+        self.step()
+        self.assertEqual(self.intake(intake_id)["status"], "ready")   # fetched, the AI task is queued
+        files = self.inputs(intake_id)
+        self.assertFalse([n for n in files if n.startswith("inputs/repo/")])
+        notes = files["inputs/MATERIALS.txt"]
+        self.assertIn("repo/: not included", notes)
+        self.assertIn("larger than the 8 MiB", notes)
+        self.assertIn(address, notes)
+
+    def test_a_repository_that_cannot_be_read_still_fails_the_task(self):
+        intake_id = self.new_task("file://" + os.path.join(self._tmp.name, "nowhere.git"))
+        self.step(expect=1)
+        rec = self.intake(intake_id)
+        self.assertEqual(rec["status"], "failed")
+        self.assertIn("cannot read the repository", rec["error"])
+
+    @unittest.skipUnless(GIT, "git not available")
     def test_a_repair_gets_the_recipe_the_log_and_the_repository_at_the_failing_tag(self):
         self.seed_seen()
         build_id = self.request()

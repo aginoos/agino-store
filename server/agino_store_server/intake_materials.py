@@ -292,6 +292,12 @@ def build_inputs(cfg, st, record, loaded):
                 try:
                     repo_tar, note = _repo_part(limited, record["address"], None, None, work, budget)
                     notes.append(note)
+                except upstream_fetch.TooLarge:
+                    # The copy is only reading material. The agent can clone the repository itself through the
+                    # forwarding proxy, so a big repository is no reason to refuse the task.
+                    notes.append("repo/: not included, the repository is larger than the %d MiB of reading material; "
+                                 "clone it yourself from %s (git over https is allowed through the proxy)"
+                                 % (cfg.intake_max_inputs_mib, record["address"]))
                 except UpstreamError as e:
                     raise MaterialError("cannot read the repository: %s" % debinfo.clean_text(e)) from e
         texts["categories.txt"] = _categories_text(loaded)
