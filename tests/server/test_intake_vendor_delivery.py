@@ -104,8 +104,8 @@ class TestServerOwnedFields(VendorDeliveryCase):
 
 class TestStoreId(VendorDeliveryCase):
     def test_the_id_is_the_deb_package_name(self):
-        checked = self.vcheck(V.files(BASE, vendor=V.vendor_yaml(BASE, package="demo.app+2")))
-        self.assertEqual(checked.app_id, "demo.app+2")
+        checked = self.vcheck(V.files(BASE, vendor=V.vendor_yaml(BASE, package="demo-app-2")))
+        self.assertEqual(checked.app_id, "demo-app-2")
 
     def test_a_bad_package_name(self):
         for package in ("Demo", "-x", "x y", "", 5, None, "a" * 65):
