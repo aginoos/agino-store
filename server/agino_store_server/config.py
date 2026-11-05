@@ -52,6 +52,7 @@ class Config:
     milkyway_fingerprints: tuple = ()
     sign_command: tuple = ()
     sandbox_queue: str = DEFAULT_SANDBOX_QUEUE
+    kick_dir: str | None = None                    # [paths] kick: see kick.py; unset = no kicks (tests)
     shots_out: str = DEFAULT_SHOTS_OUT
     sandbox_state: str = DEFAULT_SANDBOX_STATE   # read only by `status`
     screenshots: str = DEFAULT_SCREENSHOTS       # screenshot directory (docs/server.md section 12)
@@ -231,6 +232,7 @@ def load(path=DEFAULT_PATH):
         milkyway_fingerprints=tuple((_opt(cp, "milkyway", "fingerprints") or "").split()),
         sign_command=_sign_command(_opt(cp, "catalog", "sign_command")),
         sandbox_queue=_opt(cp, "paths", "sandbox_queue") or DEFAULT_SANDBOX_QUEUE,
+        kick_dir=_opt(cp, "paths", "kick"),
         shots_out=_opt(cp, "paths", "shots_out") or DEFAULT_SHOTS_OUT,
         sandbox_state=_opt(cp, "paths", "sandbox_state") or DEFAULT_SANDBOX_STATE,
         screenshots=_opt(cp, "paths", "screenshots") or DEFAULT_SCREENSHOTS,

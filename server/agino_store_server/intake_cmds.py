@@ -7,7 +7,7 @@ import contextlib
 import re
 import time
 
-from . import content, intake, intake_adopt, intake_step
+from . import content, intake, intake_adopt, intake_step, kick
 from .state import StateLocked
 
 EXIT_OK, EXIT_PROBLEM = 0, 1
@@ -21,6 +21,7 @@ def _clean(value):
 def cmd_submit(cfg, st, args):
     with st.lock():
         record = intake.submit(cfg, st, args.address, args.hint, args.agent, args.allow_host, args.by)
+    kick.kick(cfg, "intake")
     print(record["id"])
     return EXIT_OK
 
@@ -36,6 +37,7 @@ def cmd_repair(cfg, st, args):
     with st.lock():
         loaded = content.load(cfg.content, allow_insecure=cfg.allow_insecure, policy=cfg.build_policy())
         record = intake.create_repair(cfg, st, loaded, args.app, args.version, args.by, hint=args.hint)
+    kick.kick(cfg, "intake")
     print(record["id"])
     return EXIT_OK
 
@@ -43,6 +45,8 @@ def cmd_repair(cfg, st, args):
 def cmd_adopt(cfg, st, args):
     with st.lock():
         lines, ok = intake_adopt.adopt(cfg, st, args.id, args.by, auto_task=args.auto_task)
+    kick.kick(cfg, "build")   # a repair requests a build
+    kick.kick(cfg, "queue")   # an import makes a candidate that wants its sandbox check
     for line in lines:
         print(_clean(line))
     return EXIT_OK if ok else EXIT_PROBLEM
@@ -58,4 +62,6 @@ def cmd_step(cfg, st, args):
         report = intake_step.step(cfg, st, time.time())
     for line in report.lines:
         print(_clean(line))
+    if report.lines:
+        kick.kick(cfg, "build")   # it may have queued a build; the lock is released already
     return EXIT_PROBLEM if report.failed else EXIT_OK

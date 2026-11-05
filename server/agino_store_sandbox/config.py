@@ -102,6 +102,9 @@ BUILDER_DEFAULTS = {
     "apt_source": "http://51.38.63.36:8080/ milkyway main",
     "queue": "/srv/store/build-queue",
     "out": "/srv/store/build-out",
+    # Directory for kick files (the server's `[paths] kick`): a finished task writes `build` there so that the
+    # server collects the result at once. "" = no kicks; the server's timer still collects it.
+    "kick": "",
     "max_concurrent": "1",
     "limits": "cpu_minutes=90 memory_gib=8 disk_gib=20",
     "max_source_mib": "512",
@@ -193,6 +196,7 @@ class BuilderConfig:
     apt_source: str = BUILDER_DEFAULTS["apt_source"]
     queue: str = BUILDER_DEFAULTS["queue"]
     out: str = BUILDER_DEFAULTS["out"]
+    kick: str = ""
     max_concurrent: int = 1
     limits: BuildLimits = BuildLimits()
     max_source_mib: int = 512
@@ -233,7 +237,7 @@ def builder_from_dict(values):
     unknown = set(merged) - set(BUILDER_DEFAULTS)
     if unknown:
         raise SandboxError("unknown [builder] keys: %s" % ", ".join(sorted(unknown)))
-    out = {k: merged[k] for k in ("base", "base_vars", "apt_source", "queue", "out")}
+    out = {k: merged[k] for k in ("base", "base_vars", "apt_source", "queue", "out", "kick")}
     for key, (low, high) in BUILDER_INT_RANGES.items():
         try:
             n = int(merged[key])
@@ -242,7 +246,9 @@ def builder_from_dict(values):
         if not low <= n <= high:
             raise SandboxError("config [builder] %s must be between %d and %d" % (key, low, high))
         out[key] = n
-    for key in ("base", "base_vars", "queue", "out"):
+    for key in ("base", "base_vars", "queue", "out", "kick"):
+        if key == "kick" and not out[key]:
+            continue
         if not out[key].startswith("/") or "," in out[key]:
             raise SandboxError("config [builder] %s must be an absolute path without a comma" % key)
     if not APT_SOURCE_RE.match(out["apt_source"]):

@@ -103,6 +103,20 @@ class BuildDaemon:
             found.append((times[0], name))
         return [name for _, name in sorted(found)]
 
+    def _kick(self):
+        """Tell the server that a task ended (best effort: its timer collects the result anyway)."""
+        directory = self.bcfg.kick
+        if not directory or not os.path.isdir(directory):
+            return
+        try:
+            fd = os.open(os.path.join(directory, "build"), os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o660)
+            try:
+                os.write(fd, b"1")
+            finally:
+                os.close(fd)
+        except OSError as e:
+            log("cannot kick the server: %s (its timer will collect the result)" % e.strerror)
+
     def _record(self, task_id, state, error):
         """Terminal record for a task that never ran (invalid, cancelled before the start, orphan)."""
         out = OutDir(self.bcfg.out, task_id, self.bcfg.max_log_mib << 20)
@@ -118,6 +132,7 @@ class BuildDaemon:
             out.close()
         if state != "cancelled":
             self.outcomes.append(state)
+        self._kick()
 
     def _start(self, task_id):
         if os.path.lexists(os.path.join(self.bcfg.queue, task_id, CANCEL_FILE)):
@@ -153,6 +168,7 @@ class BuildDaemon:
                 status = read_status(self.bcfg.out, task_id)
                 if not status or status.get("state") not in TERMINAL_STATES:
                     self.skip.add(task_id)  # no terminal record exists; never start it again in this process
+                self._kick()
 
     def _cancels(self):
         for job, _thread, _slot in list(self.active.values()):

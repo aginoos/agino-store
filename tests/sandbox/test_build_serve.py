@@ -192,6 +192,37 @@ class RunTests(ServeCase):
         self.daemon().run()
         self.assertIn("cpu_minutes", self.result(IDS[0])["error"])
 
+    def test_a_finished_task_kicks_the_server_when_a_directory_is_set(self):
+        kicks = os.path.join(self.tmp.name, "kicks")
+        os.makedirs(kicks)
+        cfg = self.cfg(kick=kicks)
+        write_task(cfg, IDS[0])
+        self.assertEqual(self.daemon().run(), 0)
+        self.assertEqual(self.status(IDS[0])["state"], "done")
+        self.assertTrue(os.path.isfile(os.path.join(kicks, "build")))
+
+    def test_a_task_that_never_ran_kicks_too(self):
+        kicks = os.path.join(self.tmp.name, "kicks")
+        os.makedirs(kicks)
+        cfg = self.cfg(kick=kicks)
+        base = write_task(cfg, IDS[0])
+        open(os.path.join(base, "cancel"), "w").close()
+        self.daemon().run()
+        self.assertTrue(os.path.isfile(os.path.join(kicks, "build")))
+
+    def test_no_kick_without_a_directory_or_when_it_is_missing(self):
+        cfg = self.cfg()
+        write_task(cfg, IDS[0])
+        self.assertEqual(self.daemon().run(), 0)        # kick = "" : nothing to do, nothing breaks
+        cfg = self.cfg(kick=os.path.join(self.tmp.name, "absent"))
+        write_task(cfg, IDS[1])
+        self.assertEqual(self.daemon().run(), 0)
+        self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "absent")))
+
+    def test_kick_must_be_an_absolute_path(self):
+        with self.assertRaises(SandboxError):
+            self.cfg(kick="relative/dir")
+
     def test_cancel_before_the_start(self):
         cfg = self.cfg()
         base = write_task(cfg, IDS[0])

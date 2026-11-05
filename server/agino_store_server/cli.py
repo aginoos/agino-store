@@ -18,7 +18,7 @@ import sys
 import tempfile
 import time
 
-from . import (approve_rules, build_step, builds, catalog, catalogwriter, config, content, content_edit, intake,
+from . import (approve_rules, build_step, builds, catalog, catalogwriter, config, content, content_edit, intake, kick,
                intake_cmds, metrics_builds, reports, sandboxqueue, shots_cmds, shots_import, shots_session,
                shots_store, shotsreq, status, upstreams)
 from .state import ID_RE, VERSION_RE, State, StateError, StateLocked
@@ -230,6 +230,7 @@ def cmd_build_request(cfg, st, args):
         raise UsageError("bad app id: %r" % args.app)
     with st.lock():
         record = builds.request(cfg, st, _load_content(cfg), args.app, args.version, args.by)
+    kick.kick(cfg, "build")
     print(record["id"])
     return EXIT_OK
 
@@ -251,6 +252,8 @@ def cmd_build_step(cfg, st, args):
         report = build_step.step(cfg, st, time.time())
     for line in report.lines:
         print(_clean(line))
+    if report.lines:
+        kick.kick(cfg, "intake")   # a result may be waiting for intake-step; the lock is released already
     return EXIT_PROBLEM if report.failed else EXIT_OK
 
 
@@ -494,6 +497,10 @@ def cmd_sandbox_queue(cfg, st, args):
             return EXIT_PROBLEM
     for line in messages:
         print(_clean(line))
+    # Only a job that was added or changed is news for the sandbox runner. The other lines ("removed …",
+    # "skipped shots …" that repeats on every run) are not: kicking for them would make the stages kick each other.
+    if any(line.startswith(("queued ", "updated ")) for line in messages):
+        kick.kick(cfg, "sandbox")
     return EXIT_OK
 
 
