@@ -28,6 +28,12 @@ def _approval(entry):
     return {"version": entry.get("version"), "approved_at": entry.get("approved_at"), "by": entry.get("by")}
 
 
+def _distribution(app):
+    """{mode, page, direct} with the defaults filled in (store: empty page, direct false)."""
+    dist = app.distribution
+    return {"mode": dist.get("mode", "store"), "page": dist.get("page") or "", "direct": bool(dist.get("direct"))}
+
+
 def app_entry(app, shots, approved, newest):
     return {
         "id": app.id, "name": dict(app.name), "summary": dict(app.summary),
@@ -39,7 +45,7 @@ def app_entry(app, shots, approved, newest):
         "launchable": app.launchable, "has_icon": bool(app.icon),
         "description_source": app.description_source or DEFAULT_SOURCE,
         "description_confirmed": dict(app.description_confirmed) if app.description_confirmed else None,
-        "l10n": bool(app.l10n), "shots": shots,
+        "l10n": bool(app.l10n), "distribution": _distribution(app), "shots": shots,
         "approved": _approval(approved), "current_candidate_status": newest,
     }
 
