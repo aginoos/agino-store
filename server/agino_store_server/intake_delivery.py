@@ -10,13 +10,17 @@ keys): whatever the agent wrote there is replaced.
 """
 
 import dataclasses
+import hashlib
 import io
+import json
 import os
 import re
 import shutil
+import stat
 import struct
 import tarfile
 import tempfile
+import urllib.parse
 import zlib
 
 import yaml
@@ -25,13 +29,16 @@ from . import buildcfg, build_collect, builds, content, content_builds, debinfo,
 from .intake_materials import clean_block
 
 DELIVERY_DIR = "delivery"
-TEXT_FILES = ("recipe.yaml", "app.yaml", "upstream.yaml", "shots.yaml", "NOTES.md")
+TEXT_FILES = ("recipe.yaml", "app.yaml", "upstream.yaml", "vendor.yaml", "shots.yaml", "NOTES.md")
+AI_DEB_FILE = "ai-deb.json"   # name and sha256 of the deb the agent delivered with a vendor.yaml
 MAX_TEXT = build_collect.AI_MAX_TEXT_BYTES
 DEMO_TAR = build_collect.AI_DEMO_TAR
 MAX_DEMO_TAR = build_collect.AI_MAX_DEMO_BYTES
 MAX_YAML_EVENTS = 50_000
 MAINTAINER = {"name": "agino app store", "contact": "store@aginoos.com"}
-APP_DROP = ("icon", "screenshots", "maintainer", "description_source", "description_confirmed")
+APP_DROP = ("icon", "screenshots", "maintainer", "description_source", "description_confirmed", "distribution")
+TRACK_TYPES = ("json", "page", "redirect", "head")   # what an agent may use in vendor.yaml (never apt)
+MAX_AI_DEB_RECORD = 4096
 SETUID_RE = re.compile(r"\bchmod\b[^;&|\n]*(?:[ugoa]*[+=][rwxXt]*s|\b[2467][0-7]{3}\b)")
 AGINO_SUFFIX_RE = re.compile(r"\+agino[0-9]+\Z")
 
@@ -58,6 +65,12 @@ class Checked:
     repo: str | None
     shots_data: dict | None = None   # an import's shots.yaml (scenes; no promo images)
     demo_files: dict | None = None   # {"demo/<tree>/<path>": bytes} from the agent's demo.tar, checked member by member
+    vendor_data: dict | None = None  # vendor path: the vendor.yaml to commit (fetch forced to auto)
+    tracking: dict | None = None     # vendor path: the same, as content.tracking_view parsed it (for the trial run)
+
+    @property
+    def is_vendor(self):
+        return self.vendor_data is not None
 
 
 # Reading
@@ -75,9 +88,29 @@ def _read(path, limit):
         return f.read(limit)
 
 
+def _file_digest(path, limit):
+    """(sha256, size) of a regular file of at most `limit` bytes, read without following links; None otherwise."""
+    try:
+        if os.path.islink(os.path.dirname(path)):
+            return None
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError:
+        return None
+    with os.fdopen(fd, "rb") as f:
+        info = os.fstat(f.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_size > limit:
+            return None
+        digest = hashlib.sha256()
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            digest.update(chunk)
+        return digest.hexdigest(), info.st_size
+
+
 def read_delivery(cfg, st, intake_id, ai_record):
     """{name: bytes} of the delivered text files (and the deb under 'deb', when there is one), and a copy of the
-    text files in state/intake/<id>/delivery/ for the review and for adoption."""
+    text files in state/intake/<id>/delivery/ for the review and for adoption. With a vendor.yaml the name and
+    sha256 of the agent's own deb are kept there too (ai-deb.json): the trial run compares it with the file the
+    server fetches itself."""
     files = {}
     directory = os.path.join(builds.out_dir(cfg, ai_record["id"]), build_collect.AI_DIR)
     for name in ai_record.get("ai_files") or []:
@@ -98,6 +131,11 @@ def read_delivery(cfg, st, intake_id, ai_record):
         if name != "deb":
             with open(os.path.join(target, name), "wb") as f:
                 f.write(data)
+    if "vendor.yaml" in files and files.get("deb"):
+        digest = _file_digest(os.path.join(directory, files["deb"]), min(cfg.builds_max_artifact_mib << 20, cfg.max_deb_bytes))
+        if digest is not None:
+            with open(os.path.join(target, AI_DEB_FILE), "w", encoding="utf-8") as f:
+                json.dump({"name": files["deb"], "sha256": digest[0], "size": digest[1]}, f)
     return files
 
 
@@ -113,6 +151,19 @@ def load_snapshot(st, intake_id):
     if data is not None:
         out[DEMO_TAR] = data
     return out
+
+
+def load_ai_deb(st, intake_id):
+    """{name, sha256, size} of the agent's own deb saved by read_delivery, or None."""
+    data = _read(os.path.join(st.intake_dir(intake_id), DELIVERY_DIR, AI_DEB_FILE), MAX_AI_DEB_RECORD)
+    try:
+        value = json.loads(data) if data else None
+    except ValueError:
+        return None
+    if not isinstance(value, dict) or not isinstance(value.get("name"), str) \
+            or not re.fullmatch(r"[0-9a-f]{64}", str(value.get("sha256"))):
+        return None
+    return {"name": value["name"][:200], "sha256": value["sha256"], "size": value.get("size")}
 
 
 # Parsing
@@ -267,10 +318,29 @@ def extract_demo(data, app_id, loaded_root):
     return files
 
 
-def _build_trial(root, loaded, kind, app_id, recipe, app, upstream, shots=None, demo_files=None):
+def _write_new_app(root, app_dir, app, shots, demo_files):
+    """apps/<id>/ of a new application in a trial tree: app.yaml, a placeholder icon, scenes and demo data."""
+    os.makedirs(app_dir)
+    _write_yaml(os.path.join(app_dir, "app.yaml"), app)
+    with open(os.path.join(app_dir, "icon.png"), "wb") as f:
+        f.write(placeholder_icon())
+    if shots is not None:
+        _write_yaml(os.path.join(app_dir, "shots.yaml"), shots)
+    for rel, body in (demo_files or {}).items():
+        path = os.path.join(root, *rel.split("/"))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(body)
+
+
+def _write_base(root, loaded):
     shutil.copyfile(os.path.join(loaded.root, "categories.yaml"), os.path.join(root, "categories.yaml"))
     with open(os.path.join(root, "featured.yaml"), "w", encoding="utf-8") as f:
         f.write("[]\n")
+
+
+def _build_trial(root, loaded, kind, app_id, recipe, app, upstream, shots=None, demo_files=None):
+    _write_base(root, loaded)
     app_dir = os.path.join(root, "apps", app_id)
     if kind == "repair":
         shutil.copytree(os.path.join(loaded.root, "apps", app_id), app_dir, symlinks=True)
@@ -279,19 +349,9 @@ def _build_trial(root, loaded, kind, app_id, recipe, app, upstream, shots=None, 
             os.makedirs(os.path.join(root, "upstreams"), exist_ok=True)
             shutil.copyfile(source, os.path.join(root, "upstreams", app_id + ".yaml"))
     else:
-        os.makedirs(app_dir)
-        _write_yaml(os.path.join(app_dir, "app.yaml"), app)
-        with open(os.path.join(app_dir, "icon.png"), "wb") as f:
-            f.write(placeholder_icon())
+        _write_new_app(root, app_dir, app, shots, demo_files)
         if upstream is not None:
             _write_yaml(os.path.join(root, "upstreams", app_id + ".yaml"), upstream)
-        if shots is not None:
-            _write_yaml(os.path.join(app_dir, "shots.yaml"), shots)
-        for rel, body in (demo_files or {}).items():
-            path = os.path.join(root, *rel.split("/"))
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            with open(path, "wb") as f:
-                f.write(body)
     _write_yaml(os.path.join(app_dir, "build.yaml"), recipe)
 
 
@@ -330,15 +390,21 @@ def _shots_rules(shots, trees=()):
     return errors
 
 
-def _trial_load(cfg, record, loaded, kind, app_id, recipe, app, upstream, shots=None, demo_files=None):
+def _load_trial(cfg, record, build):
+    """content.load of a temporary tree that `build(root)` fills in."""
     with tempfile.TemporaryDirectory(prefix="agino-intake-") as root:
         try:
-            _build_trial(root, loaded, kind, app_id, recipe, app, upstream, shots, demo_files)
+            build(root)
             return content.load(root, allow_insecure=cfg.allow_insecure, policy=_policy(cfg, record))
         except content.ContentError as e:
             raise DeliveryError(list(e.errors)[:30]) from e
         except OSError as e:
             raise DeliveryError("cannot set up the trial content tree: %s" % e.strerror) from e
+
+
+def _trial_load(cfg, record, loaded, kind, app_id, recipe, app, upstream, shots=None, demo_files=None):
+    return _load_trial(cfg, record, lambda root: _build_trial(root, loaded, kind, app_id, recipe, app, upstream,
+                                                              shots, demo_files))
 
 
 # Validation
@@ -367,16 +433,43 @@ def _deb_version(cfg, ai_record, name):
     return version if content_builds.UPSTREAM_VERSION_RE.match(version) else None
 
 
+def _scenes(loaded, app_id, files):
+    """(shots, demo_files, errors) of an import's shots.yaml and demo.tar."""
+    errors, shots, demo_files = [], None, None
+    if DEMO_TAR in files and "shots.yaml" not in files:
+        errors.append("demo.tar: it is only used by the scenes of shots.yaml; deliver shots.yaml or leave demo.tar out")
+    if "shots.yaml" in files:
+        shots = safe_yaml("shots.yaml", files["shots.yaml"])
+        trees = set()
+        if DEMO_TAR in files:
+            try:
+                demo_files = extract_demo(files[DEMO_TAR], app_id, loaded.root)
+            except DeliveryError as e:
+                errors.extend(e.messages)
+            else:
+                trees = {rel.split("/")[1] for rel in demo_files}
+        errors.extend(_shots_rules(shots, trees))
+    return shots, demo_files, errors
+
+
 def validate(cfg, st, loaded, record, files, ai_record=None, pinned=None):
     """Check a delivery; returns Checked or raises DeliveryError.
 
     `files` is {name: bytes} (read_delivery / load_snapshot). `pinned` ({version, tag, commit}) is the version
     chosen when the delivery was first checked (adoption does not look again); `ai_record` is only needed to
-    read the version of the agent's own deb when there is no tracking file.
+    read the version of the agent's own deb when there is no tracking file. A delivery is either a recipe
+    (repackaging) or a vendor.yaml (the vendor's own deb, tracked by the server): never both.
     """
-    if "recipe.yaml" not in files:
-        raise DeliveryError("recipe.yaml is missing")
     kind = record["kind"]
+    if "recipe.yaml" in files and "vendor.yaml" in files:
+        raise DeliveryError("deliver either recipe.yaml (a repackaged application) or vendor.yaml (the vendor's own "
+                            "deb, tracked by the server), not both")
+    if "vendor.yaml" in files:
+        if kind != "import":
+            raise DeliveryError("a repair delivers recipe.yaml, not vendor.yaml")
+        return validate_vendor(cfg, loaded, record, files)
+    if "recipe.yaml" not in files:
+        raise DeliveryError("recipe.yaml is missing (deliver recipe.yaml, or vendor.yaml for the vendor's own deb)")
     recipe_in = safe_yaml("recipe.yaml", files["recipe.yaml"])
     errors = _hard_rules(recipe_in)
     if kind == "repair":
@@ -396,19 +489,9 @@ def validate(cfg, st, loaded, record, files, ai_record=None, pinned=None):
             raise DeliveryError("the store id %r is already used by another application; choose another" % app_id)
         previous, app, upstream = None, normalise_app(app_in), (normalise_upstream(up_in, app_id) if up_in else None)
     shots, demo_files = None, None
-    if kind == "import" and DEMO_TAR in files and "shots.yaml" not in files:
-        errors = errors + ["demo.tar: it is only used by the scenes of shots.yaml; deliver shots.yaml or leave demo.tar out"]
-    if kind == "import" and "shots.yaml" in files:
-        shots = safe_yaml("shots.yaml", files["shots.yaml"])
-        trees = set()
-        if DEMO_TAR in files:
-            try:
-                demo_files = extract_demo(files[DEMO_TAR], app_id, loaded.root)
-            except DeliveryError as e:
-                errors = errors + e.messages
-            else:
-                trees = {rel.split("/")[1] for rel in demo_files}
-        errors = errors + _shots_rules(shots, trees)
+    if kind == "import":
+        shots, demo_files, scene_errors = _scenes(loaded, app_id, files)
+        errors = errors + scene_errors
     recipe = normalise_recipe(recipe_in, previous, record)
     try:
         trial = _trial_load(cfg, record, loaded, kind, app_id, recipe, app, upstream, shots, demo_files)
@@ -422,6 +505,108 @@ def validate(cfg, st, loaded, record, files, ai_record=None, pinned=None):
     version, tag, commit, repo = _version(cfg, st, record, trial, app_id, ai_record, files, pinned)
     return Checked(app_id, recipe, app, upstream, clean_block(files.get("NOTES.md", b"").decode("utf-8", "replace")),
                    parsed, version, tag, commit, repo, shots, demo_files)
+
+
+# The vendor path: vendor.yaml instead of a recipe (docs/server.md 15.8)
+
+def approved_hosts(cfg, record):
+    """The hosts a vendor.yaml may name: [upstream] allowed_hosts, the task's allow_hosts and the submitted address."""
+    hosts = {h.lower() for h in cfg.upstream_allowed_hosts} | {h.lower() for h in record.get("allow_hosts") or ()}
+    try:
+        host = urllib.parse.urlsplit(record.get("address") or "").hostname
+    except ValueError:
+        host = None
+    if host:
+        hosts.add(host.lower())
+    return hosts
+
+
+def _vendor_rules(cfg, record, vendor):
+    """Rules beyond the schema for the vendor.yaml an agent delivers; messages for the agent."""
+    errors = []
+    track = vendor.get("track")
+    kind = track.get("type") if isinstance(track, dict) else None
+    if kind == "apt":
+        errors.append("vendor.yaml: track.type apt is not allowed (it needs the vendor's signing key, which a person "
+                      "sets up); use json, page, redirect or head")
+    elif isinstance(track, dict) and kind not in TRACK_TYPES:
+        errors.append("vendor.yaml: track.type must be one of %s" % ", ".join(TRACK_TYPES))
+    if isinstance(track, dict) and "keys" in track:
+        errors.append("vendor.yaml: track.keys is not allowed (no keys, no vendors/keys)")
+    hosts = vendor.get("allowed_hosts")
+    allowed = approved_hosts(cfg, record)
+    for i, host in enumerate(hosts if isinstance(hosts, list) else []):
+        if isinstance(host, str) and host.lower() not in allowed:
+            errors.append("vendor.yaml: allowed_hosts[%d] %r is not a host you may use; only the submitted address, "
+                          "the hosts the administrator allowed for this task and the store's upstream hosts are "
+                          "possible" % (i, host[:100]))
+    return errors
+
+
+def _vendor_taken(loaded, app_id, package):
+    if app_id == "keys" or loaded.app(app_id) is not None or loaded.vendor(app_id) is not None \
+            or os.path.lexists(os.path.join(loaded.root, "apps", app_id)) \
+            or os.path.lexists(os.path.join(loaded.root, "vendors", app_id + ".yaml")):
+        return "the store id %r (the deb package name) is already used by another application; this one cannot be added" % app_id
+    for other in loaded.apps:
+        if other.package == package:
+            return "the deb package %r is already offered by the application %s" % (package, other.id)
+    for other in loaded.vendors:
+        if other.package == package:
+            return "the deb package %r is already tracked by the vendor %s" % (package, other.id)
+    return None
+
+
+def normalise_vendor_app(app, app_id, package):
+    """The agent's app.yaml with the fields the server owns set; package is always the vendor's deb of this store id."""
+    out = normalise_app(app)
+    out["package"] = {"kind": "deb", "name": package, "vendor": app_id}
+    return out
+
+
+def normalise_vendor(vendor):
+    """The agent's vendor.yaml with `fetch` forced to auto (a manual vendor would wait for an upload nobody makes)."""
+    return dict(vendor, fetch="auto")
+
+
+def _build_vendor_trial(root, loaded, app_id, app, vendor, shots, demo_files):
+    _write_base(root, loaded)
+    _write_new_app(root, os.path.join(root, "apps", app_id), app, shots, demo_files)
+    _write_yaml(os.path.join(root, "vendors", app_id + ".yaml"), vendor)
+
+
+def validate_vendor(cfg, loaded, record, files):
+    """Check a delivery with vendor.yaml (no recipe); returns Checked (version None: the trial run finds it)."""
+    for name in ("app.yaml", "vendor.yaml"):
+        if name not in files:
+            raise DeliveryError("%s is missing" % name)
+    vendor_in = safe_yaml("vendor.yaml", files["vendor.yaml"])
+    app_in = safe_yaml("app.yaml", files["app.yaml"])
+    package = vendor_in.get("package")
+    app_id = package
+    if not isinstance(package, str) or not content_builds.ID_RE.match(package) or len(package) > 64:
+        raise DeliveryError("vendor.yaml: `package` must be the name of the vendor's deb; it is also the store id "
+                            "(lower case letters, digits, '.', '+' and '-', at most 64 characters)")
+    taken = _vendor_taken(loaded, app_id, package)
+    if taken:
+        raise DeliveryError(taken)
+    errors = _vendor_rules(cfg, record, vendor_in)
+    if app_in.get("source") not in ("official", "personal"):
+        errors.append("app.yaml: source must be official or personal")
+    shots, demo_files, scene_errors = _scenes(loaded, app_id, files)
+    errors = errors + scene_errors
+    app, vendor = normalise_vendor_app(app_in, app_id, package), normalise_vendor(vendor_in)
+    try:
+        trial = _load_trial(cfg, record, lambda root: _build_vendor_trial(root, loaded, app_id, app, vendor, shots, demo_files))
+    except DeliveryError as e:
+        raise DeliveryError(errors + e.messages) from e
+    if errors:
+        raise DeliveryError(errors)
+    tracking = content.tracking_view(trial).vendors.get(app_id)
+    if tracking is None:
+        raise DeliveryError("vendor.yaml was not accepted")
+    return Checked(app_id, {}, app, None, clean_block(files.get("NOTES.md", b"").decode("utf-8", "replace")),
+                   None, None, None, None, None, shots, demo_files, vendor_data=vendor, tracking=tracking)
 
 
 def _version(cfg, st, record, trial, app_id, ai_record, files, pinned):

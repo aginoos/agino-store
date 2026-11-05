@@ -5,7 +5,9 @@
   ready       the AI task waits for the runner
   running     the runner works on it
   (AI task done)  read and validate the delivery; a bad delivery goes back to the agent (a correction round,
-                  at most [intake] max_rounds); a good one gets a verification build (recipe replayed in a clean VM)
+                  at most [intake] max_rounds); a good one gets a verification build (recipe replayed in a clean VM).
+                  A delivery with vendor.yaml (the vendor's own deb) has no recipe to replay: the server runs the
+                  tracking file once (intake_vendor, no VM) and goes straight to `review`, or hands the failure back
   verifying   the verification build runs (ordinary build task, `verify`, no candidate is made from it)
   review      replay passed; a person looks at the recipe and adopts or rejects it (intake_adopt, intake-cancel)
   paused      the model service was unavailable; retried every [intake] model_retry_minutes, at most model_max_retries
@@ -20,7 +22,8 @@ import os
 import shutil
 import tempfile
 
-from . import builds, content, debinfo, intake, intake_delivery, intake_materials, intake_proxy, intake_workspace
+from . import (builds, content, debinfo, intake, intake_delivery, intake_materials, intake_proxy, intake_vendor,
+               intake_workspace)
 from .intake import IntakeError
 from .state import StateError, StateLocked, write_json_atomic
 from .upstream_fetch import UpstreamError
@@ -256,6 +259,9 @@ def _delivered(ctx, rec, ai):
     snapshot = {k: v for k, v in files.items() if k != "deb"}
     try:
         checked = intake_delivery.validate(cfg, st, loaded, rec, files, ai_record=ai)
+        if checked.is_vendor:
+            _vendor_delivered(ctx, rec, checked)
+            return
         verify = _start_verify(ctx, rec, checked)
     except intake_delivery.DeliveryError as e:
         _correction(ctx, rec, "validation-error.txt", _validation_text(e.messages), snapshot)
@@ -263,6 +269,17 @@ def _delivered(ctx, rec, ai):
     if verify is not None:
         ctx.rep.add("intake %s: verification build %s for %s %s" % (rec["id"], verify["verify_task"],
                                                                     verify["app"], verify["version"]))
+
+
+def _vendor_delivered(ctx, rec, checked):
+    """The trial run of a vendor.yaml delivery; success moves the task to `review` (DeliveryError: back to the agent)."""
+    ai_deb = intake_delivery.load_ai_deb(ctx.st, rec["id"])
+    check = intake_vendor.run(ctx.cfg, ctx.st, checked, rec, ai_deb)
+    moved = _move(ctx.st, rec["id"], ("ready", "running"), status="review", app=checked.app_id, version=check["version"],
+                  tag=None, commit=None, vendor_check=check, error="")
+    if moved is not None:
+        ctx.rep.add("intake %s is ready for review (%s %s, tracked from the vendor)" % (rec["id"], checked.app_id,
+                                                                                         check["version"]))
 
 
 def _start_verify(ctx, rec, checked):
