@@ -122,6 +122,8 @@ def build(assets_out):
                 "sha256": PLACEHOLDER_SHA, "size": 1000000, "installed_size": 5000000}}
             if aid in VENDOR_APPS:
                 del package["deb"]["url"]
+                if aid == "acme-draw":   # acme-video has none: the client must cope with a catalog without arch
+                    package["deb"]["arch"] = "amd64"
                 if VENDOR_APPS[aid]:
                     package["deb"]["vendor_url"] = "https://example.invalid/%s/download/%s-1.0.0.deb" % (aid, aid)
                 package["distribution"] = "vendor"

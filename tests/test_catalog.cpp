@@ -127,6 +127,8 @@ private slots:
     void vendorRejections_data();
     void vendorRejections();
     void vendorNonDirectIgnoresVendorUrl();
+    void vendorArchOptionalAndChecked_data();
+    void vendorArchOptionalAndChecked();
     void httpsUrl_data();
     void httpsUrl();
 };
@@ -762,6 +764,10 @@ void TestCatalog::vendorSampleShape()
     QCOMPARE(video->package.downloadUrl(),
              QStringLiteral("https://example.invalid/acme-video/download/acme-video-1.0.0.deb"));
     QCOMPARE(video->package.downloadUrl(), video->package.deb->vendorUrl);
+
+    // The tested architecture is shown next to the vendor's download: acme-draw has one, acme-video none.
+    QCOMPARE(draw->package.deb->arch, QStringLiteral("amd64"));
+    QVERIFY(video->package.deb->arch.isEmpty());
 }
 
 void TestCatalog::vendorNonVendorUnchanged()
@@ -930,6 +936,35 @@ void TestCatalog::httpsUrl()
     QFETCH(QString, url);
     QFETCH(bool, ok);
     QCOMPARE(isHttpsUrl(url), ok);
+}
+
+void TestCatalog::vendorArchOptionalAndChecked_data()
+{
+    QTest::addColumn<QJsonValue>("arch");
+    QTest::addColumn<bool>("accepted");
+    QTest::newRow("amd64") << QJsonValue(QStringLiteral("amd64")) << true;
+    QTest::newRow("all") << QJsonValue(QStringLiteral("all")) << true;
+    QTest::newRow("upper case") << QJsonValue(QStringLiteral("AMD64")) << false;
+    QTest::newRow("space") << QJsonValue(QStringLiteral("amd 64")) << false;
+    QTest::newRow("too long") << QJsonValue(QString(40, QLatin1Char('a'))) << false;
+    QTest::newRow("empty") << QJsonValue(QString()) << false;
+    QTest::newRow("a number") << QJsonValue(64) << false;
+}
+
+void TestCatalog::vendorArchOptionalAndChecked()
+{
+    QFETCH(QJsonValue, arch);
+    QFETCH(bool, accepted);
+    const QByteArray json = catalogWithDeb(QStringLiteral("acme-video"), [&](QJsonObject &deb) {
+        deb.insert(QStringLiteral("arch"), arch);
+    });
+    QString error;
+    const auto cat = parseCatalog(json, &error);
+    QCOMPARE(cat.has_value(), accepted);
+    if (accepted)
+        QCOMPARE(cat->app(QStringLiteral("acme-video"))->package.deb->arch, arch.toString());
+    else
+        QVERIFY(error.contains(QStringLiteral("arch")));
 }
 
 QTEST_APPLESS_MAIN(TestCatalog)

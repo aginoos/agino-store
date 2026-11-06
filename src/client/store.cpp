@@ -259,6 +259,7 @@ QVariantMap Store::app(const QString &id) const
     map.insert(QStringLiteral("downloadSize"), deb ? a->package.deb->size : 0);
     map.insert(QStringLiteral("installedSize"), deb ? a->package.deb->installedSize : 0);
     map.insert(QStringLiteral("checksum"), deb ? a->package.deb->sha256 : QString());
+    map.insert(QStringLiteral("arch"), deb ? a->package.deb->arch : QString());
     map.insert(QStringLiteral("package"), a->package.name);
     map.insert(QStringLiteral("distribution"), distributionToString(a->package.distribution));
     map.insert(QStringLiteral("downloadPage"), a->package.downloadPage);

@@ -34,6 +34,7 @@ struct DebInfo {
     QString sha256;          // lower-case hex, 64 chars
     qint64 size = 0;
     qint64 installedSize = 0;
+    QString arch;            // only for vendor-distributed apps: the architecture of the deb the store tested
 };
 
 // How the app's deb reaches the user: through the store (the helper downloads it) or from the

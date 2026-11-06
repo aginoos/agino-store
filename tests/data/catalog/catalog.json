@@ -630,7 +630,8 @@
           "vendor_url": "https://example.invalid/acme-draw",
           "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
           "size": 1000000,
-          "installed_size": 5000000
+          "installed_size": 5000000,
+          "arch": "amd64"
         },
         "distribution": "vendor",
         "download": {

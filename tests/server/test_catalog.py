@@ -216,8 +216,17 @@ class TestVendorDistribution(CatalogCase):
             "kind": "deb", "name": "google-chrome-stable", "distribution": "vendor",
             "download": {"page": self.PAGE, "direct": True},
             "deb": {"version": "2.0-1", "vendor_url": "https://dl.google.com/x.deb", "sha256": DEB_SHA,
-                    "size": 11, "installed_size": 4096}})
+                    "size": 11, "installed_size": 4096, "arch": "amd64"}})
         self.assertNotIn("url", chrome["package"]["deb"])
+
+    def test_vendor_deb_arch_is_left_out_when_the_record_has_none_or_a_bad_one(self):
+        self.publish_all()
+        self.vendor()
+        for bad in (None, "", "AMD64", "amd 64", "x" * 40):
+            record = self.st.find_candidate("chrome", "2.0-1", DEB_SHA)
+            self.st.update_candidate(record, {"arch": bad})
+            self.build()
+            self.assertNotIn("arch", self.read("catalog.json")["apps"][0]["package"]["deb"], repr(bad))
 
     def test_vendor_deb_is_not_placed_in_public_storage(self):
         self.publish_all()

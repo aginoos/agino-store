@@ -134,11 +134,11 @@ assets/<sha256>.<ext> 图标和截图，按内容寻址（截图来自服务端�
     "distribution": "vendor",
     "download": { "page": "https://obsidian.md/download", "direct": false },
     "deb": { "version": "1.8.9", "vendor_url": "https://…/obsidian_1.8.9_amd64.deb",
-             "sha256": "…", "size": 120000000, "installed_size": 400000000 }
+             "sha256": "…", "size": 120000000, "installed_size": 400000000, "arch": "amd64" }
   }
   ```
 
-  `deb` 里**没有 `url`**，deb 也不在商店的公开存储里；`sha256` 是商店测试过的那个文件，用户从官网下载后可以自己对照。`download.page` 是官网下载页或直链（https）；`download.direct` 为 true 时 `page` 是直接下载链接，客户端优先用 `deb.vendor_url`（随版本更新的真实下载地址），取不到时才用 `page`。客户端对这类应用不调用 helper，直接提示用户去官网下载；helper 收到它们的 `Install`/`Update` 一律拒绝（`vendor-download`）。已装判断、卸载和“可更新”（目录版本比已装版本新）与普通 deb 类一致。
+  `deb` 里**没有 `url`**，deb 也不在商店的公开存储里；`sha256` 是商店测试过的那个文件，用户从官网下载后可以自己对照。`deb.arch`（可选，只在 vendor 方式的应用里出现，`^[a-z0-9][a-z0-9-]{0,15}$`，取自候选记录的架构；记录里没有或不合规就不输出，托管方式的目录输出不变）是测试过的那个 deb 的架构。客户端的弹窗里有一行“我们测试过的版本：版本号 · 架构 · deb · sha256 前 12 位”，用的就是 `deb.version`、`deb.arch`、包格式（`kind: deb`，固定写 `deb`）和 `deb.sha256`；缺 `arch` 就省略那一项。`download.page` 是官网下载页或直链（https）；`download.direct` 为 true 时 `page` 是直接下载链接，客户端优先用 `deb.vendor_url`（随版本更新的真实下载地址），取不到时才用 `page`。客户端对这类应用不调用 helper，直接提示用户去官网下载；helper 收到它们的 `Install`/`Update` 一律拒绝（`vendor-download`）。已装判断、卸载和“可更新”（目录版本比已装版本新）与普通 deb 类一致。
 
 - `package.distribution`（可选，仅 `deb`）：`"vendor"` 表示授权不允许商店分发，用户要去官网下载。此时 `deb.url` 可以没有（其余字段照旧），`package.download = {"page": "<https 页面>", "direct": <bool>}` 必须有；`direct` 为 true 时跳转到 `deb.vendor_url`（该版本的真实下载地址，缺省时退回 `download.page`），否则跳转到 `download.page`。两个地址都只接受 https，否则整个目录被拒绝。没有 `distribution` 键或值不是 `vendor` 时一切照旧（`deb.url` 必填）。这改了目录格式，旧客户端会拒绝缺 `url` 的目录，按 D-50 不做兼容。
 - `launchable`（可选）：AppStream 的 desktop-id。客户端用它找"打开"和桌面图标要用的 desktop 文件（在 XDG 数据目录的 `applications/` 下找）；没有时退回到 `dpkg -L <package.name>` 里第一个 `/usr/share/applications/*.desktop`。元包（如 trixie 的 `keepassxc` 依赖 `keepassxc-full`）必须填。

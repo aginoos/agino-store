@@ -14,6 +14,17 @@ D.Dialog {
 
     readonly property string appId: request.appIds ? request.appIds[0] : ""
     readonly property string appName: request.name ? request.name : ""
+    // What the store tested in the sandbox: version, architecture, package format and the start of the sha256,
+    // so that the file from the vendor can be compared with it.
+    readonly property var info: appId !== "" ? Store.app(appId) : ({})
+    readonly property string testedText: {
+        const parts = []
+        if (info.version) parts.push(info.version)
+        if (info.arch) parts.push(info.arch)
+        parts.push("deb")
+        if (info.checksum) parts.push("sha256 " + info.checksum.substring(0, 12))
+        return parts.join(" · ")
+    }
 
     function show(req) {
         request = req
@@ -46,6 +57,14 @@ D.Dialog {
         D.Label {
             Layout.fillWidth: true
             text: qsTr("This software's licence does not allow the store to distribute it. Please download and install it from the vendor's website.")
+            textFormat: Text.PlainText
+            wrapMode: Text.Wrap
+        }
+
+        D.Label {
+            Layout.fillWidth: true
+            visible: dialog.testedText !== ""
+            text: qsTr("Version we tested: %1").arg(dialog.testedText)
             textFormat: Text.PlainText
             wrapMode: Text.Wrap
         }

@@ -612,6 +612,10 @@
         <translation>此软件的授权不允许商店分发，请从官网下载安装。</translation>
     </message>
     <message>
+        <source>Version we tested: %1</source>
+        <translation>我们测试过的版本：%1</translation>
+    </message>
+    <message>
         <source>Close</source>
         <translation>关闭</translation>
     </message>

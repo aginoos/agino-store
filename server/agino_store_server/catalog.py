@@ -162,7 +162,8 @@ def _deb_info(cfg, st, app, approved):
         raise Skip("deb file does not match the approved sha256")
     return {"version": record["version"], "sha256": sha, "size": record["size"], "filename": name,
             "installed_size": int(record.get("installed_size") or 0), "path": path,
-            "vendor_url": record.get("vendor_url") or "", "updated": _day(entry.get("approved_at"), "approved_at")}
+            "vendor_url": record.get("vendor_url") or "", "arch": str(record.get("arch") or ""),
+            "updated": _day(entry.get("approved_at"), "approved_at")}
 
 
 def _milkyway_info(app, milkyway):
@@ -244,6 +245,16 @@ def _asset_path(store, app, rel):
         raise Skip(str(e)) from e
 
 
+ARCH_RE = re.compile(r"\A[a-z0-9][a-z0-9-]{0,15}\Z")
+
+
+def _arch_fact(info):
+    """{"arch": ...} of the tested deb for a vendor-distributed app (the client shows what we tested next to the
+    vendor's download); nothing when the record has no valid architecture. Store-distributed apps never carry it."""
+    arch = info.get("arch", "")
+    return {"arch": arch} if ARCH_RE.match(arch) else {}
+
+
 def _package(cfg, app, info):
     if app.kind == "milkyway":
         return {"kind": "milkyway", "name": app.package}
@@ -253,7 +264,7 @@ def _package(cfg, app, info):
         dist = app.distribution
         return {"kind": "deb", "name": app.package, "distribution": "vendor",
                 "download": {"page": dist["page"], "direct": dist["direct"]},
-                "deb": {"version": info["version"], **facts}}
+                "deb": {"version": info["version"], **facts, **_arch_fact(info)}}
     url = cfg.deb_base_url + "%s/%s" % (info["sha256"], quote(info["filename"], safe="+~"))
     return {"kind": "deb", "name": app.package, "deb": {"version": info["version"], "url": url, **facts}}
 

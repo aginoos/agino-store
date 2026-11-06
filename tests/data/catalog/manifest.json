@@ -577,8 +577,8 @@
     },
     {
       "path": "catalog.json",
-      "sha256": "b1c69531f5841f970623b4d3d42b0c157fa7d590d1f6e9b77047b3ebe3ac7c21",
-      "size": 17896
+      "sha256": "fe028e9e2ed7a638429f061c6060600155c266aa7addef93a0e5b45bec01f201",
+      "size": 17923
     },
     {
       "path": "stats.json",

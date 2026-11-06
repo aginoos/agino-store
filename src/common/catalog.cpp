@@ -174,6 +174,13 @@ bool parseDeb(const QJsonObject &o, bool urlRequired, DebInfo *deb, QString *err
         setError(error, QStringLiteral("deb vendor_url must be a string"));
         return false;
     }
+    if (o.contains(QStringLiteral("arch"))) {
+        static const QRegularExpression archRe(QStringLiteral("\\A[a-z0-9][a-z0-9-]{0,15}\\z"));
+        if (!readString(o, "arch", &deb->arch) || !archRe.match(deb->arch).hasMatch()) {
+            setError(error, QStringLiteral("deb arch must be a short lower-case name such as amd64"));
+            return false;
+        }
+    }
     if (!readInt(o.value(QStringLiteral("size")), &deb->size) || deb->size <= 0) {
         setError(error, QStringLiteral("deb size missing or invalid"));
         return false;
